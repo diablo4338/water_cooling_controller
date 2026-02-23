@@ -630,7 +630,7 @@ static void button_task(void *p) {
         if (prev == 0 && v == 1) {
             int64_t dur_ms = (esp_timer_get_time() - press_start) / 1000;
 
-            if (dur_ms > 9000) {
+            if (dur_ms > 5000) {
                 trust_reset();
             } else {
                 g_pairing_mode = true;
