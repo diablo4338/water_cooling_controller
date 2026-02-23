@@ -2,7 +2,6 @@
 #include <string.h>
 #include <stdio.h>
 
-#include "host/ble_gap.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
 #include "nvs.h"
@@ -17,10 +16,11 @@
 #include "nimble/nimble_port_freertos.h"
 #include "host/ble_hs.h"
 #include "host/ble_uuid.h"
+#include "host/ble_gap.h"
+#include "host/ble_hs_adv.h"
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
 
-// NimBLE ATT error codes
 #include "host/ble_att.h"
 
 #include "mbedtls/ecdh.h"
@@ -29,8 +29,7 @@
 
 static const char *TAG = "pair-stack";
 
-// ====== GPIO for pairing button ======
-#define PAIR_BTN_GPIO 7  // <-- per your request
+#define PAIR_BTN_GPIO 7
 
 // ====== UUID strings (canonical, MUST match Python 1:1) ======
 static const char *UUID_PAIR_SVC_STR       = "8fdd08d6-2a9e-4d5a-9f44-9f58b3a9d3c1";
@@ -45,6 +44,9 @@ static const char *UUID_PAIR_FINISH_STR    = "a4c8e2c1-1c7b-4b06-a59f-4b5f8a2a8b
 static const char *UUID_AUTH_NONCE_STR     = "f1d1f9b6-8c92-47f6-a2f5-5b0a77d2e3a9";
 static const char *UUID_AUTH_PROOF_STR     = "74cde77a-7f14-4e6e-b7f5-92ef0c3ad7e4";
 
+// Mock data stream (MAIN)
+static const char *UUID_MAIN_DATA_STR      = "a9b66c3d-3a6e-4b75-8b67-1dfbdb2a7e11";
+
 // ====== Parsed UUIDs ======
 static ble_uuid_any_t UUID_PAIR_SVC;
 static ble_uuid_any_t UUID_MAIN_SVC;
@@ -58,6 +60,8 @@ static ble_uuid_any_t UUID_PAIR_FINISH;
 static ble_uuid_any_t UUID_AUTH_NONCE;
 static ble_uuid_any_t UUID_AUTH_PROOF;
 
+static ble_uuid_any_t UUID_MAIN_DATA;
+
 // ====== State ======
 static bool g_pairing_mode = false;
 static bool g_paired = false;
@@ -70,24 +74,29 @@ static uint8_t  g_own_addr_type;
 static uint8_t dev_nonce[16];
 static uint8_t auth_nonce[16];
 
-// ====== Our ECDH key material (mbedTLS 3.x friendly: don't use mbedtls_ecdh_context internals) ======
+// ====== ECDH ======
 static mbedtls_ecp_group ec_grp;
 static mbedtls_mpi       ec_d;
 static mbedtls_ecp_point ec_Q;
 
-static uint8_t dev_pub65[65];   // 0x04 || X32 || Y32
-static uint8_t host_pub65[65];  // received
+static uint8_t dev_pub65[65];
+static uint8_t host_pub65[65];
 
-// Derived trusted key
 static uint8_t K[32];
-
-// Stored identity: SHA256(host_pub65)
 static uint8_t host_id_hash[32];
 
-// ====== NVS keys ======
+// ====== NVS ======
 #define NVS_NS         "pair"
 #define NVS_KEY_HOSTID "hostid"
 #define NVS_KEY_K      "keyK"
+
+// ====== Timers ======
+static esp_timer_handle_t g_term_timer;
+static esp_timer_handle_t g_data_timer;
+
+// Notify state for MAIN_DATA
+static bool g_data_notify_enabled = false;
+static uint16_t g_data_attr_handle = 0;
 
 // ====== Helpers ======
 static void rand_bytes(uint8_t *out, size_t n) {
@@ -113,7 +122,6 @@ static int hmac_sha256(const uint8_t *key, size_t key_len,
     return 0;
 }
 
-// Minimal HKDF for 32 bytes: PRK=HMAC(salt, IKM), OKM=HMAC(PRK, info||0x01)
 static int hkdf_sha256_32(const uint8_t *salt, size_t salt_len,
                           const uint8_t *ikm, size_t ikm_len,
                           const uint8_t *info, size_t info_len,
@@ -144,6 +152,7 @@ static int sha256(const uint8_t *msg, size_t msg_len, uint8_t out[32]) {
     return 0;
 }
 
+// ====== NVS ======
 static void nvs_load_or_empty(void) {
     nvs_handle_t h;
     if (nvs_open(NVS_NS, NVS_READONLY, &h) != ESP_OK) {
@@ -189,9 +198,17 @@ static void trust_reset(void) {
     ESP_LOGW(TAG, "Trust reset");
 }
 
-// ====== ECDH (P-256) ======
+// ====== Terminate timer ======
+static void term_cb(void *arg) {
+    (void)arg;
+    if (g_conn_handle != BLE_HS_CONN_HANDLE_NONE) {
+        ESP_LOGI(TAG, "Terminating conn after finish (handle=%u)", (unsigned)g_conn_handle);
+        ble_gap_terminate(g_conn_handle, BLE_ERR_REM_USER_CONN_TERM);
+    }
+}
+
+// ====== ECDH ======
 static int ecdh_make_dev_keys(void) {
-    // Reset structures
     mbedtls_ecp_group_free(&ec_grp);
     mbedtls_ecp_group_init(&ec_grp);
 
@@ -204,11 +221,9 @@ static int ecdh_make_dev_keys(void) {
     int rc = mbedtls_ecp_group_load(&ec_grp, MBEDTLS_ECP_DP_SECP256R1);
     if (rc != 0) return rc;
 
-    // Generate d and Q
     rc = mbedtls_ecdh_gen_public(&ec_grp, &ec_d, &ec_Q, my_rng, NULL);
     if (rc != 0) return rc;
 
-    // Export public Q
     size_t olen = 0;
     uint8_t tmp[80];
     rc = mbedtls_ecp_point_write_binary(&ec_grp, &ec_Q,
@@ -312,7 +327,7 @@ static int gatt_write_pair_confirm(uint16_t conn_handle, uint16_t attr_handle,
 
 static int gatt_write_pair_finish(uint16_t conn_handle, uint16_t attr_handle,
                                   struct ble_gatt_access_ctxt *ctxt, void *arg) {
-    (void)attr_handle; (void)arg;
+    (void)conn_handle; (void)attr_handle; (void)arg;
 
     int len = OS_MBUF_PKTLEN(ctxt->om);
     if (len != 1) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
@@ -325,8 +340,8 @@ static int gatt_write_pair_finish(uint16_t conn_handle, uint16_t attr_handle,
     g_paired = true;
     g_pairing_mode = false;
 
-    // Disconnect to restart in MAIN mode (optional but convenient)
-    ble_gap_terminate(conn_handle, BLE_ERR_REM_USER_CONN_TERM);
+    esp_timer_stop(g_term_timer);
+    ESP_ERROR_CHECK(esp_timer_start_once(g_term_timer, 250 * 1000));
 
     ESP_LOGI(TAG, "Pairing finished; pairing mode off");
     return 0;
@@ -370,42 +385,71 @@ static int gatt_write_auth_proof(uint16_t conn_handle, uint16_t attr_handle,
     return 0;
 }
 
-// ====== GATT database (UUID pointers are patched at runtime after parsing strings) ======
-// ====== GATT database (MUST be in RAM, not const) ======
+// ====== Mock DATA characteristic ======
+static int gatt_read_main_data(uint16_t conn_handle, uint16_t attr_handle,
+                               struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    (void)conn_handle; (void)attr_handle; (void)arg;
+    uint8_t buf[16];
+    rand_bytes(buf, sizeof(buf));
+    os_mbuf_append(ctxt->om, buf, sizeof(buf));
+    return 0;
+}
+
+static void data_timer_cb(void *arg) {
+    (void)arg;
+
+    if (g_conn_handle == BLE_HS_CONN_HANDLE_NONE) return;
+    if (!g_data_notify_enabled) return;
+    if (g_data_attr_handle == 0) return;
+
+    uint8_t payload[20];
+    rand_bytes(payload, sizeof(payload));
+
+    struct os_mbuf *om = ble_hs_mbuf_from_flat(payload, sizeof(payload));
+    if (!om) return;
+
+    int rc = ble_gatts_notify_custom(g_conn_handle, g_data_attr_handle, om);
+    if (rc != 0) {
+        ESP_LOGW(TAG, "notify_custom rc=%d", rc);
+    }
+}
+
+// ====== GATT db (RAM) ======
 static struct ble_gatt_chr_def pair_chrs[] = {
     { .uuid = NULL, .access_cb = gatt_read_dev_nonce,     .flags = BLE_GATT_CHR_F_READ  },
     { .uuid = NULL, .access_cb = gatt_read_dev_pub,       .flags = BLE_GATT_CHR_F_READ  },
     { .uuid = NULL, .access_cb = gatt_write_host_pub,     .flags = BLE_GATT_CHR_F_WRITE },
     { .uuid = NULL, .access_cb = gatt_write_pair_confirm, .flags = BLE_GATT_CHR_F_WRITE },
-    { .uuid = NULL, .access_cb = gatt_write_pair_finish,  .flags = BLE_GATT_CHR_F_WRITE },
+    {
+        .uuid = NULL,
+        .access_cb = gatt_write_pair_finish,
+        .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP
+    },
     { 0 }
 };
 
 static struct ble_gatt_chr_def main_chrs[] = {
     { .uuid = NULL, .access_cb = gatt_read_auth_nonce,  .flags = BLE_GATT_CHR_F_READ  },
     { .uuid = NULL, .access_cb = gatt_write_auth_proof, .flags = BLE_GATT_CHR_F_WRITE },
+
+    {
+        .uuid = NULL,
+        .access_cb = gatt_read_main_data,
+        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+        .val_handle = &g_data_attr_handle,
+    },
+
     { 0 }
 };
 
 static struct ble_gatt_svc_def gatt_svcs[] = {
-    {
-        .type = BLE_GATT_SVC_TYPE_PRIMARY,
-        .uuid = NULL,                // PATCH
-        .characteristics = pair_chrs
-    },
-    {
-        .type = BLE_GATT_SVC_TYPE_PRIMARY,
-        .uuid = NULL,                // PATCH
-        .characteristics = main_chrs
-    },
+    { .type = BLE_GATT_SVC_TYPE_PRIMARY, .uuid = NULL, .characteristics = pair_chrs },
+    { .type = BLE_GATT_SVC_TYPE_PRIMARY, .uuid = NULL, .characteristics = main_chrs },
     { 0 }
 };
 
+// ====== Advertising / GAP ======
 static int gap_event(struct ble_gap_event *event, void *arg);
-
-// ====== Advertising ======
-#include "host/ble_gap.h"
-#include "host/ble_hs_adv.h"
 
 static void start_advertising(void) {
     struct ble_gap_adv_params adv_params;
@@ -414,13 +458,11 @@ static void start_advertising(void) {
     adv_params.conn_mode = BLE_GAP_CONN_MODE_UND;
     adv_params.disc_mode = BLE_GAP_DISC_MODE_GEN;
 
-    // --------- ADV fields (31 bytes) ----------
     struct ble_hs_adv_fields adv_fields;
     memset(&adv_fields, 0, sizeof(adv_fields));
 
     adv_fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
 
-    // В ADV кладём ТОЛЬКО UUID сервиса (чтобы не было переполнения)
     if (g_pairing_mode) {
         adv_fields.uuids128 = (ble_uuid128_t *)&UUID_PAIR_SVC.u128;
         adv_fields.num_uuids128 = 1;
@@ -446,7 +488,6 @@ static void start_advertising(void) {
         return;
     }
 
-    // --------- SCAN RESPONSE fields (31 bytes) ----------
     struct ble_hs_adv_fields rsp_fields;
     memset(&rsp_fields, 0, sizeof(rsp_fields));
 
@@ -470,7 +511,6 @@ static void start_advertising(void) {
         return;
     }
 
-    // Start advertising
     rc = ble_gap_adv_start(g_own_addr_type, NULL, BLE_HS_FOREVER,
                            &adv_params, gap_event, NULL);
     if (rc != 0) {
@@ -485,7 +525,6 @@ static void stop_advertising(void) {
     ble_gap_adv_stop();
 }
 
-// ====== GAP events ======
 static int gap_event(struct ble_gap_event *event, void *arg) {
     (void)arg;
 
@@ -496,6 +535,9 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
                 g_authed = false;
                 rand_bytes(auth_nonce, sizeof(auth_nonce));
                 ESP_LOGI(TAG, "Connected (handle=%d)", g_conn_handle);
+
+                esp_timer_stop(g_data_timer);
+                ESP_ERROR_CHECK(esp_timer_start_periodic(g_data_timer, 1000 * 1000));
             } else {
                 ESP_LOGI(TAG, "Connect failed; restarting adv");
                 start_advertising();
@@ -506,7 +548,16 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
             ESP_LOGI(TAG, "Disconnected; restarting adv");
             g_conn_handle = BLE_HS_CONN_HANDLE_NONE;
             g_authed = false;
+            g_data_notify_enabled = false;
+            esp_timer_stop(g_data_timer);
             start_advertising();
+            return 0;
+
+        case BLE_GAP_EVENT_SUBSCRIBE:
+            if (event->subscribe.attr_handle == g_data_attr_handle) {
+                g_data_notify_enabled = (event->subscribe.cur_notify != 0);
+                ESP_LOGI(TAG, "DATA notify: %s", g_data_notify_enabled ? "ON" : "OFF");
+            }
             return 0;
 
         default:
@@ -514,9 +565,9 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
     }
 }
 
-// ====== UUID parsing + patching ======
+// ====== UUID parse + patch ======
 static void parse_uuid_or_abort(const char *s, ble_uuid_any_t *out) {
-    int rc = ble_uuid_from_str(out, s);   // <-- порядок аргументов как в IDF 5.4.1
+    int rc = ble_uuid_from_str(out, s);
     if (rc != 0) {
         ESP_LOGE(TAG, "UUID parse failed: %s (rc=%d)", s, rc);
         abort();
@@ -536,22 +587,23 @@ static void init_uuids_and_patch_gatt(void) {
     parse_uuid_or_abort(UUID_AUTH_NONCE_STR, &UUID_AUTH_NONCE);
     parse_uuid_or_abort(UUID_AUTH_PROOF_STR, &UUID_AUTH_PROOF);
 
-    // Patch service UUID pointers
+    parse_uuid_or_abort(UUID_MAIN_DATA_STR, &UUID_MAIN_DATA);
+
     gatt_svcs[0].uuid = &UUID_PAIR_SVC.u;
     gatt_svcs[1].uuid = &UUID_MAIN_SVC.u;
 
-    // Patch pairing characteristic UUID pointers
     pair_chrs[0].uuid = &UUID_PAIR_DEV_NONCE.u;
     pair_chrs[1].uuid = &UUID_PAIR_DEV_PUB.u;
     pair_chrs[2].uuid = &UUID_PAIR_HOST_PUB.u;
     pair_chrs[3].uuid = &UUID_PAIR_CONFIRM.u;
     pair_chrs[4].uuid = &UUID_PAIR_FINISH.u;
 
-    // Patch main characteristic UUID pointers
     main_chrs[0].uuid = &UUID_AUTH_NONCE.u;
     main_chrs[1].uuid = &UUID_AUTH_PROOF.u;
+    main_chrs[2].uuid = &UUID_MAIN_DATA.u;
 }
-// ====== BLE sync callback ======
+
+// ====== Sync ======
 static void ble_app_on_sync(void) {
     int rc = ble_hs_id_infer_auto(0, &g_own_addr_type);
     if (rc != 0) {
@@ -571,17 +623,16 @@ static void button_task(void *p) {
     while (1) {
         int v = gpio_get_level(PAIR_BTN_GPIO);
 
-        if (prev == 1 && v == 0) { // press
+        if (prev == 1 && v == 0) {
             press_start = esp_timer_get_time();
         }
 
-        if (prev == 0 && v == 1) { // release
+        if (prev == 0 && v == 1) {
             int64_t dur_ms = (esp_timer_get_time() - press_start) / 1000;
 
             if (dur_ms > 9000) {
                 trust_reset();
             } else {
-                // Enable pairing mode for 60s
                 g_pairing_mode = true;
                 rand_bytes(dev_nonce, sizeof(dev_nonce));
 
@@ -620,12 +671,26 @@ void app_main(void) {
     ESP_ERROR_CHECK(nvs_flash_init());
     nvs_load_or_empty();
 
-    // Init mbedTLS ECP structures
     mbedtls_ecp_group_init(&ec_grp);
     mbedtls_mpi_init(&ec_d);
     mbedtls_ecp_point_init(&ec_Q);
 
-    // Button init (active-low, internal pull-up)
+    esp_timer_create_args_t targs = {
+        .callback = term_cb,
+        .arg = NULL,
+        .dispatch_method = ESP_TIMER_TASK,
+        .name = "term"
+    };
+    ESP_ERROR_CHECK(esp_timer_create(&targs, &g_term_timer));
+
+    esp_timer_create_args_t dargs = {
+        .callback = data_timer_cb,
+        .arg = NULL,
+        .dispatch_method = ESP_TIMER_TASK,
+        .name = "data"
+    };
+    ESP_ERROR_CHECK(esp_timer_create(&dargs, &g_data_timer));
+
     gpio_config_t io = {
         .pin_bit_mask = 1ULL << PAIR_BTN_GPIO,
         .mode = GPIO_MODE_INPUT,
@@ -636,17 +701,14 @@ void app_main(void) {
     ESP_ERROR_CHECK(gpio_config(&io));
     xTaskCreate(button_task, "btn", 4096, NULL, 5, NULL);
 
-    // Parse UUID strings and patch GATT table pointers
     init_uuids_and_patch_gatt();
 
-    // NimBLE init
     nimble_port_init();
     ble_svc_gap_init();
     ble_svc_gatt_init();
 
     ble_svc_gap_device_name_set("sensor");
 
-    // Register services
     int rc = ble_gatts_count_cfg(gatt_svcs);
     if (rc != 0) ESP_LOGE(TAG, "ble_gatts_count_cfg rc=%d", rc);
     rc = ble_gatts_add_svcs(gatt_svcs);

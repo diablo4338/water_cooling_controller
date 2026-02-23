@@ -47,7 +47,7 @@ UUID_AUTH_NONCE = "f1d1f9b6-8c92-47f6-a2f5-5b0a77d2e3a9"
 UUID_AUTH_PROOF = "74cde77a-7f14-4e6e-b7f5-92ef0c3ad7e4"
 
 # Эти UUID нужно синхронизировать с прошивкой устройства.
-UUID_METRICS = "3d1a4b35-9707-43e6-bf3e-2e2f7b561d83"
+UUID_METRICS = "a9b66c3d-3a6e-4b75-8b67-1dfbdb2a7e11"
 UUID_CMD = "3d1a4b35-9707-43e6-bf3e-2e2f7b561d84"
 
 PAIRED_DB = "paired_devices.json"
