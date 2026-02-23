@@ -1,0 +1,66 @@
+# BLE Pairing GUI
+
+## Конечная задача
+Нужно написать GUI приложение, которое:
+- умеет париться с BLE устройством;
+- по кнопке показывает список всех спареных устройств;
+- отображает данные в реальном времени в приложении, которые приходят с выбранного устройства.
+
+## Реализация
+Приложение написано на `PySide6`, BLE слой — `bleak`. Спаривание и авторизация реализованы на уровне приложения, через GATT‑протокол ниже. Это не системное OS‑bonding, а прикладное спаривание по собственному протоколу.
+Список спаренных устройств и ключей хранится локально в `paired_devices.json`. Постоянный ключ хоста хранится в `host_key.pem`.
+
+Сканирование показывает только устройства, которые рекламируют сервис `PAIR_SVC` — это считается признаком готовности к сопряжению.
+
+## GATT протокол (реализация)
+### Advertising
+- В pairing‑mode устройство рекламирует `PAIR_SVC`.
+- В обычном режиме — `MAIN_SVC`.
+
+### Pairing service `PAIR_SVC`
+Характеристики:
+- `PAIR_DEV_NONCE` (read): `nonce_d` (16 байт)
+- `PAIR_DEV_PUB` (read): `d_pub` (65 байт, P‑256 uncompressed)
+- `PAIR_HOST_PUB` (write): `h_pub` (65 байт, P‑256 uncompressed)
+- `PAIR_CONFIRM` (write): `HMAC(K, b"confirm"+nonce_d)`
+- `PAIR_FINISH` (write): `0x01` — завершить pairing и сохранить доверенного
+
+Алгоритм:
+1. Хост подключается к устройству в pairing‑mode.
+2. Читает `PAIR_DEV_NONCE` и `PAIR_DEV_PUB`.
+3. Вычисляет ECDH `shared`, затем `K = HKDF(shared, salt=nonce_d, info="PAIRv1", len=32)`.
+4. Пишет `PAIR_HOST_PUB`, затем `PAIR_CONFIRM`, затем `PAIR_FINISH`.
+5. Устройство сохраняет identity хоста (hash `h_pub`) и выходит из pairing‑mode.
+
+### Main service `MAIN_SVC`
+Характеристики:
+- `AUTH_NONCE` (read): 16 байт
+- `AUTH_PROOF` (write): `HMAC(K, b"auth"+nonce)`
+- `METRICS` (read/notify): данные датчика
+- `CMD` (write): команды (должны подписываться/защищаться на стороне устройства)
+
+Алгоритм AUTH:
+1. Хост подключается к устройству (обычный режим).
+2. Читает `AUTH_NONCE`.
+3. Пишет `AUTH_PROOF`.
+4. После успешного AUTH устройство разрешает `METRICS` и `CMD`.
+
+### UUID (должны совпасть с прошивкой)
+PAIR_SVC: `8fdd08d6-2a9e-4d5a-9f44-9f58b3a9d3c1`
+MAIN_SVC: `3d1a4b35-9707-43e6-bf3e-2e2f7b561d82`
+
+PAIR_DEV_NONCE: `0b46b3cf-7e3b-44a3-8f39-4af2a8c9a1ee`  
+PAIR_DEV_PUB: `91c66f66-5c92-4c4d-86bf-6d2c58b6f0d7`  
+PAIR_HOST_PUB: `c9c8f69a-1f49-4ea0-a0a2-3c0d0a69e9d4`  
+PAIR_CONFIRM: `f5ee9c0b-96ae-4dc0-9b46-5f6f7f2ad2bf`  
+PAIR_FINISH: `a4c8e2c1-1c7b-4b06-a59f-4b5f8a2a8b3c`
+
+AUTH_NONCE: `f1d1f9b6-8c92-47f6-a2f5-5b0a77d2e3a9`  
+AUTH_PROOF: `74cde77a-7f14-4e6e-b7f5-92ef0c3ad7e4`
+
+METRICS: `3d1a4b35-9707-43e6-bf3e-2e2f7b561d83`  
+CMD: `3d1a4b35-9707-43e6-bf3e-2e2f7b561d84`
+
+## Запуск
+1. Установить зависимости из `requirements.txt`.
+2. Запустить `main.py`.

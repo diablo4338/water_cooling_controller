@@ -1,0 +1,6 @@
+.venv
+.idea
+mk/build
+host_key.pem
+paired_devices.json
+mk/sdkconfig*
