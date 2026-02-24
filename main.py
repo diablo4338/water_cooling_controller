@@ -6,7 +6,7 @@ import sys
 from dataclasses import dataclass
 from typing import Optional
 
-from PySide6.QtCore import QThread, Qt, Signal, Slot
+from PySide6.QtCore import QThread, Qt, Signal, Slot, QTimer
 from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
@@ -33,6 +33,13 @@ from cryptography.hazmat.primitives.serialization import (
 )
 
 APP_TITLE = "BLE Pairing GUI"
+DEFAULT_TIMEOUT = 5.0
+ACTION_TIMEOUTS = {
+    "scan": 7.0,
+    "pair": 12.0,
+    "connect": 10.0,
+    "disconnect": 5.0,
+}
 
 UUID_PAIR_SVC = "8fdd08d6-2a9e-4d5a-9f44-9f58b3a9d3c1"
 UUID_MAIN_SVC = "3d1a4b35-9707-43e6-bf3e-2e2f7b561d82"
@@ -59,8 +66,6 @@ def normalize_uuid(value: str) -> str:
 
 
 PAIR_SVC_NORM = normalize_uuid(UUID_PAIR_SVC)
-PAIR_SVC_SHORT = PAIR_SVC_NORM[4:8]
-
 
 def hmac_sha256(key: bytes, msg: bytes) -> bytes:
     h = hmac.HMAC(key, hashes.SHA256())
@@ -144,6 +149,7 @@ class BleWorker(QThread):
         self.client: Optional[BleakClient] = None
         self.device: Optional[DeviceInfo] = None
         self._host_key = load_or_create_host_key()
+        self._disconnect_evt: Optional[asyncio.Event] = None
 
     def run(self) -> None:
         self.loop = asyncio.new_event_loop()
@@ -159,24 +165,37 @@ class BleWorker(QThread):
             return None
         return asyncio.run_coroutine_threadsafe(coro, self.loop)
 
+    async def _with_timeout(self, coro, label: str, timeout: float = DEFAULT_TIMEOUT):
+        try:
+            return await asyncio.wait_for(coro, timeout=timeout)
+        except asyncio.TimeoutError as exc:
+            raise RuntimeError(f"Timeout: {label}") from exc
+
+    def _on_disconnected(self, _: BleakClient) -> None:
+        if self._disconnect_evt is not None:
+            self._disconnect_evt.set()
+        self.connection_state.emit(False, None)
+        self.log.emit("Соединение разорвано устройством.")
+
     async def scan(self) -> None:
         self.log.emit("Поиск устройств в режиме сопряжения...")
         results: dict[str, DeviceInfo] = {}
 
         def on_detect(device, advertisement_data) -> None:
             uuids = advertisement_data.service_uuids or []
+            name = advertisement_data.local_name or device.name or "Unknown"
             for raw in uuids:
                 norm = normalize_uuid(raw)
-                if norm == PAIR_SVC_NORM or norm.endswith(PAIR_SVC_NORM) or norm == PAIR_SVC_SHORT:
-                    name = advertisement_data.local_name or device.name or "Unknown"
+                if norm == PAIR_SVC_NORM:
                     results[device.address] = DeviceInfo(name=name, address=device.address)
-                    break
+                    return
 
         try:
             async with BleakScanner(detection_callback=on_detect):
                 await asyncio.sleep(5.0)
         except Exception as exc:
             self.log.emit(f"Ошибка сканирования: {exc}")
+            self.scan_results.emit([])
             return
 
         found = list(results.values())
@@ -187,17 +206,24 @@ class BleWorker(QThread):
         await self.disconnect()
         self.log.emit(f"Подключение к {device.name} ({device.address})...")
         client = BleakClient(device.address)
+        if hasattr(client, "set_disconnected_callback"):
+            client.set_disconnected_callback(self._on_disconnected)
+        else:
+            client = BleakClient(device.address, disconnected_callback=self._on_disconnected)
         try:
-            await client.connect()
+            await self._with_timeout(client.connect(), "connect")
             await self._do_auth(client, device)
             try:
-                await client.start_notify(UUID_METRICS, self._on_data)
+                await self._with_timeout(
+                    client.start_notify(UUID_METRICS, self._on_data),
+                    "start_notify",
+                )
             except Exception as exc:
                 self.log.emit(f"Notify METRICS недоступен: {exc}")
         except Exception as exc:
             self.log.emit(f"Ошибка подключения: {exc}")
             try:
-                await client.disconnect()
+                await self._with_timeout(client.disconnect(), "disconnect", timeout=3.0)
             except Exception:
                 pass
             self.connection_state.emit(False, None)
@@ -211,11 +237,11 @@ class BleWorker(QThread):
         if self.client:
             self.log.emit("Отключение...")
             try:
-                await self.client.stop_notify(UUID_METRICS)
+                await self._with_timeout(self.client.stop_notify(UUID_METRICS), "stop_notify", timeout=3.0)
             except Exception:
                 pass
             try:
-                await self.client.disconnect()
+                await self._with_timeout(self.client.disconnect(), "disconnect", timeout=3.0)
             except Exception:
                 pass
             self.log.emit("Отключено.")
@@ -226,9 +252,19 @@ class BleWorker(QThread):
     async def pair(self, device: DeviceInfo) -> None:
         k_hex: Optional[str] = None
         try:
-            async with BleakClient(device.address) as client:
-                dev_nonce = await client.read_gatt_char(UUID_PAIR_DEV_NONCE)
-                dev_pub65 = await client.read_gatt_char(UUID_PAIR_DEV_PUB)
+            client = BleakClient(device.address)
+            if hasattr(client, "set_disconnected_callback"):
+                client.set_disconnected_callback(self._on_disconnected)
+            else:
+                client = BleakClient(device.address, disconnected_callback=self._on_disconnected)
+            async with client:
+                self._disconnect_evt = asyncio.Event()
+                dev_nonce = await self._with_timeout(
+                    client.read_gatt_char(UUID_PAIR_DEV_NONCE), "read_dev_nonce"
+                )
+                dev_pub65 = await self._with_timeout(
+                    client.read_gatt_char(UUID_PAIR_DEV_PUB), "read_dev_pub"
+                )
                 if len(dev_nonce) != 16:
                     raise RuntimeError(f"Bad dev_nonce len={len(dev_nonce)}")
                 if len(dev_pub65) != 65 or dev_pub65[0] != 0x04:
@@ -245,11 +281,24 @@ class BleWorker(QThread):
                 k = derive_k(shared, bytes(dev_nonce))
                 k_hex = binascii.hexlify(k).decode()
 
-                await client.write_gatt_char(UUID_PAIR_HOST_PUB, host_pub65, response=True)
+                await self._with_timeout(
+                    client.write_gatt_char(UUID_PAIR_HOST_PUB, host_pub65, response=True),
+                    "write_host_pub",
+                )
                 confirm = hmac_sha256(k, b"confirm" + bytes(dev_nonce))
-                await client.write_gatt_char(UUID_PAIR_CONFIRM, confirm, response=True)
-                await client.write_gatt_char(UUID_PAIR_FINISH, b"\x01", response=False)
-                await asyncio.sleep(0.3)
+                await self._with_timeout(
+                    client.write_gatt_char(UUID_PAIR_CONFIRM, confirm, response=True),
+                    "write_pair_confirm",
+                )
+                await self._with_timeout(
+                    client.write_gatt_char(UUID_PAIR_FINISH, b"\x01", response=True),
+                    "write_pair_finish",
+                )
+                try:
+                    await asyncio.wait_for(self._disconnect_evt.wait(), timeout=2.0)
+                except asyncio.TimeoutError:
+                    pass
+                self._disconnect_evt = None
         except Exception as exc:
             print(exc)
             self.pairing_result.emit(False, f"Ошибка спаривания: {exc}", device, None)
@@ -263,11 +312,14 @@ class BleWorker(QThread):
         if "k_hex" not in record:
             raise RuntimeError("Нет ключа K для устройства.")
         k = binascii.unhexlify(record["k_hex"])
-        nonce = await client.read_gatt_char(UUID_AUTH_NONCE)
+        nonce = await self._with_timeout(client.read_gatt_char(UUID_AUTH_NONCE), "read_auth_nonce")
         if len(nonce) != 16:
             raise RuntimeError(f"Bad auth nonce len={len(nonce)}")
         proof = hmac_sha256(k, b"auth" + bytes(nonce))
-        await client.write_gatt_char(UUID_AUTH_PROOF, proof, response=True)
+        await self._with_timeout(
+            client.write_gatt_char(UUID_AUTH_PROOF, proof, response=True),
+            "write_auth_proof",
+        )
 
     def _on_data(self, _: int, data: bytearray) -> None:
         text = decode_metrics(bytes(data))
@@ -288,6 +340,19 @@ class MainWindow(QMainWindow):
         self.connect_button = QPushButton("Подключить")
         self.disconnect_button = QPushButton("Отключить")
         self.paired_button = QPushButton("Показать спаренные")
+        self.delete_button = QPushButton("Удалить сохраненное")
+        self._action_buttons = [
+            self.scan_button,
+            self.pair_button,
+            self.connect_button,
+            self.disconnect_button,
+            self.paired_button,
+            self.delete_button,
+        ]
+        self._action_timers: dict[str, QTimer] = {}
+        self._action_futures = {}
+        self._active_action: Optional[str] = None
+        self._connected = False
 
         self.found_list = QListWidget()
         self.paired_list = QListWidget()
@@ -301,6 +366,7 @@ class MainWindow(QMainWindow):
         buttons.addWidget(self.connect_button)
         buttons.addWidget(self.disconnect_button)
         buttons.addWidget(self.paired_button)
+        buttons.addWidget(self.delete_button)
 
         lists_layout = QHBoxLayout()
         lists_layout.addWidget(self._wrap_list("Устройства для сопряжения", self.found_list))
@@ -322,6 +388,7 @@ class MainWindow(QMainWindow):
         self.connect_button.clicked.connect(self.on_connect)
         self.disconnect_button.clicked.connect(self.on_disconnect)
         self.paired_button.clicked.connect(self.on_show_paired)
+        self.delete_button.clicked.connect(self.on_delete_paired)
 
         self.worker.log.connect(self.on_log)
         self.worker.scan_results.connect(self.on_scan_results)
@@ -329,7 +396,11 @@ class MainWindow(QMainWindow):
         self.worker.pairing_result.connect(self.on_pairing_result)
         self.worker.connection_state.connect(self.on_connection_state)
 
+        self.found_list.itemSelectionChanged.connect(self._on_found_selected)
+        self.paired_list.itemSelectionChanged.connect(self._on_paired_selected)
+
         self.on_show_paired()
+        self._update_button_states()
 
     def closeEvent(self, event) -> None:
         self.worker.submit(self.worker.disconnect())
@@ -352,6 +423,28 @@ class MainWindow(QMainWindow):
             return None
         return item.data(Qt.UserRole)
 
+    def _update_button_states(self) -> None:
+        found_selected = self.found_list.currentItem() is not None
+        paired_selected = self.paired_list.currentItem() is not None
+        self.pair_button.setEnabled(found_selected)
+        self.connect_button.setEnabled(paired_selected)
+        self.disconnect_button.setEnabled(self._connected)
+        self.delete_button.setEnabled(paired_selected)
+
+    def _on_found_selected(self) -> None:
+        if self.found_list.currentItem() is not None:
+            self.paired_list.blockSignals(True)
+            self.paired_list.clearSelection()
+            self.paired_list.blockSignals(False)
+        self._update_button_states()
+
+    def _on_paired_selected(self) -> None:
+        if self.paired_list.currentItem() is not None:
+            self.found_list.blockSignals(True)
+            self.found_list.clearSelection()
+            self.found_list.blockSignals(False)
+        self._update_button_states()
+
     def _load_paired(self) -> list[DeviceInfo]:
         raw = load_paired_records()
         devices = []
@@ -361,6 +454,14 @@ class MainWindow(QMainWindow):
             if address:
                 devices.append(DeviceInfo(name=name, address=address))
         return devices
+
+    def _remove_paired(self, address: str) -> bool:
+        raw = load_paired_records()
+        new_raw = [item for item in raw if item.get("address") != address]
+        if len(new_raw) == len(raw):
+            return False
+        save_paired_records(new_raw)
+        return True
 
     def _add_paired(self, device: DeviceInfo, k_hex: str) -> None:
         raw = load_paired_records()
@@ -373,9 +474,48 @@ class MainWindow(QMainWindow):
             raw.append({"name": device.name, "address": device.address, "k_hex": k_hex})
         save_paired_records(raw)
 
+    def _start_action(self, name: str, coro) -> None:
+        if self._active_action:
+            self.on_log(f"Операция '{self._active_action}' уже выполняется.")
+            return
+        timeout_s = ACTION_TIMEOUTS.get(name, DEFAULT_TIMEOUT)
+        self._active_action = name
+        for btn in self._action_buttons:
+            btn.setEnabled(False)
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+        timer.timeout.connect(lambda: self._action_timeout(name))
+        timer.start(int(timeout_s * 1000))
+        self._action_timers[name] = timer
+
+        fut = self.worker.submit(coro)
+        self._action_futures[name] = fut
+        if fut is None:
+            self._finish_action(name)
+            return
+
+    def _action_timeout(self, name: str) -> None:
+        fut = self._action_futures.get(name)
+        if fut and not fut.done():
+            fut.cancel()
+        self.on_log(f"Таймаут операции '{name}'.")
+        self._finish_action(name)
+
+    def _finish_action(self, name: str) -> None:
+        timer = self._action_timers.pop(name, None)
+        if timer:
+            timer.stop()
+            timer.deleteLater()
+        self._action_futures.pop(name, None)
+        self._active_action = None
+        for btn in self._action_buttons:
+            btn.setEnabled(True)
+        self._update_button_states()
+
     @Slot()
     def on_scan(self) -> None:
-        self.worker.submit(self.worker.scan())
+        self.found_list.clear()
+        self._start_action("scan", self.worker.scan())
 
     @Slot()
     def on_pair(self) -> None:
@@ -383,7 +523,7 @@ class MainWindow(QMainWindow):
         if not device:
             self.on_log("Выберите устройство для спаривания.")
             return
-        self.worker.submit(self.worker.pair(device))
+        self._start_action("pair", self.worker.pair(device))
 
     @Slot()
     def on_connect(self) -> None:
@@ -392,11 +532,11 @@ class MainWindow(QMainWindow):
         if not device:
             self.on_log("Выберите устройство для подключения.")
             return
-        self.worker.submit(self.worker.connect(device))
+        self._start_action("connect", self.worker.connect(device))
 
     @Slot()
     def on_disconnect(self) -> None:
-        self.worker.submit(self.worker.disconnect())
+        self._start_action("disconnect", self.worker.disconnect())
 
     @Slot()
     def on_show_paired(self) -> None:
@@ -405,14 +545,36 @@ class MainWindow(QMainWindow):
             item = QListWidgetItem(f"{dev.name} ({dev.address})")
             item.setData(Qt.UserRole, dev)
             self.paired_list.addItem(item)
+        self._update_button_states()
+
+    @Slot()
+    def on_delete_paired(self) -> None:
+        item = self.paired_list.currentItem()
+        device = item.data(Qt.UserRole) if item else None
+        if not device:
+            self.on_log("Выберите устройство для удаления.")
+            return
+        if self._remove_paired(device.address):
+            self.on_show_paired()
+            self.on_log(f"Удалено: {device.name}")
+        else:
+            self.on_log("Не удалось удалить запись.")
 
     @Slot(list)
     def on_scan_results(self, devices: list) -> None:
+        if self._active_action != "scan":
+            return
         self.found_list.clear()
+        paired_addrs = {dev.address for dev in self._load_paired()}
         for dev in devices:
+            if dev.address in paired_addrs:
+                continue
             item = QListWidgetItem(f"{dev.name} ({dev.address})")
             item.setData(Qt.UserRole, dev)
             self.found_list.addItem(item)
+        self._update_button_states()
+        if self._active_action == "scan":
+            self._finish_action("scan")
 
     @Slot(str)
     def on_log(self, message: str) -> None:
@@ -430,14 +592,25 @@ class MainWindow(QMainWindow):
             if k_hex:
                 self._add_paired(device, k_hex)
             self.on_show_paired()
+            self.found_list.clear()
         self.on_log(message)
+        self._update_button_states()
+        if self._active_action == "pair":
+            self._finish_action("pair")
 
     @Slot(bool, object)
     def on_connection_state(self, connected: bool, device: Optional[DeviceInfo]) -> None:
         if connected and device:
             self.on_log(f"Подключено к {device.name}")
+            self._connected = True
+            if self._active_action == "connect":
+                self._finish_action("connect")
         elif not connected:
             self.on_log("Отключено")
+            self._connected = False
+            if self._active_action == "disconnect":
+                self._finish_action("disconnect")
+        self._update_button_states()
 
 
 def main() -> int:
