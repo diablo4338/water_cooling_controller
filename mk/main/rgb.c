@@ -10,6 +10,7 @@
 #define RGB_RESOLUTION_HZ 10000000
 #define BLINK_PERIOD_MS 150
 #define BLINK_STEPS 4
+#define BLINK_DELAY_MS 120
 #define NOTIFY_PULSE_MS 120
 
 static const char *TAG = "rgb";
@@ -21,11 +22,13 @@ static bool s_pairing = false;
 static bool s_connected = false;
 static bool s_blink_active = false;
 static bool s_notify_active = false;
+static bool s_blink_pending = false;
 static int s_blink_step = 0;
 static uint8_t s_blink_r = 255;
 static uint8_t s_blink_g = 0;
 static uint8_t s_blink_b = 0;
 static esp_timer_handle_t s_blink_timer = NULL;
+static esp_timer_handle_t s_blink_delay_timer = NULL;
 static esp_timer_handle_t s_notify_timer = NULL;
 
 static void rgb_send(uint8_t r, uint8_t g, uint8_t b) {
@@ -55,15 +58,19 @@ static void rgb_send(uint8_t r, uint8_t g, uint8_t b) {
 static void rgb_apply(void) {
     if (!s_chan) return;
     if (s_blink_active) return;
+    if (s_blink_pending) {
+        rgb_send(0, 0, 0);
+        return;
+    }
     if (s_notify_active) {
         rgb_send(0, 255, 0);
         return;
     }
     uint8_t r = 0, g = 0, b = 0;
-    if (s_connected) {
-        r = 255;
-    } else if (s_pairing) {
+    if (s_pairing) {
         g = 255;
+    } else if (s_connected) {
+        r = 255;
     }
     rgb_send(r, g, b);
 }
@@ -90,6 +97,17 @@ static void blink_cb(void *arg) {
         esp_timer_stop(s_blink_timer);
         rgb_apply();
     }
+}
+
+static void blink_delay_cb(void *arg) {
+    (void)arg;
+    if (!s_chan) return;
+    if (!s_blink_pending) return;
+    s_blink_pending = false;
+    s_blink_active = true;
+    s_blink_step = 0;
+    esp_timer_stop(s_blink_timer);
+    ESP_ERROR_CHECK(esp_timer_start_periodic(s_blink_timer, BLINK_PERIOD_MS * 1000));
 }
 
 void rgb_init(void) {
@@ -165,6 +183,14 @@ void rgb_init(void) {
     };
     ESP_ERROR_CHECK(esp_timer_create(&targs, &s_blink_timer));
 
+    esp_timer_create_args_t dargs = {
+        .callback = blink_delay_cb,
+        .arg = NULL,
+        .dispatch_method = ESP_TIMER_TASK,
+        .name = "rgb_bdelay"
+    };
+    ESP_ERROR_CHECK(esp_timer_create(&dargs, &s_blink_delay_timer));
+
     esp_timer_create_args_t n_args = {
         .callback = notify_cb,
         .arg = NULL,
@@ -191,7 +217,9 @@ void rgb_blink_reset(void) {
     s_blink_r = 255;
     s_blink_g = 0;
     s_blink_b = 0;
+    s_blink_pending = false;
     esp_timer_stop(s_blink_timer);
+    esp_timer_stop(s_blink_delay_timer);
     ESP_ERROR_CHECK(esp_timer_start_periodic(s_blink_timer, BLINK_PERIOD_MS * 1000));
 }
 
@@ -206,11 +234,14 @@ void rgb_notify_pulse(void) {
 
 void rgb_blink_pair_success(void) {
     if (!s_chan) return;
-    s_blink_active = true;
-    s_blink_step = 0;
     s_blink_r = 255;
     s_blink_g = 165;
     s_blink_b = 0;
+    s_blink_active = false;
+    s_blink_pending = true;
+    s_blink_step = 0;
+    rgb_send(0, 0, 0);
     esp_timer_stop(s_blink_timer);
-    ESP_ERROR_CHECK(esp_timer_start_periodic(s_blink_timer, BLINK_PERIOD_MS * 1000));
+    esp_timer_stop(s_blink_delay_timer);
+    ESP_ERROR_CHECK(esp_timer_start_once(s_blink_delay_timer, BLINK_DELAY_MS * 1000));
 }
