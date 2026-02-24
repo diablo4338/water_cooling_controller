@@ -21,6 +21,7 @@
 #include "state.h"
 #include "storage.h"
 #include "uuid.h"
+#include "rgb.h"
 
 #ifdef PAIR_RUN_TESTS
 #include "unity_test_runner.h"
@@ -40,6 +41,7 @@ void app_main(void) {
     nvs_load_or_empty();
 
     ecdh_init();
+    rgb_init();
 
     esp_timer_create_args_t targs = {
         .callback = term_cb,

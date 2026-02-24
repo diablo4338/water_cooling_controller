@@ -12,6 +12,7 @@
 #include "pair_state.h"
 #include "state.h"
 #include "uuid.h"
+#include "rgb.h"
 
 // ====== Terminate timer ======
 static void clear_session_secrets_locked(void) {
@@ -165,6 +166,7 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
                 clear_session_secrets_locked();
                 state_unlock();
                 rand_bytes(auth_nonce, sizeof(auth_nonce));
+                rgb_set_connected(true);
                 ESP_LOGI(TAG, "Connected (handle=%d)", event->connect.conn_handle);
 
                 esp_timer_stop(g_data_timer);
@@ -195,6 +197,8 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
                 pair_state_full_reset();
                 esp_timer_stop(g_pair_timer);
             }
+            rgb_set_connected(false);
+            rgb_set_pairing(was_pairing);
             start_advertising();
             return 0;
 

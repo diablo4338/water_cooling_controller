@@ -564,10 +564,7 @@ class MainWindow(QMainWindow):
         if self._active_action != "scan":
             return
         self.found_list.clear()
-        paired_addrs = {dev.address for dev in self._load_paired()}
         for dev in devices:
-            if dev.address in paired_addrs:
-                continue
             item = QListWidgetItem(f"{dev.name} ({dev.address})")
             item.setData(Qt.UserRole, dev)
             self.found_list.addItem(item)
