@@ -16,6 +16,7 @@
 static int gatt_read_dev_nonce(uint16_t conn_handle, uint16_t attr_handle,
                                struct ble_gatt_access_ctxt *ctxt, void *arg) {
     (void)conn_handle; (void)attr_handle; (void)arg;
+    if (!g_pairing_mode || g_paired) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
     os_mbuf_append(ctxt->om, dev_nonce, sizeof(dev_nonce));
     return 0;
 }
@@ -23,6 +24,7 @@ static int gatt_read_dev_nonce(uint16_t conn_handle, uint16_t attr_handle,
 static int gatt_read_dev_pub(uint16_t conn_handle, uint16_t attr_handle,
                              struct ble_gatt_access_ctxt *ctxt, void *arg) {
     (void)conn_handle; (void)attr_handle; (void)arg;
+    if (!g_pairing_mode || g_paired) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
     os_mbuf_append(ctxt->om, dev_pub65, sizeof(dev_pub65));
     return 0;
 }
@@ -30,6 +32,7 @@ static int gatt_read_dev_pub(uint16_t conn_handle, uint16_t attr_handle,
 static int gatt_write_host_pub(uint16_t conn_handle, uint16_t attr_handle,
                                struct ble_gatt_access_ctxt *ctxt, void *arg) {
     (void)conn_handle; (void)attr_handle; (void)arg;
+    if (!g_pairing_mode || g_paired) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
 
     int len = OS_MBUF_PKTLEN(ctxt->om);
     if (len != 65) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
@@ -53,6 +56,7 @@ static int gatt_write_host_pub(uint16_t conn_handle, uint16_t attr_handle,
 static int gatt_write_pair_confirm(uint16_t conn_handle, uint16_t attr_handle,
                                    struct ble_gatt_access_ctxt *ctxt, void *arg) {
     (void)conn_handle; (void)attr_handle; (void)arg;
+    if (!g_pairing_mode || g_paired) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
 
     int len = OS_MBUF_PKTLEN(ctxt->om);
     if (len != 32) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
@@ -80,6 +84,7 @@ static int gatt_write_pair_confirm(uint16_t conn_handle, uint16_t attr_handle,
 static int gatt_write_pair_finish(uint16_t conn_handle, uint16_t attr_handle,
                                   struct ble_gatt_access_ctxt *ctxt, void *arg) {
     (void)conn_handle; (void)attr_handle; (void)arg;
+    if (!g_pairing_mode || g_paired) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
 
     int len = OS_MBUF_PKTLEN(ctxt->om);
     if (len != 1) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
