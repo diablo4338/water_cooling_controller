@@ -183,12 +183,11 @@ class BleWorker(QThread):
 
         def on_detect(device, advertisement_data) -> None:
             uuids = advertisement_data.service_uuids or []
+            norm_uuids = {normalize_uuid(raw) for raw in uuids}
             name = advertisement_data.local_name or device.name or "Unknown"
-            for raw in uuids:
-                norm = normalize_uuid(raw)
-                if norm == PAIR_SVC_NORM:
-                    results[device.address] = DeviceInfo(name=name, address=device.address)
-                    return
+            if PAIR_SVC_NORM in norm_uuids:
+                results[device.address] = DeviceInfo(name=name, address=device.address)
+                return
 
         try:
             async with BleakScanner(detection_callback=on_detect):
