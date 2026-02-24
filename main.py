@@ -204,33 +204,37 @@ class BleWorker(QThread):
     async def connect(self, device: DeviceInfo) -> None:
         await self.disconnect()
         self.log.emit(f"Подключение к {device.name} ({device.address})...")
-        client = BleakClient(device.address)
-        if hasattr(client, "set_disconnected_callback"):
-            client.set_disconnected_callback(self._on_disconnected)
-        else:
-            client = BleakClient(device.address, disconnected_callback=self._on_disconnected)
-        try:
-            await self._with_timeout(client.connect(), "connect")
-            await self._do_auth(client, device)
+        last_exc: Optional[Exception] = None
+        for attempt in range(1, 4):
+            client = BleakClient(device.address)
+            if hasattr(client, "set_disconnected_callback"):
+                client.set_disconnected_callback(self._on_disconnected)
+            else:
+                client = BleakClient(device.address, disconnected_callback=self._on_disconnected)
             try:
-                await self._with_timeout(
-                    client.start_notify(UUID_METRICS, self._on_data),
-                    "start_notify",
-                )
+                await self._with_timeout(client.connect(), f"connect#{attempt}", timeout=6.0)
+                await self._do_auth(client, device)
+                try:
+                    await self._with_timeout(
+                        client.start_notify(UUID_METRICS, self._on_data),
+                        f"start_notify#{attempt}",
+                    )
+                except Exception as exc:
+                    self.log.emit(f"Notify METRICS недоступен: {exc}")
+                self.client = client
+                self.device = device
+                self.connection_state.emit(True, device)
+                self.log.emit("Подключено.")
+                return
             except Exception as exc:
-                self.log.emit(f"Notify METRICS недоступен: {exc}")
-        except Exception as exc:
-            self.log.emit(f"Ошибка подключения: {exc}")
-            try:
-                await self._with_timeout(client.disconnect(), "disconnect", timeout=3.0)
-            except Exception:
-                pass
-            self.connection_state.emit(False, None)
-            return
-        self.client = client
-        self.device = device
-        self.connection_state.emit(True, device)
-        self.log.emit("Подключено.")
+                last_exc = exc
+                try:
+                    await self._with_timeout(client.disconnect(), "disconnect", timeout=3.0)
+                except Exception:
+                    pass
+                await asyncio.sleep(0.4 * attempt)
+        self.log.emit(f"Ошибка подключения: {last_exc}")
+        self.connection_state.emit(False, None)
 
     async def disconnect(self) -> None:
         if self.client:
