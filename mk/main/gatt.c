@@ -15,6 +15,7 @@
 #include "uuid.h"
 #include "conn_guard.h"
 #include "host_verify.h"
+#include "rgb.h"
 
 // ====== GATT access callbacks ======
 static int gatt_read_dev_nonce(uint16_t conn_handle, uint16_t attr_handle,
@@ -136,6 +137,7 @@ static int gatt_write_pair_finish(uint16_t conn_handle, uint16_t attr_handle,
     pair_state_set_finish_ok();
     esp_timer_stop(g_pair_timer);
 
+    rgb_blink_pair_success();
     esp_timer_stop(g_term_timer);
     ESP_ERROR_CHECK(esp_timer_start_once(g_term_timer, 250 * 1000));
 

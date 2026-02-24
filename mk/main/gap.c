@@ -63,6 +63,7 @@ void data_timer_cb(void *arg) {
     struct os_mbuf *om = ble_hs_mbuf_from_flat(payload, sizeof(payload));
     if (!om) return;
 
+    rgb_notify_pulse();
     int rc = ble_gatts_notify_custom(conn, attr, om);
     if (rc != 0) {
         ESP_LOGW(TAG, "notify_custom rc=%d", rc);
