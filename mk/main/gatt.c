@@ -5,34 +5,50 @@
 #include "host/ble_att.h"
 #include "host/ble_gatt.h"
 
+#include "access.h"
 #include "crypto.h"
 #include "ecdh.h"
 #include "gatt.h"
+#include "pair_state.h"
 #include "state.h"
 #include "storage.h"
 #include "uuid.h"
+#include "conn_guard.h"
+#include "host_verify.h"
 
 // ====== GATT access callbacks ======
 static int gatt_read_dev_nonce(uint16_t conn_handle, uint16_t attr_handle,
                                struct ble_gatt_access_ctxt *ctxt, void *arg) {
     (void)conn_handle; (void)attr_handle; (void)arg;
-    if (!g_pairing_mode || g_paired) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
-    os_mbuf_append(ctxt->om, dev_nonce, sizeof(dev_nonce));
+    if (!can_access_pairing()) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
+    if (!pairing_conn_bind_or_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
+    uint8_t tmp[sizeof(dev_nonce)];
+    state_lock();
+    memcpy(tmp, dev_nonce, sizeof(dev_nonce));
+    state_unlock();
+    os_mbuf_append(ctxt->om, tmp, sizeof(tmp));
     return 0;
 }
 
 static int gatt_read_dev_pub(uint16_t conn_handle, uint16_t attr_handle,
                              struct ble_gatt_access_ctxt *ctxt, void *arg) {
     (void)conn_handle; (void)attr_handle; (void)arg;
-    if (!g_pairing_mode || g_paired) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
-    os_mbuf_append(ctxt->om, dev_pub65, sizeof(dev_pub65));
+    if (!can_access_pairing()) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
+    if (!pairing_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
+    uint8_t tmp[sizeof(dev_pub65)];
+    state_lock();
+    memcpy(tmp, dev_pub65, sizeof(dev_pub65));
+    state_unlock();
+    os_mbuf_append(ctxt->om, tmp, sizeof(tmp));
     return 0;
 }
 
 static int gatt_write_host_pub(uint16_t conn_handle, uint16_t attr_handle,
                                struct ble_gatt_access_ctxt *ctxt, void *arg) {
     (void)conn_handle; (void)attr_handle; (void)arg;
-    if (!g_pairing_mode || g_paired) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
+    if (!can_access_pairing()) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
+    if (!pair_state_can_host_pub()) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
+    if (!pairing_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
 
     int len = OS_MBUF_PKTLEN(ctxt->om);
     if (len != 65) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
@@ -43,12 +59,17 @@ static int gatt_write_host_pub(uint16_t conn_handle, uint16_t attr_handle,
     if (ecdh_compute_shared_secret(host_pub65, secret) != 0) return BLE_ATT_ERR_UNLIKELY;
 
     const uint8_t info[] = "PAIRv1";
-    if (hkdf_sha256_32(dev_nonce, sizeof(dev_nonce),
+    uint8_t dev_nonce_local[sizeof(dev_nonce)];
+    state_lock();
+    memcpy(dev_nonce_local, dev_nonce, sizeof(dev_nonce));
+    state_unlock();
+    if (hkdf_sha256_32(dev_nonce_local, sizeof(dev_nonce_local),
                        secret, sizeof(secret),
                        info, sizeof(info) - 1, K) != 0) return BLE_ATT_ERR_UNLIKELY;
 
-    if (sha256(host_pub65, 65, host_id_hash) != 0) return BLE_ATT_ERR_UNLIKELY;
+    host_verify_update(host_pub65);
 
+    pair_state_set_host_pub_ok();
     ESP_LOGI(TAG, "Host pub received; K derived");
     return 0;
 }
@@ -56,7 +77,9 @@ static int gatt_write_host_pub(uint16_t conn_handle, uint16_t attr_handle,
 static int gatt_write_pair_confirm(uint16_t conn_handle, uint16_t attr_handle,
                                    struct ble_gatt_access_ctxt *ctxt, void *arg) {
     (void)conn_handle; (void)attr_handle; (void)arg;
-    if (!g_pairing_mode || g_paired) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
+    if (!can_access_pairing()) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
+    if (!pair_state_can_confirm()) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
+    if (!pairing_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
 
     int len = OS_MBUF_PKTLEN(ctxt->om);
     if (len != 32) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
@@ -67,16 +90,23 @@ static int gatt_write_pair_confirm(uint16_t conn_handle, uint16_t attr_handle,
     uint8_t msg[64];
     size_t off = 0;
     memcpy(msg + off, "confirm", 7); off += 7;
-    memcpy(msg + off, dev_nonce, sizeof(dev_nonce)); off += sizeof(dev_nonce);
+    uint8_t dev_nonce_local[sizeof(dev_nonce)];
+    uint8_t K_local[sizeof(K)];
+    state_lock();
+    memcpy(dev_nonce_local, dev_nonce, sizeof(dev_nonce));
+    memcpy(K_local, K, sizeof(K));
+    state_unlock();
+    memcpy(msg + off, dev_nonce_local, sizeof(dev_nonce_local)); off += sizeof(dev_nonce_local);
 
     uint8_t expect[32];
-    if (hmac_sha256(K, sizeof(K), msg, off, expect) != 0) return BLE_ATT_ERR_UNLIKELY;
+    if (hmac_sha256(K_local, sizeof(K_local), msg, off, expect) != 0) return BLE_ATT_ERR_UNLIKELY;
 
     if (memcmp(got, expect, 32) != 0) {
         ESP_LOGW(TAG, "PAIR_CONFIRM failed");
         return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
     }
 
+    pair_state_set_confirm_ok();
     ESP_LOGI(TAG, "PAIR_CONFIRM ok");
     return 0;
 }
@@ -84,7 +114,9 @@ static int gatt_write_pair_confirm(uint16_t conn_handle, uint16_t attr_handle,
 static int gatt_write_pair_finish(uint16_t conn_handle, uint16_t attr_handle,
                                   struct ble_gatt_access_ctxt *ctxt, void *arg) {
     (void)conn_handle; (void)attr_handle; (void)arg;
-    if (!g_pairing_mode || g_paired) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
+    if (!can_access_pairing()) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
+    if (!pair_state_can_finish()) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
+    if (!pairing_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
 
     int len = OS_MBUF_PKTLEN(ctxt->om);
     if (len != 1) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
@@ -94,8 +126,15 @@ static int gatt_write_pair_finish(uint16_t conn_handle, uint16_t attr_handle,
     if (b != 0x01) return BLE_ATT_ERR_UNLIKELY;
 
     nvs_save_trust();
+    state_lock();
     g_paired = true;
     g_pairing_mode = false;
+    g_term_conn_handle = g_conn_handle;
+    g_auth_conn_handle = g_conn_handle;
+    g_pair_conn_handle = BLE_HS_CONN_HANDLE_NONE;
+    state_unlock();
+    pair_state_set_finish_ok();
+    esp_timer_stop(g_pair_timer);
 
     esp_timer_stop(g_term_timer);
     ESP_ERROR_CHECK(esp_timer_start_once(g_term_timer, 250 * 1000));
@@ -107,7 +146,13 @@ static int gatt_write_pair_finish(uint16_t conn_handle, uint16_t attr_handle,
 static int gatt_read_auth_nonce(uint16_t conn_handle, uint16_t attr_handle,
                                 struct ble_gatt_access_ctxt *ctxt, void *arg) {
     (void)conn_handle; (void)attr_handle; (void)arg;
-    os_mbuf_append(ctxt->om, auth_nonce, sizeof(auth_nonce));
+    if (!can_access_auth_nonce()) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
+    if (!auth_conn_check_or_any(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
+    uint8_t tmp[sizeof(auth_nonce)];
+    state_lock();
+    memcpy(tmp, auth_nonce, sizeof(auth_nonce));
+    state_unlock();
+    os_mbuf_append(ctxt->om, tmp, sizeof(tmp));
     return 0;
 }
 
@@ -115,7 +160,8 @@ static int gatt_write_auth_proof(uint16_t conn_handle, uint16_t attr_handle,
                                  struct ble_gatt_access_ctxt *ctxt, void *arg) {
     (void)conn_handle; (void)attr_handle; (void)arg;
 
-    if (!g_paired) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
+    if (!can_access_auth_nonce()) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
+    if (!auth_conn_check_or_any(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
 
     int len = OS_MBUF_PKTLEN(ctxt->om);
     if (len != 32) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
@@ -126,18 +172,68 @@ static int gatt_write_auth_proof(uint16_t conn_handle, uint16_t attr_handle,
     uint8_t msg[64];
     size_t off = 0;
     memcpy(msg + off, "auth", 4); off += 4;
-    memcpy(msg + off, auth_nonce, sizeof(auth_nonce)); off += sizeof(auth_nonce);
+    uint8_t auth_nonce_local[sizeof(auth_nonce)];
+    uint8_t K_local[sizeof(K)];
+    bool k_loaded = false;
+    state_lock();
+    memcpy(auth_nonce_local, auth_nonce, sizeof(auth_nonce));
+    memcpy(K_local, K, sizeof(K));
+    state_unlock();
+
+    bool all_zero = true;
+    for (size_t i = 0; i < sizeof(K_local); i++) {
+        if (K_local[i] != 0) { all_zero = false; break; }
+    }
+    if (all_zero) {
+        state_lock();
+        bool paired = g_paired;
+        state_unlock();
+        if (paired) {
+            uint8_t nvs_host_id_hash[32];
+            uint8_t nvs_k[32];
+            k_loaded = nvs_load_trust_if_available(nvs_host_id_hash, nvs_k);
+            if (k_loaded) {
+                ESP_LOGW(TAG, "K was empty; reloaded from NVS");
+                state_lock();
+                memcpy(host_id_hash, nvs_host_id_hash, sizeof(host_id_hash));
+                memcpy(K_local, nvs_k, sizeof(K_local));
+                memcpy(K, nvs_k, sizeof(K));
+                state_unlock();
+            }
+        }
+    }
+    memcpy(msg + off, auth_nonce_local, sizeof(auth_nonce_local)); off += sizeof(auth_nonce_local);
 
     uint8_t expect[32];
-    if (hmac_sha256(K, sizeof(K), msg, off, expect) != 0) return BLE_ATT_ERR_UNLIKELY;
+    if (hmac_sha256(K_local, sizeof(K_local), msg, off, expect) != 0) return BLE_ATT_ERR_UNLIKELY;
 
     if (memcmp(got, expect, 32) != 0) {
+        state_lock();
         g_authed = false;
+        state_unlock();
         ESP_LOGW(TAG, "AUTH failed");
         return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
     }
 
+    bool host_pub_present = false;
+    state_lock();
+    for (size_t i = 0; i < sizeof(host_pub65); i++) {
+        if (host_pub65[i] != 0) { host_pub_present = true; break; }
+    }
+    state_unlock();
+    if (host_pub_present && !host_verify_check()) {
+        state_lock();
+        g_authed = false;
+        state_unlock();
+        ESP_LOGW(TAG, "AUTH host mismatch");
+        return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    }
+
+    state_lock();
     g_authed = true;
+    g_auth_conn_handle = conn_handle;
+    memset(auth_nonce, 0, sizeof(auth_nonce));
+    state_unlock();
     ESP_LOGI(TAG, "AUTH ok (authed=true)");
     return 0;
 }
@@ -146,6 +242,8 @@ static int gatt_write_auth_proof(uint16_t conn_handle, uint16_t attr_handle,
 static int gatt_read_main_data(uint16_t conn_handle, uint16_t attr_handle,
                                struct ble_gatt_access_ctxt *ctxt, void *arg) {
     (void)conn_handle; (void)attr_handle; (void)arg;
+    if (!can_access_data()) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    if (!auth_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
     uint8_t buf[16];
     rand_bytes(buf, sizeof(buf));
     os_mbuf_append(ctxt->om, buf, sizeof(buf));

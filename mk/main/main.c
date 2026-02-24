@@ -22,7 +22,20 @@
 #include "storage.h"
 #include "uuid.h"
 
+#ifdef PAIR_RUN_TESTS
+#include "unity_test_runner.h"
+void pair_tests_force_link(void);
+void conn_guard_tests_force_link(void);
+#endif
+
 void app_main(void) {
+#ifdef PAIR_RUN_TESTS
+    pair_tests_force_link();
+    conn_guard_tests_force_link();
+    unity_run_all_tests();
+    return;
+#endif
+
     ESP_ERROR_CHECK(nvs_flash_init());
     nvs_load_or_empty();
 
@@ -43,6 +56,14 @@ void app_main(void) {
         .name = "data"
     };
     ESP_ERROR_CHECK(esp_timer_create(&dargs, &g_data_timer));
+
+    esp_timer_create_args_t pargs = {
+        .callback = pair_timeout_cb,
+        .arg = NULL,
+        .dispatch_method = ESP_TIMER_TASK,
+        .name = "pair_timeout"
+    };
+    ESP_ERROR_CHECK(esp_timer_create(&pargs, &g_pair_timer));
 
     gpio_config_t io = {
         .pin_bit_mask = 1ULL << PAIR_BTN_GPIO,

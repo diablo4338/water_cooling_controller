@@ -4,6 +4,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/portmacro.h"
 #include "esp_timer.h"
 #include "host/ble_hs.h"
 
@@ -29,8 +31,19 @@ extern uint8_t host_id_hash[32];
 
 extern esp_timer_handle_t g_term_timer;
 extern esp_timer_handle_t g_data_timer;
+extern esp_timer_handle_t g_pair_timer;
 
 extern bool g_data_notify_enabled;
 extern uint16_t g_data_attr_handle;
+
+extern uint16_t g_pair_conn_handle;
+extern uint16_t g_auth_conn_handle;
+
+extern uint16_t g_term_conn_handle;
+
+extern portMUX_TYPE g_state_mux;
+
+void state_lock(void);
+void state_unlock(void);
 
 #endif

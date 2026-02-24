@@ -3,5 +3,6 @@
 
 void button_task(void *p);
 void host_task(void *param);
+void pair_timeout_cb(void *arg);
 
 #endif
