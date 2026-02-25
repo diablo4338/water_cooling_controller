@@ -165,6 +165,21 @@ static int gatt_write_auth_proof(uint16_t conn_handle, uint16_t attr_handle,
     if (!can_access_auth_nonce()) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
     if (!auth_conn_check_or_any(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
 
+    bool already_authed = false;
+    uint16_t authed_handle = BLE_HS_CONN_HANDLE_NONE;
+    state_lock();
+    already_authed = g_authed;
+    authed_handle = g_auth_conn_handle;
+    state_unlock();
+    if (already_authed) {
+        if (authed_handle == conn_handle) {
+            ESP_LOGI(TAG, "AUTH already ok; ignoring repeat proof");
+            return 0;
+        }
+        ESP_LOGW(TAG, "AUTH proof from other handle while authed");
+        return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    }
+
     int len = OS_MBUF_PKTLEN(ctxt->om);
     if (len != 32) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
 
