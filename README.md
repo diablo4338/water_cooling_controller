@@ -12,10 +12,15 @@
 
 ## Архитектура
 - `ble_app/core.py` — публичный BLE API (используется GUI и тестами).
-- `ble_app/gui.py` — UI и потоковый worker.
+- `ble_app/presentation.py` — слой UI‑состояния (Actions, AppState, derive_ui). Чистая логика без Qt.
+- `ble_app/gui.py` — UI и потоковый worker, связаны с `AppModel` через Actions.
 - `ble_app/main.py` — entrypoint для запуска GUI.
 
 Сканирование показывает только устройства, которые рекламируют сервис `PAIR_SVC` — это считается признаком готовности к сопряжению.
+
+Контракт UI:
+- Все интерактивные элементы имеют `actionId = Action.name`.
+- GUI не содержит бизнес‑логики, только биндинг `AppModel` ↔ виджеты.
 
 ## GATT протокол (реализация)
 ### Advertising
@@ -72,6 +77,7 @@ CMD: `3d1a4b35-9707-43e6-bf3e-2e2f7b561d84`
 
 ## Тесты
 Интеграционные тесты используют только публичный API из пакета `ble_app`.
+Юнит‑тесты для UI‑логики живут в `ble_app/tests/test_presentation.py` и не требуют PySide6.
 
 Зависимости для тестов: `ble_app/tests/requirements.txt`.
 
