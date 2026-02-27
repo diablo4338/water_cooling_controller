@@ -91,12 +91,14 @@ class BleWorker(QThread):
             raise RuntimeError(f"Timeout: {label}") from exc
 
     def _on_disconnected(self, _) -> None:
+        if self._disconnect_evt is not None and self._disconnect_evt.is_set():
+            return
         if self._disconnect_evt is not None:
             self._disconnect_evt.set()
         if self._manual_disconnect:
             return
-        self.connection_state.emit(False, None)
         self.log.emit("Соединение разорвано устройством.")
+        self.connection_state.emit(False, None)
 
     async def scan(self) -> None:
         self.log.emit("Поиск устройств в режиме сопряжения...")
@@ -207,16 +209,20 @@ class BleWorker(QThread):
         self._manual_disconnect = True
         try:
             if self.core.client:
-                self.log.emit("Отключение...")
+                log_enabled = not already_disconnected
+                if log_enabled:
+                    self.log.emit("Отключение...")
                 # noinspection PyBroadException
                 try:
-                    self.log.emit("Stopping notify METRICS...")
+                    if log_enabled:
+                        self.log.emit("Stopping notify METRICS...")
                     await self._with_timeout(self.core.stop_metrics_notify(), "stop_notify", timeout=3.0)
                 except Exception:
                     pass
                 # noinspection PyBroadException
                 try:
-                    self.log.emit("Disconnecting BLE...")
+                    if log_enabled:
+                        self.log.emit("Disconnecting BLE...")
                     await self._with_timeout(self.core.disconnect(), "disconnect", timeout=3.0)
                 except Exception:
                     pass
@@ -576,12 +582,14 @@ class MainWindow(QMainWindow):
                 self._finish_action(Action.CONNECT)
             self.on_log(f"Подключено к {device.name}")
         elif not connected:
+            already_disconnected = self.model.state.conn == ConnState.DISCONNECTED
             self.model.set_connected(False, None)
             if self.model.state.active_action == Action.DISCONNECT:
                 self._finish_action(Action.DISCONNECT)
             elif self.model.state.active_action == Action.CONNECT:
                 self._finish_action(Action.CONNECT)
-            self.on_log("Отключено")
+            if not already_disconnected:
+                self.on_log("Отключено")
 
     def _select_paired_device(self, device: DeviceInfo) -> None:
         for idx in range(self.paired_list.count()):
