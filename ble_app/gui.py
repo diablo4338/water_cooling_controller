@@ -55,6 +55,7 @@ class BleWorker(QThread):
         self._disconnect_evt: Optional[asyncio.Event] = None
         self._auto_stop_evt: Optional[asyncio.Event] = None
         self._auto_running = False
+        self._manual_disconnect = False
 
     def run(self) -> None:
         self.loop = asyncio.new_event_loop()
@@ -92,6 +93,8 @@ class BleWorker(QThread):
     def _on_disconnected(self, _) -> None:
         if self._disconnect_evt is not None:
             self._disconnect_evt.set()
+        if self._manual_disconnect:
+            return
         self.connection_state.emit(False, None)
         self.log.emit("Соединение разорвано устройством.")
 
@@ -185,7 +188,6 @@ class BleWorker(QThread):
                     self.log.emit(f"Notify METRICS недоступен: {exc}")
                 self.device = device
                 self.connection_state.emit(True, device)
-                self.log.emit("Подключено.")
                 return
             except Exception as exc:
                 last_exc = exc
@@ -197,28 +199,34 @@ class BleWorker(QThread):
                     pass
                 await asyncio.sleep(0.4 * attempt)
         self.log.emit(f"Ошибка подключения: {last_exc}")
-        self.connection_state.emit(False, None)
+        if self._disconnect_evt is None or not self._disconnect_evt.is_set():
+            self.connection_state.emit(False, None)
 
     async def disconnect(self) -> None:
-        if self.core.client:
-            self.log.emit("Отключение...")
-            # noinspection PyBroadException
-            try:
-                self.log.emit("Stopping notify METRICS...")
-                await self._with_timeout(self.core.stop_metrics_notify(), "stop_notify", timeout=3.0)
-            except Exception:
-                pass
-            # noinspection PyBroadException
-            try:
-                self.log.emit("Disconnecting BLE...")
-                await self._with_timeout(self.core.disconnect(), "disconnect", timeout=3.0)
-            except Exception:
-                pass
-            self.log.emit("Отключено.")
-        self.device = None
-        if self._disconnect_evt is not None:
-            self._disconnect_evt.set()
-        self.connection_state.emit(False, None)
+        already_disconnected = self._disconnect_evt.is_set() if self._disconnect_evt is not None else False
+        self._manual_disconnect = True
+        try:
+            if self.core.client:
+                self.log.emit("Отключение...")
+                # noinspection PyBroadException
+                try:
+                    self.log.emit("Stopping notify METRICS...")
+                    await self._with_timeout(self.core.stop_metrics_notify(), "stop_notify", timeout=3.0)
+                except Exception:
+                    pass
+                # noinspection PyBroadException
+                try:
+                    self.log.emit("Disconnecting BLE...")
+                    await self._with_timeout(self.core.disconnect(), "disconnect", timeout=3.0)
+                except Exception:
+                    pass
+            self.device = None
+            if self._disconnect_evt is not None:
+                self._disconnect_evt.set()
+            if not already_disconnected:
+                self.connection_state.emit(False, None)
+        finally:
+            self._manual_disconnect = False
 
     async def pair(self, device: DeviceInfo) -> None:
         result = await self.core.pair(device)
