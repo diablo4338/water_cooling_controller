@@ -138,14 +138,14 @@ class BleWorker(QThread):
     async def _wait_disconnect_or_stop(self) -> None:
         if self._disconnect_evt is None or self._auto_stop_evt is None:
             return
-        wait_disconnect = asyncio.create_task(self._disconnect_evt.wait())
-        wait_stop = asyncio.create_task(self._auto_stop_evt.wait())
-        done, pending = await asyncio.wait(
-            {wait_disconnect, wait_stop},
-            return_when=asyncio.FIRST_COMPLETED,
-        )
-        for task in pending:
-            task.cancel()
+        while True:
+            if self._disconnect_evt.is_set() or self._auto_stop_evt.is_set():
+                break
+            client = self.core.client
+            if client is None or not getattr(client, "is_connected", False):
+                self._on_disconnected(None)
+                break
+            await asyncio.sleep(0.5)
         if self._auto_stop_evt.is_set():
             await self.disconnect()
 
