@@ -66,19 +66,18 @@ NEEDS_DEVICE = {
 
 
 def derive_ui(state: AppState) -> UiModel:
-    if state.busy:
-        if state.active_action == Action.AUTO_CONNECT:
-            enabled = {Action.AUTO_CONNECT}
-        else:
-            enabled = set()
+    if state.auto_enabled or state.active_action == Action.AUTO_CONNECT:
+        enabled = {Action.AUTO_CONNECT}
+    elif state.busy:
+        enabled = set()
+    elif state.conn == ConnState.CONNECTED:
+        enabled = {Action.DISCONNECT}
+    elif state.selected_device is not None and state.selected_source == SelectionSource.PAIRED:
+        enabled = {Action.SCAN, Action.CONNECT, Action.AUTO_CONNECT}
+    elif state.selected_device is not None and state.selected_source == SelectionSource.FOUND:
+        enabled = {Action.SCAN, Action.PAIR, Action.AUTO_CONNECT}
     else:
         enabled = {Action.SCAN, Action.SHOW_PAIRED, Action.AUTO_CONNECT}
-        if state.selected_device is not None:
-            enabled |= {Action.PAIR, Action.CONNECT}
-        if state.conn == ConnState.CONNECTED:
-            enabled.add(Action.DISCONNECT)
-        if state.selected_source == SelectionSource.PAIRED and state.selected_device is not None:
-            enabled.add(Action.DELETE_PAIRED)
 
     return UiModel(
         enabled_actions=enabled,

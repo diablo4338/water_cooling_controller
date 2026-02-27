@@ -16,16 +16,15 @@ def test_derive_ui_basics() -> None:
     device = DeviceInfo(name="Dev", address="AA:BB")
     state = AppState(selected_device=device, selected_source=SelectionSource.FOUND)
     ui = derive_ui(state)
-    assert Action.CONNECT in ui.enabled_actions
-    assert Action.PAIR in ui.enabled_actions
+    assert ui.enabled_actions == {Action.SCAN, Action.PAIR, Action.AUTO_CONNECT}
 
     state = AppState(conn=ConnState.CONNECTED)
     ui = derive_ui(state)
-    assert Action.DISCONNECT in ui.enabled_actions
+    assert ui.enabled_actions == {Action.DISCONNECT}
 
     state = AppState(selected_device=device, selected_source=SelectionSource.PAIRED)
     ui = derive_ui(state)
-    assert Action.DELETE_PAIRED in ui.enabled_actions
+    assert ui.enabled_actions == {Action.SCAN, Action.CONNECT, Action.AUTO_CONNECT}
 
 
 def test_derive_ui_busy_gates_actions() -> None:
@@ -34,6 +33,12 @@ def test_derive_ui_busy_gates_actions() -> None:
     assert ui.enabled_actions == set()
 
     state = AppState(busy=True, active_action=Action.AUTO_CONNECT)
+    ui = derive_ui(state)
+    assert ui.enabled_actions == {Action.AUTO_CONNECT}
+
+
+def test_derive_ui_auto_connect_locks_all_actions() -> None:
+    state = AppState(auto_enabled=True)
     ui = derive_ui(state)
     assert ui.enabled_actions == {Action.AUTO_CONNECT}
 

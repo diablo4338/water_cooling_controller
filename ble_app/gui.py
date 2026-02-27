@@ -27,7 +27,7 @@ from .core import (
     save_paired_records,
     update_paired_last_connected,
 )
-from .presentation import Action, AppModel, SelectionSource
+from .presentation import Action, AppModel, ConnState, SelectionSource
 
 APP_TITLE = "BLE Pairing GUI"
 DEFAULT_TIMEOUT = 5.0
@@ -594,9 +594,19 @@ class MainWindow(QMainWindow):
         else:
             self.worker.stop_auto()
             self.model.set_auto_enabled(False)
+            self.found_list.blockSignals(True)
+            self.paired_list.blockSignals(True)
+            self.found_list.clearSelection()
+            self.paired_list.clearSelection()
+            self.found_list.blockSignals(False)
+            self.paired_list.blockSignals(False)
+            self.model.set_selection(None, None)
             fut = self._action_futures.pop(Action.AUTO_CONNECT, None)
             if fut and not fut.done():
                 fut.cancel()
+            if self.model.state.conn != ConnState.DISCONNECTED:
+                self._dispatch_action(Action.DISCONNECT)
+                return
             self._apply_ui()
 
 
