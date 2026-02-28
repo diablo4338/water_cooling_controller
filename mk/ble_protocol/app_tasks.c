@@ -16,14 +16,12 @@
 #include "pair_state.h"
 #include "state.h"
 #include "storage.h"
-#include "rgb.h"
 
 void pair_timeout_cb(void *arg) {
     (void)arg;
     if (!fsm_dispatch(FSM_EVT_PAIR_TIMEOUT, BLE_HS_CONN_HANDLE_NONE)) {
         return;
     }
-    rgb_set_pairing(false);
     pair_state_full_reset();
     stop_advertising();
     start_advertising();
@@ -65,7 +63,6 @@ void button_task(void *p) {
                         pair_state_start();
                         esp_timer_stop(g_pair_timer);
                         ESP_ERROR_CHECK(esp_timer_start_once(g_pair_timer, 20 * 1000 * 1000));
-                        rgb_set_pairing(true);
                         stop_advertising();
                         start_advertising();
                         ESP_LOGW(TAG, "Pairing mode ON (20s)");
@@ -87,9 +84,6 @@ void button_task(void *p) {
                     if (rc != 0) ESP_LOGW(TAG, "ble_gap_terminate rc=%d", rc);
                 }
                 trust_reset();
-                rgb_set_connected(false);
-                rgb_set_pairing(false);
-                rgb_blink_reset();
                 stop_advertising();
                 start_advertising();
             }

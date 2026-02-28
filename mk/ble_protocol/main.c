@@ -21,18 +21,21 @@
 #include "state.h"
 #include "storage.h"
 #include "uuid.h"
-#include "rgb.h"
+#include "metrics.h"
+#include "metrics_ble.h"
 
 #ifdef PAIR_RUN_TESTS
 #include "unity_test_runner.h"
 void pair_tests_force_link(void);
 void conn_guard_tests_force_link(void);
+void metrics_tests_force_link(void);
 #endif
 
 void app_main(void) {
 #ifdef PAIR_RUN_TESTS
     pair_tests_force_link();
     conn_guard_tests_force_link();
+    metrics_tests_force_link();
     unity_run_all_tests();
     return;
 #endif
@@ -42,7 +45,8 @@ void app_main(void) {
     nvs_load_or_empty();
 
     ecdh_init();
-    rgb_init();
+    metrics_init();
+    metrics_ble_init();
 
     esp_timer_create_args_t targs = {
         .callback = term_cb,
@@ -51,14 +55,6 @@ void app_main(void) {
         .name = "term"
     };
     ESP_ERROR_CHECK(esp_timer_create(&targs, &g_term_timer));
-
-    esp_timer_create_args_t dargs = {
-        .callback = data_timer_cb,
-        .arg = NULL,
-        .dispatch_method = ESP_TIMER_TASK,
-        .name = "data"
-    };
-    ESP_ERROR_CHECK(esp_timer_create(&dargs, &g_data_timer));
 
     esp_timer_create_args_t pargs = {
         .callback = pair_timeout_cb,
@@ -90,6 +86,8 @@ void app_main(void) {
     if (rc != 0) ESP_LOGE(TAG, "ble_gatts_count_cfg rc=%d", rc);
     rc = ble_gatts_add_svcs(gatt_svcs);
     if (rc != 0) ESP_LOGE(TAG, "ble_gatts_add_svcs rc=%d", rc);
+
+    xTaskCreate(metrics_task, "metrics", 4096, NULL, 5, NULL);
 
     ble_hs_cfg.sync_cb = ble_app_on_sync;
 

@@ -43,10 +43,7 @@ extern uint8_t K[32];
 extern uint8_t host_id_hash[32];
 
 extern esp_timer_handle_t g_term_timer;
-extern esp_timer_handle_t g_data_timer;
 extern esp_timer_handle_t g_pair_timer;
-
-extern uint16_t g_data_attr_handle;
 
 extern portMUX_TYPE g_state_mux;
 
@@ -64,9 +61,6 @@ uint16_t fsm_get_conn_handle(void);
 uint16_t fsm_get_term_conn_handle(void);
 uint16_t fsm_get_pair_conn_handle(void);
 uint16_t fsm_get_auth_conn_handle(void);
-
-bool fsm_get_data_notify_enabled(void);
-void fsm_set_data_notify_enabled(bool enabled);
 
 bool fsm_pair_conn_bind_or_check(uint16_t conn_handle);
 bool fsm_pair_conn_check(uint16_t conn_handle);

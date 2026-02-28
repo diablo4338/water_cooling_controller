@@ -12,7 +12,7 @@
 #include "pair_state.h"
 #include "state.h"
 #include "uuid.h"
-#include "rgb.h"
+#include "metrics_ble.h"
 
 // ====== Terminate timer ======
 static void clear_session_secrets_locked(void) {
@@ -32,34 +32,6 @@ void term_cb(void *arg) {
     } else {
         ESP_LOGW(TAG, "Skip terminate: stale timer (current=%u expected=%u)",
                  (unsigned)curr, (unsigned)expected);
-    }
-}
-
-void data_timer_cb(void *arg) {
-    (void)arg;
-
-    uint16_t conn;
-    bool notify;
-    uint16_t attr = g_data_attr_handle;
-    conn = fsm_get_conn_handle();
-    notify = fsm_get_data_notify_enabled();
-
-    if (conn == BLE_HS_CONN_HANDLE_NONE) return;
-    if (!auth_conn_check(conn)) return;
-    if (!notify) return;
-    if (attr == 0) return;
-    if (!can_access_data()) return;
-
-    uint8_t payload[20];
-    rand_bytes(payload, sizeof(payload));
-
-    struct os_mbuf *om = ble_hs_mbuf_from_flat(payload, sizeof(payload));
-    if (!om) return;
-
-    rgb_notify_pulse();
-    int rc = ble_gatts_notify_custom(conn, attr, om);
-    if (rc != 0) {
-        ESP_LOGW(TAG, "notify_custom rc=%d", rc);
     }
 }
 
@@ -154,11 +126,7 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
                 clear_session_secrets_locked();
                 state_unlock();
                 rand_bytes(auth_nonce, sizeof(auth_nonce));
-                rgb_set_connected(true);
                 ESP_LOGI(TAG, "Connected (handle=%d)", event->connect.conn_handle);
-
-                esp_timer_stop(g_data_timer);
-                ESP_ERROR_CHECK(esp_timer_start_periodic(g_data_timer, 1000 * 1000));
             } else {
                 ESP_LOGI(TAG, "Connect failed; restarting adv");
                 start_advertising();
@@ -172,24 +140,19 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
             state_lock();
             clear_session_secrets_locked();
             state_unlock();
-            esp_timer_stop(g_data_timer);
             esp_timer_stop(g_term_timer);
+            metrics_reset_notify();
             if (was_pairing) {
                 pair_state_full_reset();
                 esp_timer_stop(g_pair_timer);
             }
-            rgb_set_connected(false);
-            rgb_set_pairing(was_pairing);
             start_advertising();
             return 0;
         }
 
         case BLE_GAP_EVENT_SUBSCRIBE:
-            if (event->subscribe.attr_handle == g_data_attr_handle) {
-                bool enabled = (event->subscribe.cur_notify != 0);
-                fsm_set_data_notify_enabled(enabled);
-                ESP_LOGI(TAG, "DATA notify: %s", enabled ? "ON" : "OFF");
-            }
+            metrics_set_notify(event->subscribe.attr_handle,
+                               event->subscribe.cur_notify != 0);
             return 0;
 
         default:

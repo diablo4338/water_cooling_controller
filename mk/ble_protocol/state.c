@@ -8,7 +8,6 @@ typedef struct {
     uint16_t term_conn_handle;
     uint16_t pair_conn_handle;
     uint16_t auth_conn_handle;
-    bool data_notify_enabled;
 } fsm_ctx_t;
 
 static fsm_ctx_t g_fsm = {
@@ -17,7 +16,6 @@ static fsm_ctx_t g_fsm = {
     .term_conn_handle = BLE_HS_CONN_HANDLE_NONE,
     .pair_conn_handle = BLE_HS_CONN_HANDLE_NONE,
     .auth_conn_handle = BLE_HS_CONN_HANDLE_NONE,
-    .data_notify_enabled = false,
 };
 
 uint8_t g_own_addr_type;
@@ -32,9 +30,7 @@ uint8_t K[32];
 uint8_t host_id_hash[32];
 
 esp_timer_handle_t g_term_timer;
-esp_timer_handle_t g_data_timer;
 esp_timer_handle_t g_pair_timer;
-uint16_t g_data_attr_handle = 0;
 
 portMUX_TYPE g_state_mux = portMUX_INITIALIZER_UNLOCKED;
 
@@ -52,7 +48,6 @@ static void fsm_reset_locked(void) {
     g_fsm.term_conn_handle = BLE_HS_CONN_HANDLE_NONE;
     g_fsm.pair_conn_handle = BLE_HS_CONN_HANDLE_NONE;
     g_fsm.auth_conn_handle = BLE_HS_CONN_HANDLE_NONE;
-    g_fsm.data_notify_enabled = false;
 }
 
 void fsm_reset(void) {
@@ -76,7 +71,6 @@ bool fsm_dispatch(fsm_event_t event, uint16_t conn_handle) {
             g_fsm.conn_handle = conn_handle;
             g_fsm.term_conn_handle = BLE_HS_CONN_HANDLE_NONE;
             g_fsm.auth_conn_handle = BLE_HS_CONN_HANDLE_NONE;
-            g_fsm.data_notify_enabled = false;
             if (g_fsm.state == FSM_STATE_AUTHED) {
                 g_fsm.state = FSM_STATE_PAIRED_UNAUTH;
             }
@@ -85,7 +79,6 @@ bool fsm_dispatch(fsm_event_t event, uint16_t conn_handle) {
         case FSM_EVT_DISCONNECT:
             g_fsm.conn_handle = BLE_HS_CONN_HANDLE_NONE;
             g_fsm.term_conn_handle = BLE_HS_CONN_HANDLE_NONE;
-            g_fsm.data_notify_enabled = false;
             g_fsm.auth_conn_handle = BLE_HS_CONN_HANDLE_NONE;
             g_fsm.pair_conn_handle = BLE_HS_CONN_HANDLE_NONE;
             if (g_fsm.state == FSM_STATE_PAIRING) {
@@ -201,20 +194,6 @@ uint16_t fsm_get_auth_conn_handle(void) {
     handle = g_fsm.auth_conn_handle;
     state_unlock();
     return handle;
-}
-
-bool fsm_get_data_notify_enabled(void) {
-    bool enabled;
-    state_lock();
-    enabled = g_fsm.data_notify_enabled;
-    state_unlock();
-    return enabled;
-}
-
-void fsm_set_data_notify_enabled(bool enabled) {
-    state_lock();
-    g_fsm.data_notify_enabled = enabled;
-    state_unlock();
 }
 
 bool fsm_pair_conn_bind_or_check(uint16_t conn_handle) {

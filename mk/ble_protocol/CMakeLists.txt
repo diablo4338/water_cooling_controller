@@ -8,6 +8,7 @@ set(SRCS
     "gatt.c"
     "gap.c"
     "host_verify.c"
+    "metrics_ble.c"
     "rgb.c"
     "pair_state.c"
     "state.c"
@@ -22,7 +23,7 @@ endif()
 
 idf_component_register(SRCS ${SRCS}
                        INCLUDE_DIRS "."
-                       REQUIRES bt mbedtls nvs_flash driver esp_timer log freertos esp_driver_rmt
+                       REQUIRES bt mbedtls nvs_flash driver esp_timer log freertos esp_driver_rmt metrics
                        PRIV_REQUIRES unity)
 
 if(DEFINED PAIR_RUN_TESTS)

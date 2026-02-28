@@ -11,7 +11,6 @@
 #define BLINK_PERIOD_MS 150
 #define BLINK_STEPS 4
 #define BLINK_DELAY_MS 120
-#define NOTIFY_PULSE_MS 120
 
 static const char *TAG = "rgb";
 static rmt_channel_handle_t s_chan = NULL;
@@ -21,7 +20,6 @@ static rmt_symbol_word_t s_reset_symbol;
 static bool s_pairing = false;
 static bool s_connected = false;
 static bool s_blink_active = false;
-static bool s_notify_active = false;
 static bool s_blink_pending = false;
 static int s_blink_step = 0;
 static uint8_t s_blink_r = 255;
@@ -29,7 +27,6 @@ static uint8_t s_blink_g = 0;
 static uint8_t s_blink_b = 0;
 static esp_timer_handle_t s_blink_timer = NULL;
 static esp_timer_handle_t s_blink_delay_timer = NULL;
-static esp_timer_handle_t s_notify_timer = NULL;
 
 static void rgb_send(uint8_t r, uint8_t g, uint8_t b) {
     if (!s_chan || !s_bytes_encoder || !s_copy_encoder) return;
@@ -62,10 +59,6 @@ static void rgb_apply(void) {
         rgb_send(0, 0, 0);
         return;
     }
-    if (s_notify_active) {
-        rgb_send(0, 255, 0);
-        return;
-    }
     uint8_t r = 0, g = 0, b = 0;
     if (s_pairing) {
         g = 255;
@@ -73,12 +66,6 @@ static void rgb_apply(void) {
         r = 255;
     }
     rgb_send(r, g, b);
-}
-
-static void notify_cb(void *arg) {
-    (void)arg;
-    s_notify_active = false;
-    rgb_apply();
 }
 
 static void blink_cb(void *arg) {
@@ -191,13 +178,6 @@ void rgb_init(void) {
     };
     ESP_ERROR_CHECK(esp_timer_create(&dargs, &s_blink_delay_timer));
 
-    esp_timer_create_args_t n_args = {
-        .callback = notify_cb,
-        .arg = NULL,
-        .dispatch_method = ESP_TIMER_TASK,
-        .name = "rgb_notify"
-    };
-    ESP_ERROR_CHECK(esp_timer_create(&n_args, &s_notify_timer));
 }
 
 void rgb_set_pairing(bool enabled) {
@@ -221,15 +201,6 @@ void rgb_blink_reset(void) {
     esp_timer_stop(s_blink_timer);
     esp_timer_stop(s_blink_delay_timer);
     ESP_ERROR_CHECK(esp_timer_start_periodic(s_blink_timer, BLINK_PERIOD_MS * 1000));
-}
-
-void rgb_notify_pulse(void) {
-    if (!s_chan) return;
-    if (s_blink_active) return;
-    s_notify_active = true;
-    rgb_send(0, 255, 0);
-    esp_timer_stop(s_notify_timer);
-    ESP_ERROR_CHECK(esp_timer_start_once(s_notify_timer, NOTIFY_PULSE_MS * 1000));
 }
 
 void rgb_blink_pair_success(void) {
