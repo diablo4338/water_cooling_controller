@@ -2,7 +2,7 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "driver/i2c.h"
+#include "driver/i2c_master.h"
 
 #include "ads1115.h"
 
@@ -11,10 +11,11 @@ void metrics_tests_force_link(void) {}
 TEST_CASE("i2c bus alive (ads1115 responds)", "[metrics]") {
     ads1115_init();
 
-    uint8_t reg = 0x01;
-    uint8_t data[2] = {0};
-    esp_err_t err = i2c_master_write_read_device(
-        ADS1115_I2C_PORT, ADS1115_I2C_ADDR, &reg, 1, data, sizeof(data), pdMS_TO_TICKS(100));
+    i2c_master_bus_handle_t bus = NULL;
+    esp_err_t err = i2c_master_get_bus_handle(ADS1115_I2C_PORT, &bus);
+    TEST_ASSERT_EQUAL(ESP_OK, err);
+
+    err = i2c_master_probe(bus, ADS1115_I2C_ADDR, 100);
     TEST_ASSERT_EQUAL(ESP_OK, err);
 }
 

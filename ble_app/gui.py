@@ -1,4 +1,5 @@
 import asyncio
+import math
 import sys
 from concurrent.futures import Future
 from typing import Callable, Optional
@@ -8,8 +9,10 @@ from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMainWindow,
@@ -19,11 +22,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .config import DEFAULT_CONFIG
 from .core import (
     BleAppCore,
     DeviceInfo,
     add_or_update_paired,
-    decode_metrics,
     load_paired_records,
     save_paired_records,
     update_paired_last_connected,
@@ -31,13 +34,6 @@ from .core import (
 from .presentation import Action, AppModel, ConnState, SelectionSource
 
 APP_TITLE = "BLE Pairing GUI"
-DEFAULT_TIMEOUT = 5.0
-ACTION_TIMEOUTS = {
-    Action.SCAN: 7.0,
-    Action.PAIR: 12.0,
-    Action.CONNECT: 10.0,
-    Action.DISCONNECT: 5.0,
-}
 USER_ROLE = Qt.ItemDataRole.UserRole
 PAIRED_HIGHLIGHT_BRUSH = QBrush(QColor(220, 245, 220))
 
@@ -45,14 +41,15 @@ PAIRED_HIGHLIGHT_BRUSH = QBrush(QColor(220, 245, 220))
 class BleWorker(QThread):
     log = Signal(str)
     scan_results = Signal(list)
-    data_received = Signal(str)
+    temp_received = Signal(int, float)
     pairing_result = Signal(bool, str, object, object)
     connection_state = Signal(bool, object)
 
     def __init__(self) -> None:
         super().__init__()
         self.loop: Optional[asyncio.AbstractEventLoop] = None
-        self.core = BleAppCore(log=self.log.emit)
+        self.config = DEFAULT_CONFIG
+        self.core = BleAppCore(log=self.log.emit, config=self.config)
         self.device: Optional[DeviceInfo] = None
         self._disconnect_evt: Optional[asyncio.Event] = None
         self._auto_stop_evt: Optional[asyncio.Event] = None
@@ -85,10 +82,10 @@ class BleWorker(QThread):
             return None
         return asyncio.run_coroutine_threadsafe(coro, self.loop)
 
-    @staticmethod
-    async def _with_timeout(coro, label: str, timeout: float = DEFAULT_TIMEOUT):
+    async def _with_timeout(self, coro, label: str, timeout: Optional[float] = None):
         try:
-            return await asyncio.wait_for(coro, timeout=timeout)
+            use_timeout = self.config.gui_action_default_timeout_s if timeout is None else timeout
+            return await asyncio.wait_for(coro, timeout=use_timeout)
         except asyncio.TimeoutError as exc:
             raise RuntimeError(f"Timeout: {label}") from exc
 
@@ -105,7 +102,7 @@ class BleWorker(QThread):
     async def scan(self) -> None:
         self.log.emit("Поиск устройств в режиме сопряжения...")
         try:
-            devices = await self.core.scan_pairing(timeout=5.0)
+            devices = await self.core.scan_pairing(timeout=self.config.scan_timeout_s)
         except Exception as exc:
             self.log.emit(f"Ошибка сканирования: {exc}")
             self.scan_results.emit([])
@@ -176,7 +173,7 @@ class BleWorker(QThread):
         for attempt in range(1, 2):
             self.log.emit(f"Connect attempt {attempt} to {device.address}")
             try:
-                await self.core.connect_raw(device, connect_timeout=2.0)
+                await self.core.connect_raw(device, connect_timeout=self.config.connect_timeout_s)
                 if self.core.client and hasattr(self.core.client, "set_disconnected_callback"):
                     self.core.client.set_disconnected_callback(self._on_disconnected)
                 self.log.emit("Connected, starting AUTH...")
@@ -184,7 +181,7 @@ class BleWorker(QThread):
                 self.log.emit("AUTH ok, starting notify...")
                 try:
                     await self._with_timeout(
-                        self.core.start_metrics_notify(self._on_data),
+                        self.core.start_metrics_notify(self._on_temp),
                         f"start_notify#{attempt}",
                     )
                     self.log.emit("Notify METRICS started.")
@@ -244,11 +241,10 @@ class BleWorker(QThread):
         self.pairing_result.emit(False, f"Ошибка спаривания: {result.message}", device, None)
 
     async def _do_auth(self) -> None:
-        await self.core.auth()
+        await self.core.auth(timeout=self.config.auth_timeout_s)
 
-    def _on_data(self, data: bytearray) -> None:
-        text = decode_metrics(bytes(data))
-        self.data_received.emit(text)
+    def _on_temp(self, channel: int, value: float) -> None:
+        self.temp_received.emit(channel, value)
 
 
 class MainWindow(QMainWindow):
@@ -262,12 +258,18 @@ class MainWindow(QMainWindow):
         self.model = AppModel()
         self.model.set_status("Готово")
         self._lock_selection_active = False
+        self.action_timeouts = {
+            Action.SCAN: self.worker.config.gui_action_scan_timeout_s,
+            Action.PAIR: self.worker.config.gui_action_pair_timeout_s,
+            Action.CONNECT: self.worker.config.gui_action_connect_timeout_s,
+            Action.DISCONNECT: self.worker.config.gui_action_disconnect_timeout_s,
+        }
+        self.default_action_timeout = self.worker.config.gui_action_default_timeout_s
 
         self.scan_button = QPushButton("Сканировать")
         self.pair_button = QPushButton("Спарить")
         self.connect_button = QPushButton("Подключить")
         self.disconnect_button = QPushButton("Отключить")
-        self.paired_button = QPushButton("Показать спаренные")
         self.delete_button = QPushButton("Удалить сохраненное")
         self.auto_checkbox = QCheckBox("Автоподключение (сохраненные)")
         self._action_timers: dict[Action, QTimer] = {}
@@ -277,7 +279,6 @@ class MainWindow(QMainWindow):
         self.pair_button.setProperty("actionId", Action.PAIR.name)
         self.connect_button.setProperty("actionId", Action.CONNECT.name)
         self.disconnect_button.setProperty("actionId", Action.DISCONNECT.name)
-        self.paired_button.setProperty("actionId", Action.SHOW_PAIRED.name)
         self.delete_button.setProperty("actionId", Action.DELETE_PAIRED.name)
         self.auto_checkbox.setProperty("actionId", Action.AUTO_CONNECT.name)
 
@@ -286,13 +287,13 @@ class MainWindow(QMainWindow):
         self.data_view = QTextEdit()
         self.data_view.setReadOnly(True)
         self.status_label = QLabel(self.model.state.status)
+        self.temp_fields: list[QLineEdit] = []
 
         buttons = QHBoxLayout()
         buttons.addWidget(self.scan_button)
         buttons.addWidget(self.pair_button)
         buttons.addWidget(self.connect_button)
         buttons.addWidget(self.disconnect_button)
-        buttons.addWidget(self.paired_button)
         buttons.addWidget(self.delete_button)
         buttons.addWidget(self.auto_checkbox)
 
@@ -303,6 +304,8 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout()
         layout.addLayout(buttons)
         layout.addLayout(lists_layout)
+        layout.addWidget(QLabel("Температуры"))
+        layout.addLayout(self._build_temp_layout())
         layout.addWidget(QLabel("Данные в реальном времени"))
         layout.addWidget(self.data_view)
         layout.addWidget(self.status_label)
@@ -315,13 +318,12 @@ class MainWindow(QMainWindow):
         self.pair_button.clicked.connect(self.on_pair)
         self.connect_button.clicked.connect(self.on_connect)
         self.disconnect_button.clicked.connect(self.on_disconnect)
-        self.paired_button.clicked.connect(self.on_show_paired_clicked)
         self.delete_button.clicked.connect(self.on_delete_paired_clicked)
         self.auto_checkbox.toggled.connect(self.on_auto_toggled)
 
         self.worker.log.connect(self.on_log)
         self.worker.scan_results.connect(self.on_scan_results)
-        self.worker.data_received.connect(self.on_data_received)
+        self.worker.temp_received.connect(self.on_temp_received)
         self.worker.pairing_result.connect(self.on_pairing_result)
         self.worker.connection_state.connect(self.on_connection_state)
 
@@ -352,6 +354,21 @@ class MainWindow(QMainWindow):
         wrapper.setLayout(layout)
         return wrapper
 
+    def _build_temp_layout(self) -> QGridLayout:
+        grid = QGridLayout()
+        self.temp_fields.clear()
+        for idx in range(4):
+            label = QLabel(f"Темп. {idx + 1}")
+            field = QLineEdit("—")
+            field.setReadOnly(True)
+            field.setAlignment(Qt.AlignmentFlag.AlignRight)
+            row = idx // 2
+            col = (idx % 2) * 2
+            grid.addWidget(label, row, col)
+            grid.addWidget(field, row, col + 1)
+            self.temp_fields.append(field)
+        return grid
+
     def _apply_ui(self) -> None:
         ui = self.model.ui
         status = ui.status_text
@@ -363,7 +380,6 @@ class MainWindow(QMainWindow):
         self.pair_button.setEnabled(Action.PAIR in ui.enabled_actions)
         self.connect_button.setEnabled(Action.CONNECT in ui.enabled_actions)
         self.disconnect_button.setEnabled(Action.DISCONNECT in ui.enabled_actions)
-        self.paired_button.setEnabled(Action.SHOW_PAIRED in ui.enabled_actions)
         self.delete_button.setEnabled(Action.DELETE_PAIRED in ui.enabled_actions)
         self.auto_checkbox.setEnabled(Action.AUTO_CONNECT in ui.enabled_actions)
 
@@ -488,7 +504,9 @@ class MainWindow(QMainWindow):
         use_timeout: bool = True,
     ) -> None:
         timeout_s = (
-            timeout_override if timeout_override is not None else ACTION_TIMEOUTS.get(action, DEFAULT_TIMEOUT)
+            timeout_override
+            if timeout_override is not None
+            else self.action_timeouts.get(action, self.default_action_timeout)
         )
         if use_timeout:
             timer = QTimer(self)
@@ -533,16 +551,14 @@ class MainWindow(QMainWindow):
             self._start_action(
                 Action.CONNECT,
                 self.worker.connect_device(command.device),
-                timeout_override=ACTION_TIMEOUTS[Action.CONNECT],
+                timeout_override=self.action_timeouts[Action.CONNECT],
             )
         elif command.action == Action.DISCONNECT:
             self._start_action(
                 Action.DISCONNECT,
                 self.worker.disconnect(),
-                timeout_override=ACTION_TIMEOUTS[Action.DISCONNECT],
+                timeout_override=self.action_timeouts[Action.DISCONNECT],
             )
-        elif command.action == Action.SHOW_PAIRED:
-            self._refresh_paired_list()
         elif command.action == Action.DELETE_PAIRED:
             self._delete_selected_paired()
 
@@ -557,9 +573,6 @@ class MainWindow(QMainWindow):
 
     def on_disconnect(self) -> None:
         self._dispatch_action(Action.DISCONNECT)
-
-    def on_show_paired_clicked(self) -> None:
-        self._dispatch_action(Action.SHOW_PAIRED)
 
     def on_delete_paired_clicked(self) -> None:
         self._dispatch_action(Action.DELETE_PAIRED)
@@ -620,9 +633,15 @@ class MainWindow(QMainWindow):
         print(message, flush=True)
         self._apply_ui()
 
-    @Slot(str)
-    def on_data_received(self, message: str) -> None:
-        self.data_view.append(message.rstrip())
+    @Slot(int, float)
+    def on_temp_received(self, channel: int, value: float) -> None:
+        if 0 <= channel < len(self.temp_fields):
+            if math.isfinite(value):
+                text = f"{value:.2f}"
+            else:
+                text = "N/A"
+            self.temp_fields[channel].setText(text)
+            self.data_view.append(f"Темп. {channel + 1}: {text}")
 
     @Slot(bool, str, object, object)
     def on_pairing_result(self, ok: bool, message: str, device: DeviceInfo, k_hex: Optional[str]) -> None:
@@ -649,12 +668,17 @@ class MainWindow(QMainWindow):
             already_disconnected = self.model.state.conn == ConnState.DISCONNECTED
             self.model.set_connected(False, None)
             self._clear_paired_selection()
+            self._reset_temp_fields()
             if self.model.state.active_action == Action.DISCONNECT:
                 self._finish_action(Action.DISCONNECT)
             elif self.model.state.active_action == Action.CONNECT:
                 self._finish_action(Action.CONNECT)
             if not already_disconnected:
                 self.on_log("Отключено")
+
+    def _reset_temp_fields(self) -> None:
+        for field in self.temp_fields:
+            field.setText("—")
 
     def _select_paired_device(self, device: DeviceInfo) -> None:
         for idx in range(self.paired_list.count()):

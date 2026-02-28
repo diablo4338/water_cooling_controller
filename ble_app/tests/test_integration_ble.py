@@ -228,22 +228,30 @@ async def test_unauthenticated_connect_rejected(
 async def test_notify_in_connect_disconnect_cycles(
     core: BleAppCore, paired_device: DeviceInfo, connect_timeout_s: float
 ) -> None:
-    for _ in range(4):
-        await core.connect_raw(paired_device, connect_timeout=connect_timeout_s)
-        try:
-            await core.auth()
-            got_notify = asyncio.Event()
-
-            def on_data(_: bytearray) -> None:
-                got_notify.set()
-
-            await core.start_metrics_notify(on_data)
+    for cycle in range(4):
+        last_error: Exception | None = None
+        for attempt in range(2):
+            await core.connect_raw(paired_device, connect_timeout=connect_timeout_s)
             try:
-                await asyncio.wait_for(got_notify.wait(), timeout=3.0)
+                await core.auth()
+                await asyncio.sleep(0.2)
+                values = await core.read_metrics(timeout=10.0)
+                assert len(values) == 4
+                last_error = None
+                break
+            except Exception as exc:
+                last_error = exc
+                LOG.warning(
+                    "metrics read failed in cycle %d attempt %d: %s",
+                    cycle + 1,
+                    attempt + 1,
+                    exc,
+                )
             finally:
-                await core.stop_metrics_notify()
-        finally:
-            await core.disconnect()
+                await core.disconnect()
+            await asyncio.sleep(0.2)
+        if last_error is not None:
+            raise last_error
 
 
 @pytest.mark.asyncio

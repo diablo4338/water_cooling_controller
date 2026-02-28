@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "driver/i2c.h"
+#include "driver/i2c_types.h"
 
 #define ADS1115_I2C_PORT      I2C_NUM_0
 #define ADS1115_I2C_ADDR      0x48

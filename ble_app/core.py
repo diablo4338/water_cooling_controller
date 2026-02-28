@@ -2,6 +2,7 @@ import asyncio
 import binascii
 import json
 import os
+import struct
 import time
 from dataclasses import dataclass
 from typing import Callable, Optional
@@ -18,6 +19,8 @@ from cryptography.hazmat.primitives.serialization import (
     load_pem_private_key,
 )
 
+from .config import BleConfig, DEFAULT_CONFIG
+
 # PUBLIC API: used by GUI and tests. Do not change behavior without updating tests.
 __all__ = [
     "UUID_PAIR_SVC",
@@ -29,8 +32,11 @@ __all__ = [
     "UUID_PAIR_FINISH",
     "UUID_AUTH_NONCE",
     "UUID_AUTH_PROOF",
-    "UUID_METRICS",
-    "UUID_CMD",
+    "UUID_METRICS_SVC",
+    "UUID_TEMP0_VALUE",
+    "UUID_TEMP1_VALUE",
+    "UUID_TEMP2_VALUE",
+    "UUID_TEMP3_VALUE",
     "PAIR_SVC_NORM",
     "PAIRED_DB",
     "HOST_KEY_PATH",
@@ -41,6 +47,7 @@ __all__ = [
     "derive_k",
     "load_or_create_host_key",
     "decode_metrics",
+    "decode_temp_value",
     "load_paired_records",
     "save_paired_records",
     "find_paired_record",
@@ -62,8 +69,13 @@ UUID_PAIR_FINISH = "a4c8e2c1-1c7b-4b06-a59f-4b5f8a2a8b3c"
 UUID_AUTH_NONCE = "f1d1f9b6-8c92-47f6-a2f5-5b0a77d2e3a9"
 UUID_AUTH_PROOF = "74cde77a-7f14-4e6e-b7f5-92ef0c3ad7e4"
 
-UUID_METRICS = "a9b66c3d-3a6e-4b75-8b67-1dfbdb2a7e11"
-UUID_CMD = "3d1a4b35-9707-43e6-bf3e-2e2f7b561d84"
+UUID_METRICS_SVC = "f3a0c1d2-5b6a-4d2e-9b43-1c2d3e4f5061"
+UUID_TEMP0_VALUE = "a1b2c3d4-0b1c-4a2b-9c3d-4e5f60718291"
+UUID_TEMP1_VALUE = "a1b2c3d4-0b1c-4a2b-9c3d-4e5f60718292"
+UUID_TEMP2_VALUE = "a1b2c3d4-0b1c-4a2b-9c3d-4e5f60718293"
+UUID_TEMP3_VALUE = "a1b2c3d4-0b1c-4a2b-9c3d-4e5f60718294"
+
+TEMP_CHAR_UUIDS = [UUID_TEMP0_VALUE, UUID_TEMP1_VALUE, UUID_TEMP2_VALUE, UUID_TEMP3_VALUE]
 
 PAIRED_DB = "paired_devices.json"
 HOST_KEY_PATH = "host_key.pem"
@@ -104,14 +116,16 @@ def load_or_create_host_key() -> ec.EllipticCurvePrivateKey:
 
 
 def decode_metrics(data: bytes) -> str:
-    try:
-        text = data.decode("utf-8")
-        printable = all(ch.isprintable() or ch in "\r\n\t" for ch in text)
-        if printable:
-            return text
-    except Exception:
-        pass
-    return "0x" + binascii.hexlify(data).decode()
+    value = decode_temp_value(data)
+    if value is None:
+        return "0x" + binascii.hexlify(data).decode()
+    return f"{value:.2f}"
+
+
+def decode_temp_value(data: bytes) -> Optional[float]:
+    if len(data) != 4:
+        return None
+    return struct.unpack("<f", data)[0]
 
 
 def load_paired_records() -> list[dict]:
@@ -192,9 +206,15 @@ class BleAppCore:
     Do not change behavior without adjusting tests.
     """
 
-    def __init__(self, log: Optional[Callable[[str], None]] = None, adapter: Optional[str] = None):
+    def __init__(
+        self,
+        log: Optional[Callable[[str], None]] = None,
+        adapter: Optional[str] = None,
+        config: Optional[BleConfig] = None,
+    ):
         self._log = log
         self._adapter = adapter
+        self._config = config or DEFAULT_CONFIG
         self._host_key = load_or_create_host_key()
         self.client: Optional[BleakClient] = None
         self.device: Optional[DeviceInfo] = None
@@ -211,7 +231,9 @@ class BleAppCore:
             return {"bluez": {"adapter": self._adapter}}
         return {}
 
-    async def scan_pairing(self, timeout: float = 5.0) -> list[DeviceInfo]:
+    async def scan_pairing(self, timeout: Optional[float] = None) -> list[DeviceInfo]:
+        if timeout is None:
+            timeout = self._config.scan_timeout_s
         results: dict[str, DeviceInfo] = {}
 
         def on_detect(device, advertisement_data) -> None:
@@ -227,7 +249,9 @@ class BleAppCore:
 
         return list(results.values())
 
-    async def resolve_device(self, address: str, timeout: float = 5.0) -> DeviceInfo:
+    async def resolve_device(self, address: str, timeout: Optional[float] = None) -> DeviceInfo:
+        if timeout is None:
+            timeout = self._config.resolve_timeout_s
         dev = await BleakScanner.find_device_by_address(
             address, timeout=timeout, **self._scanner_kwargs()
         )
@@ -236,7 +260,9 @@ class BleAppCore:
         name = dev.name or "Unknown"
         return DeviceInfo(name=name, address=dev.address)
 
-    async def connect_raw(self, device: DeviceInfo, connect_timeout: float = 5.0) -> None:
+    async def connect_raw(self, device: DeviceInfo, connect_timeout: Optional[float] = None) -> None:
+        if connect_timeout is None:
+            connect_timeout = self._config.connect_timeout_s
         await self.disconnect()
         client = BleakClient(device.address, adapter=self._adapter)
         await asyncio.wait_for(client.connect(), timeout=connect_timeout)
@@ -252,7 +278,9 @@ class BleAppCore:
         self.client = None
         self.device = None
 
-    async def pair(self, device: DeviceInfo, timeout: float = 8.0) -> PairResult:
+    async def pair(self, device: DeviceInfo, timeout: Optional[float] = None) -> PairResult:
+        if timeout is None:
+            timeout = self._config.pair_timeout_s
         k_hex: Optional[str] = None
         client = BleakClient(device.address, adapter=self._adapter)
         try:
@@ -296,7 +324,9 @@ class BleAppCore:
             return PairResult(False, f"Pairing failed: {exc}", None)
         return PairResult(True, "Paired", k_hex)
 
-    async def auth(self, timeout: float = 5.0) -> None:
+    async def auth(self, timeout: Optional[float] = None) -> None:
+        if timeout is None:
+            timeout = self._config.auth_timeout_s
         if not self.client or not self.device:
             raise RuntimeError("Not connected")
         record = find_paired_record(self.device.address)
@@ -314,17 +344,69 @@ class BleAppCore:
             timeout=timeout,
         )
 
-    async def read_metrics(self, timeout: float = 5.0) -> bytes:
+    async def read_metrics(
+        self, timeout: Optional[float] = None, retries: Optional[int] = None
+    ) -> list[float]:
         if not self.client:
             raise RuntimeError("Not connected")
-        return await asyncio.wait_for(self.client.read_gatt_char(UUID_METRICS), timeout=timeout)
+        if timeout is None:
+            timeout = self._config.metrics_timeout_s
+        if retries is None:
+            retries = self._config.metrics_retries
+        last_exc: Optional[Exception] = None
+        for attempt in range(retries + 1):
+            try:
+                return await self._read_metrics_once(timeout)
+            except Exception as exc:
+                last_exc = exc
+                self._emit(f"Metrics read failed (attempt {attempt + 1}/{retries + 1}): {exc}")
+                if attempt >= retries or not self.device:
+                    break
+                await self._reconnect_for_metrics(timeout)
+        assert last_exc is not None
+        raise last_exc
 
-    async def start_metrics_notify(self, callback: Callable[[bytearray], None]) -> None:
+    async def _read_metrics_once(self, timeout: float) -> list[float]:
         if not self.client:
             raise RuntimeError("Not connected")
-        await self.client.start_notify(UUID_METRICS, lambda _, data: callback(data))
+        values: list[float] = []
+        for uuid in TEMP_CHAR_UUIDS:
+            data = await asyncio.wait_for(self.client.read_gatt_char(uuid), timeout=timeout)
+            value = decode_temp_value(bytes(data))
+            if value is None:
+                raise RuntimeError(f"Bad metrics value len={len(data)}")
+            values.append(value)
+        return values
+
+    async def _reconnect_for_metrics(self, timeout: float) -> None:
+        try:
+            await self.disconnect()
+        except Exception:
+            pass
+        await asyncio.sleep(self._config.metrics_reconnect_delay_s)
+        if not self.device:
+            return
+        await self.connect_raw(self.device, connect_timeout=max(self._config.connect_timeout_s, timeout))
+        await self.auth(timeout=timeout)
+
+    async def start_metrics_notify(self, callback: Callable[[int, float], None]) -> None:
+        if not self.client:
+            raise RuntimeError("Not connected")
+        for idx, uuid in enumerate(TEMP_CHAR_UUIDS):
+            await self.client.start_notify(
+                uuid,
+                lambda _, data, ch=idx: self._emit_temp(callback, ch, data),
+            )
 
     async def stop_metrics_notify(self) -> None:
         if not self.client:
             raise RuntimeError("Not connected")
-        await self.client.stop_notify(UUID_METRICS)
+        for uuid in TEMP_CHAR_UUIDS:
+            await self.client.stop_notify(uuid)
+
+    @staticmethod
+    def _emit_temp(callback: Callable[[int, float], None], channel: int, data: bytearray) -> None:
+        value = decode_temp_value(bytes(data))
+        if value is None:
+            return
+        callback(channel, value)

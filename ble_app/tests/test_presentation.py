@@ -6,7 +6,6 @@ def test_derive_ui_basics() -> None:
     state = AppState()
     ui = derive_ui(state)
     assert Action.SCAN in ui.enabled_actions
-    assert Action.SHOW_PAIRED in ui.enabled_actions
     assert Action.AUTO_CONNECT in ui.enabled_actions
     assert Action.CONNECT not in ui.enabled_actions
     assert Action.PAIR not in ui.enabled_actions
@@ -91,4 +90,3 @@ def test_auto_toggle_sets_state() -> None:
     assert model.state.auto_enabled is False
     assert model.state.busy is False
     assert model.state.active_action is None
-

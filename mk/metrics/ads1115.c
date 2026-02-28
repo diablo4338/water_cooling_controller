@@ -3,14 +3,17 @@
 #include <math.h>
 #include <string.h>
 
-#include "driver/gpio.h"
 #include "esp_err.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "driver/i2c_master.h"
 
 static const char *ADS_TAG = "ads1115";
 static bool s_i2c_inited = false;
+static i2c_master_bus_handle_t s_i2c_bus = NULL;
+static i2c_master_dev_handle_t s_i2c_dev = NULL;
+static i2c_device_config_t s_dev_cfg = {0};
 
 #define ADS1115_REG_CONVERSION 0x00
 #define ADS1115_REG_CONFIG     0x01
@@ -22,6 +25,9 @@ static bool s_i2c_inited = false;
 #define ADS1115_CFG_DR_SHIFT    5
 #define ADS1115_CFG_COMP_QUE    0x0003
 
+#define ADS1115_I2C_TIMEOUT_MS 100
+#define ADS1115_RETRY_COUNT    3
+
 static uint16_t ads1115_build_config(uint8_t channel) {
     uint16_t mux = (uint16_t)(0x4 + (channel & 0x03)) << ADS1115_CFG_MUX_SHIFT;
     uint16_t pga = (uint16_t)0x1 << ADS1115_CFG_PGA_SHIFT;  // ±4.096V
@@ -29,28 +35,70 @@ static uint16_t ads1115_build_config(uint8_t channel) {
     return (uint16_t)(ADS1115_CFG_OS_SINGLE | mux | pga | ADS1115_CFG_MODE_SINGLE | dr | ADS1115_CFG_COMP_QUE);
 }
 
+static void ads1115_recover(const char *stage, esp_err_t err) {
+    ESP_LOGW(ADS_TAG, "%s err=%s", stage, esp_err_to_name(err));
+    if (!s_i2c_bus) return;
+
+    esp_err_t reset_err = i2c_master_bus_reset(s_i2c_bus);
+    if (reset_err != ESP_OK) {
+        ESP_LOGW(ADS_TAG, "i2c bus reset err=%s", esp_err_to_name(reset_err));
+    }
+
+    if (s_i2c_dev) {
+        i2c_master_bus_rm_device(s_i2c_dev);
+        s_i2c_dev = NULL;
+    }
+
+    if (s_dev_cfg.device_address != 0) {
+        esp_err_t add_err = i2c_master_bus_add_device(s_i2c_bus, &s_dev_cfg, &s_i2c_dev);
+        if (add_err != ESP_OK) {
+            ESP_LOGW(ADS_TAG, "i2c re-add device err=%s", esp_err_to_name(add_err));
+        }
+    }
+}
+
 void ads1115_init(void) {
     if (s_i2c_inited) return;
-    i2c_config_t conf = {
-        .mode = I2C_MODE_MASTER,
+    i2c_master_bus_config_t bus_cfg = {
+        .i2c_port = ADS1115_I2C_PORT,
         .sda_io_num = ADS1115_I2C_SDA_GPIO,
         .scl_io_num = ADS1115_I2C_SCL_GPIO,
-        .sda_pullup_en = GPIO_PULLUP_ENABLE,
-        .scl_pullup_en = GPIO_PULLUP_ENABLE,
-        .master.clk_speed = ADS1115_I2C_FREQ_HZ,
+        .clk_source = I2C_CLK_SRC_DEFAULT,
+        .glitch_ignore_cnt = 7,
+        .intr_priority = 0,
+        .trans_queue_depth = 0,
+        .flags = {
+            .enable_internal_pullup = 1,
+            .allow_pd = 0,
+        },
     };
-    ESP_ERROR_CHECK(i2c_param_config(ADS1115_I2C_PORT, &conf));
-    esp_err_t err = i2c_driver_install(ADS1115_I2C_PORT, conf.mode, 0, 0, 0);
+    esp_err_t err = i2c_new_master_bus(&bus_cfg, &s_i2c_bus);
     if (err == ESP_ERR_INVALID_STATE) {
-        s_i2c_inited = true;
-        return;
+        ESP_ERROR_CHECK(i2c_master_get_bus_handle(ADS1115_I2C_PORT, &s_i2c_bus));
+    } else {
+        ESP_ERROR_CHECK(err);
     }
-    ESP_ERROR_CHECK(err);
+
+    i2c_device_config_t dev_cfg = {
+        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+        .device_address = ADS1115_I2C_ADDR,
+        .scl_speed_hz = ADS1115_I2C_FREQ_HZ,
+        .scl_wait_us = 0,
+        .flags = {
+            .disable_ack_check = 0,
+        },
+    };
+    s_dev_cfg = dev_cfg;
+    ESP_ERROR_CHECK(i2c_master_bus_add_device(s_i2c_bus, &s_dev_cfg, &s_i2c_dev));
     s_i2c_inited = true;
 }
 
 bool ads1115_read_raw(uint8_t channel, int16_t *out_raw) {
     if (!out_raw || channel > 3) return false;
+    if (!s_i2c_inited) {
+        ads1115_init();
+    }
+    if (!s_i2c_dev) return false;
 
     uint16_t cfg = ads1115_build_config(channel);
     uint8_t buf[3];
@@ -58,26 +106,31 @@ bool ads1115_read_raw(uint8_t channel, int16_t *out_raw) {
     buf[1] = (uint8_t)(cfg >> 8);
     buf[2] = (uint8_t)(cfg & 0xFF);
 
-    esp_err_t err = i2c_master_write_to_device(
-        ADS1115_I2C_PORT, ADS1115_I2C_ADDR, buf, sizeof(buf), pdMS_TO_TICKS(100));
-    if (err != ESP_OK) {
-        ESP_LOGW(ADS_TAG, "I2C write cfg err=%d", (int)err);
-        return false;
+    for (int attempt = 0; attempt < ADS1115_RETRY_COUNT; attempt++) {
+        esp_err_t err = i2c_master_transmit(
+            s_i2c_dev, buf, sizeof(buf), ADS1115_I2C_TIMEOUT_MS);
+        if (err != ESP_OK) {
+            ads1115_recover("i2c write cfg", err);
+            vTaskDelay(pdMS_TO_TICKS(ADS1115_INTER_CH_DELAY_MS));
+            continue;
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(ADS1115_CONV_DELAY_MS));
+
+        uint8_t reg = ADS1115_REG_CONVERSION;
+        uint8_t data[2] = {0};
+        err = i2c_master_transmit_receive(
+            s_i2c_dev, &reg, 1, data, sizeof(data), ADS1115_I2C_TIMEOUT_MS);
+        if (err != ESP_OK) {
+            ads1115_recover("i2c read conv", err);
+            vTaskDelay(pdMS_TO_TICKS(ADS1115_INTER_CH_DELAY_MS));
+            continue;
+        }
+
+        *out_raw = (int16_t)((data[0] << 8) | data[1]);
+        return true;
     }
-
-    vTaskDelay(pdMS_TO_TICKS(ADS1115_CONV_DELAY_MS));
-
-    uint8_t reg = ADS1115_REG_CONVERSION;
-    uint8_t data[2] = {0};
-    err = i2c_master_write_read_device(
-        ADS1115_I2C_PORT, ADS1115_I2C_ADDR, &reg, 1, data, sizeof(data), pdMS_TO_TICKS(100));
-    if (err != ESP_OK) {
-        ESP_LOGW(ADS_TAG, "I2C read conv err=%d", (int)err);
-        return false;
-    }
-
-    *out_raw = (int16_t)((data[0] << 8) | data[1]);
-    return true;
+    return false;
 }
 
 float ads1115_raw_to_v(int16_t raw) {

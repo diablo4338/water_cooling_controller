@@ -12,7 +12,6 @@ class Action(Enum):
     PAIR = auto()
     CONNECT = auto()
     DISCONNECT = auto()
-    SHOW_PAIRED = auto()
     DELETE_PAIRED = auto()
     AUTO_CONNECT = auto()
 
@@ -78,7 +77,7 @@ def derive_ui(state: AppState) -> UiModel:
     elif state.selected_device is not None and state.selected_source == SelectionSource.FOUND:
         enabled = {Action.SCAN, Action.PAIR, Action.AUTO_CONNECT}
     else:
-        enabled = {Action.SCAN, Action.SHOW_PAIRED, Action.AUTO_CONNECT}
+        enabled = {Action.SCAN, Action.AUTO_CONNECT}
 
     highlight = state.connected_device if state.conn == ConnState.CONNECTED else None
     return UiModel(
