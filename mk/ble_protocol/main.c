@@ -38,6 +38,7 @@ void app_main(void) {
 #endif
 
     ESP_ERROR_CHECK(nvs_flash_init());
+    fsm_reset();
     nvs_load_or_empty();
 
     ecdh_init();

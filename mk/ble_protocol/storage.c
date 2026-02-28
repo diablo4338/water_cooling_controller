@@ -34,9 +34,7 @@ void nvs_load_or_empty(void) {
         len = sizeof(K);
         err = nvs_get_blob(h, NVS_KEY_K, K, &len);
         if (err == ESP_OK && len == sizeof(K)) {
-            state_lock();
-            g_paired = true;
-            state_unlock();
+            fsm_dispatch(FSM_EVT_TRUST_LOADED, BLE_HS_CONN_HANDLE_NONE);
             ESP_LOGI(TAG, "Loaded trusted host + key from NVS");
         } else {
             nvs_close(h);
@@ -95,13 +93,7 @@ void trust_reset(void) {
     }
     memset(host_id_hash, 0, sizeof(host_id_hash));
     memset(K, 0, sizeof(K));
-    state_lock();
-    g_paired = false;
-    g_authed = false;
-    g_pairing_mode = false;
-    g_pair_conn_handle = BLE_HS_CONN_HANDLE_NONE;
-    g_auth_conn_handle = BLE_HS_CONN_HANDLE_NONE;
-    state_unlock();
+    fsm_dispatch(FSM_EVT_TRUST_RESET, BLE_HS_CONN_HANDLE_NONE);
     esp_timer_stop(g_pair_timer);
     pair_state_full_reset();
     ESP_LOGW(TAG, "Trust reset");

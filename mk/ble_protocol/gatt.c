@@ -127,13 +127,7 @@ static int gatt_write_pair_finish(uint16_t conn_handle, uint16_t attr_handle,
     if (b != 0x01) return BLE_ATT_ERR_UNLIKELY;
 
     nvs_save_trust();
-    state_lock();
-    g_paired = true;
-    g_pairing_mode = false;
-    g_term_conn_handle = g_conn_handle;
-    g_auth_conn_handle = g_conn_handle;
-    g_pair_conn_handle = BLE_HS_CONN_HANDLE_NONE;
-    state_unlock();
+    fsm_dispatch(FSM_EVT_PAIR_FINISH, conn_handle);
     pair_state_set_finish_ok();
     esp_timer_stop(g_pair_timer);
 
@@ -167,10 +161,8 @@ static int gatt_write_auth_proof(uint16_t conn_handle, uint16_t attr_handle,
 
     bool already_authed = false;
     uint16_t authed_handle = BLE_HS_CONN_HANDLE_NONE;
-    state_lock();
-    already_authed = g_authed;
-    authed_handle = g_auth_conn_handle;
-    state_unlock();
+    already_authed = fsm_is_authed();
+    authed_handle = fsm_get_auth_conn_handle();
     if (already_authed) {
         if (authed_handle == conn_handle) {
             ESP_LOGI(TAG, "AUTH already ok; ignoring repeat proof");
@@ -202,9 +194,7 @@ static int gatt_write_auth_proof(uint16_t conn_handle, uint16_t attr_handle,
         if (K_local[i] != 0) { all_zero = false; break; }
     }
     if (all_zero) {
-        state_lock();
-        bool paired = g_paired;
-        state_unlock();
+        bool paired = fsm_is_paired();
         if (paired) {
             uint8_t nvs_host_id_hash[32];
             uint8_t nvs_k[32];
@@ -225,9 +215,7 @@ static int gatt_write_auth_proof(uint16_t conn_handle, uint16_t attr_handle,
     if (hmac_sha256(K_local, sizeof(K_local), msg, off, expect) != 0) return BLE_ATT_ERR_UNLIKELY;
 
     if (memcmp(got, expect, 32) != 0) {
-        state_lock();
-        g_authed = false;
-        state_unlock();
+        fsm_dispatch(FSM_EVT_AUTH_FAILED, conn_handle);
         ESP_LOGW(TAG, "AUTH failed");
         return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
     }
@@ -239,16 +227,13 @@ static int gatt_write_auth_proof(uint16_t conn_handle, uint16_t attr_handle,
     }
     state_unlock();
     if (host_pub_present && !host_verify_check()) {
-        state_lock();
-        g_authed = false;
-        state_unlock();
+        fsm_dispatch(FSM_EVT_AUTH_FAILED, conn_handle);
         ESP_LOGW(TAG, "AUTH host mismatch");
         return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
     }
 
+    fsm_dispatch(FSM_EVT_AUTH_OK, conn_handle);
     state_lock();
-    g_authed = true;
-    g_auth_conn_handle = conn_handle;
     memset(auth_nonce, 0, sizeof(auth_nonce));
     state_unlock();
     ESP_LOGI(TAG, "AUTH ok (authed=true)");

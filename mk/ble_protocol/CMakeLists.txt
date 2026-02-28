@@ -17,6 +17,7 @@ set(SRCS
 if(DEFINED PAIR_RUN_TESTS)
     list(APPEND SRCS "test/test_pair_state.c")
     list(APPEND SRCS "test/test_conn_guard.c")
+    list(APPEND SRCS "test/test_fsm.c")
 endif()
 
 idf_component_register(SRCS ${SRCS}

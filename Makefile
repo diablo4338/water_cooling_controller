@@ -25,7 +25,7 @@ run-buttons:
 	$(UVICORN) raspberry.app:app --host $(BUTTON_HOST) --port $(BUTTON_PORT)
 
 fw:
-	bash -lc '. $(IDF_EXPORT) && $(IDF_PY) -C $(IDF_DIR) build flash'
+	bash -lc '. $(IDF_EXPORT) && $(IDF_PY) -C $(IDF_DIR) fullclean build flash'
 
 fw-tests:
-	bash -lc '. $(IDF_EXPORT) && $(IDF_PY) -C $(IDF_DIR) -DPAIR_RUN_TESTS=1 build flash'
+	bash -lc '. $(IDF_EXPORT) && $(IDF_PY) -C $(IDF_DIR) -DPAIR_RUN_TESTS=1 fullclean build flash'

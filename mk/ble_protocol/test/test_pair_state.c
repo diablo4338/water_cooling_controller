@@ -7,11 +7,7 @@
 void pair_tests_force_link(void) {}
 
 static void reset_globals(void) {
-    g_pairing_mode = false;
-    g_paired = false;
-    g_authed = false;
-    g_pair_conn_handle = BLE_HS_CONN_HANDLE_NONE;
-    g_auth_conn_handle = BLE_HS_CONN_HANDLE_NONE;
+    fsm_reset();
     pair_state_reset();
 }
 
@@ -58,8 +54,8 @@ TEST_CASE("pair state reset clears progress", "[pair]") {
 
 TEST_CASE("state handles reset to none", "[state]") {
     reset_globals();
-    TEST_ASSERT_EQUAL(BLE_HS_CONN_HANDLE_NONE, g_pair_conn_handle);
-    TEST_ASSERT_EQUAL(BLE_HS_CONN_HANDLE_NONE, g_auth_conn_handle);
+    TEST_ASSERT_EQUAL(BLE_HS_CONN_HANDLE_NONE, fsm_get_pair_conn_handle());
+    TEST_ASSERT_EQUAL(BLE_HS_CONN_HANDLE_NONE, fsm_get_auth_conn_handle());
 }
 
 TEST_CASE("access control gates pairing and data", "[access]") {
@@ -69,13 +65,14 @@ TEST_CASE("access control gates pairing and data", "[access]") {
     TEST_ASSERT_FALSE(can_access_auth_nonce());
     TEST_ASSERT_FALSE(can_access_data());
 
-    g_pairing_mode = true;
+    fsm_dispatch(FSM_EVT_PAIR_START, BLE_HS_CONN_HANDLE_NONE);
     TEST_ASSERT_TRUE(can_access_pairing());
 
-    g_paired = true;
+    fsm_reset();
+    fsm_dispatch(FSM_EVT_TRUST_LOADED, BLE_HS_CONN_HANDLE_NONE);
     TEST_ASSERT_FALSE(can_access_pairing());
     TEST_ASSERT_TRUE(can_access_auth_nonce());
 
-    g_authed = true;
+    fsm_dispatch(FSM_EVT_AUTH_OK, 7);
     TEST_ASSERT_TRUE(can_access_data());
 }

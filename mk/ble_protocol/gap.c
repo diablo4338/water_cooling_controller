@@ -23,12 +23,8 @@ static void clear_session_secrets_locked(void) {
 
 void term_cb(void *arg) {
     (void)arg;
-    uint16_t curr;
-    uint16_t expected;
-    state_lock();
-    curr = g_conn_handle;
-    expected = g_term_conn_handle;
-    state_unlock();
+    uint16_t curr = fsm_get_conn_handle();
+    uint16_t expected = fsm_get_term_conn_handle();
     if (curr != BLE_HS_CONN_HANDLE_NONE && curr == expected) {
         ESP_LOGI(TAG, "Terminating conn after finish (handle=%u)", (unsigned)curr);
         int rc = ble_gap_terminate(curr, BLE_ERR_REM_USER_CONN_TERM);
@@ -43,13 +39,10 @@ void data_timer_cb(void *arg) {
     (void)arg;
 
     uint16_t conn;
-    uint16_t attr;
     bool notify;
-    state_lock();
-    conn = g_conn_handle;
-    notify = g_data_notify_enabled;
-    attr = g_data_attr_handle;
-    state_unlock();
+    uint16_t attr = g_data_attr_handle;
+    conn = fsm_get_conn_handle();
+    notify = fsm_get_data_notify_enabled();
 
     if (conn == BLE_HS_CONN_HANDLE_NONE) return;
     if (!auth_conn_check(conn)) return;
@@ -85,10 +78,7 @@ void start_advertising(void) {
 
     adv_fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
 
-    bool pairing;
-    state_lock();
-    pairing = g_pairing_mode;
-    state_unlock();
+    bool pairing = fsm_is_pairing();
 
     if (pairing) {
         adv_fields.uuids128 = (ble_uuid128_t *)&UUID_PAIR_SVC.u128;
@@ -159,11 +149,8 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
     switch (event->type) {
         case BLE_GAP_EVENT_CONNECT:
             if (event->connect.status == 0) {
+                fsm_dispatch(FSM_EVT_CONNECT, event->connect.conn_handle);
                 state_lock();
-                g_conn_handle = event->connect.conn_handle;
-                g_authed = false;
-                g_term_conn_handle = BLE_HS_CONN_HANDLE_NONE;
-                g_auth_conn_handle = BLE_HS_CONN_HANDLE_NONE;
                 clear_session_secrets_locked();
                 state_unlock();
                 rand_bytes(auth_nonce, sizeof(auth_nonce));
@@ -178,19 +165,12 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
             }
             return 0;
 
-        case BLE_GAP_EVENT_DISCONNECT:
+        case BLE_GAP_EVENT_DISCONNECT: {
             ESP_LOGI(TAG, "Disconnected; restarting adv");
-            bool was_pairing;
+            bool was_pairing = fsm_is_pairing();
+            fsm_dispatch(FSM_EVT_DISCONNECT, BLE_HS_CONN_HANDLE_NONE);
             state_lock();
-            g_conn_handle = BLE_HS_CONN_HANDLE_NONE;
-            g_term_conn_handle = BLE_HS_CONN_HANDLE_NONE;
-            g_authed = false;
-            g_data_notify_enabled = false;
-            g_auth_conn_handle = BLE_HS_CONN_HANDLE_NONE;
-            g_pair_conn_handle = BLE_HS_CONN_HANDLE_NONE;
             clear_session_secrets_locked();
-            was_pairing = g_pairing_mode;
-            g_pairing_mode = false;
             state_unlock();
             esp_timer_stop(g_data_timer);
             esp_timer_stop(g_term_timer);
@@ -202,13 +182,13 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
             rgb_set_pairing(was_pairing);
             start_advertising();
             return 0;
+        }
 
         case BLE_GAP_EVENT_SUBSCRIBE:
             if (event->subscribe.attr_handle == g_data_attr_handle) {
-                state_lock();
-                g_data_notify_enabled = (event->subscribe.cur_notify != 0);
-                state_unlock();
-                ESP_LOGI(TAG, "DATA notify: %s", g_data_notify_enabled ? "ON" : "OFF");
+                bool enabled = (event->subscribe.cur_notify != 0);
+                fsm_set_data_notify_enabled(enabled);
+                ESP_LOGI(TAG, "DATA notify: %s", enabled ? "ON" : "OFF");
             }
             return 0;
 

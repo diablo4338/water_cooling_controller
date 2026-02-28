@@ -20,15 +20,9 @@
 
 void pair_timeout_cb(void *arg) {
     (void)arg;
-    state_lock();
-    if (!g_pairing_mode) {
-        state_unlock();
+    if (!fsm_dispatch(FSM_EVT_PAIR_TIMEOUT, BLE_HS_CONN_HANDLE_NONE)) {
         return;
     }
-    g_pairing_mode = false;
-    g_pair_conn_handle = BLE_HS_CONN_HANDLE_NONE;
-    g_auth_conn_handle = BLE_HS_CONN_HANDLE_NONE;
-    state_unlock();
     rgb_set_pairing(false);
     pair_state_full_reset();
     stop_advertising();
@@ -52,35 +46,30 @@ void button_task(void *p) {
             long_triggered = false;
             press_started_pair = false;
 
-            bool paired;
-            bool has_conn;
-            state_lock();
-            paired = g_paired;
-            has_conn = (g_conn_handle != BLE_HS_CONN_HANDLE_NONE);
-            state_unlock();
+            bool paired = fsm_is_paired();
+            bool has_conn = (fsm_get_conn_handle() != BLE_HS_CONN_HANDLE_NONE);
             if (paired) {
                 ESP_LOGW(TAG, "Already paired; pairing mode ignored");
             } else if (has_conn) {
                 ESP_LOGW(TAG, "Pairing request ignored: device already connected");
             } else {
-                state_lock();
-                g_pairing_mode = true;
-                g_pair_conn_handle = BLE_HS_CONN_HANDLE_NONE;
-                g_auth_conn_handle = BLE_HS_CONN_HANDLE_NONE;
-                state_unlock();
-                rand_bytes(dev_nonce, sizeof(dev_nonce));
-
-                if (ecdh_make_dev_keys() != 0) {
-                    ESP_LOGE(TAG, "ECDH keygen failed");
+                if (!fsm_dispatch(FSM_EVT_PAIR_START, BLE_HS_CONN_HANDLE_NONE)) {
+                    ESP_LOGW(TAG, "Pairing request ignored: bad state");
                 } else {
-                    press_started_pair = true;
-                    pair_state_start();
-                    esp_timer_stop(g_pair_timer);
-                    ESP_ERROR_CHECK(esp_timer_start_once(g_pair_timer, 20 * 1000 * 1000));
-                    rgb_set_pairing(true);
-                    stop_advertising();
-                    start_advertising();
-                    ESP_LOGW(TAG, "Pairing mode ON (20s)");
+                    rand_bytes(dev_nonce, sizeof(dev_nonce));
+
+                    if (ecdh_make_dev_keys() != 0) {
+                        ESP_LOGE(TAG, "ECDH keygen failed");
+                    } else {
+                        press_started_pair = true;
+                        pair_state_start();
+                        esp_timer_stop(g_pair_timer);
+                        ESP_ERROR_CHECK(esp_timer_start_once(g_pair_timer, 20 * 1000 * 1000));
+                        rgb_set_pairing(true);
+                        stop_advertising();
+                        start_advertising();
+                        ESP_LOGW(TAG, "Pairing mode ON (20s)");
+                    }
                 }
             }
         }
@@ -89,14 +78,12 @@ void button_task(void *p) {
             int64_t dur_ms = (esp_timer_get_time() - press_start) / 1000;
             if (dur_ms > 3000) {
                 long_triggered = true;
-                bool has_conn;
-                state_lock();
-                has_conn = (g_conn_handle != BLE_HS_CONN_HANDLE_NONE);
-                state_unlock();
+                uint16_t conn_handle = fsm_get_conn_handle();
+                bool has_conn = (conn_handle != BLE_HS_CONN_HANDLE_NONE);
                 if (has_conn) {
                     ESP_LOGW(TAG, "Reset pair: disconnecting client (handle=%u)",
-                             (unsigned)g_conn_handle);
-                    int rc = ble_gap_terminate(g_conn_handle, BLE_ERR_REM_USER_CONN_TERM);
+                             (unsigned)conn_handle);
+                    int rc = ble_gap_terminate(conn_handle, BLE_ERR_REM_USER_CONN_TERM);
                     if (rc != 0) ESP_LOGW(TAG, "ble_gap_terminate rc=%d", rc);
                 }
                 trust_reset();
