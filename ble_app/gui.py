@@ -4,6 +4,7 @@ from concurrent.futures import Future
 from typing import Callable, Optional
 
 from PySide6.QtCore import QThread, Qt, Signal, Slot, QTimer
+from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -38,6 +39,7 @@ ACTION_TIMEOUTS = {
     Action.DISCONNECT: 5.0,
 }
 USER_ROLE = Qt.ItemDataRole.UserRole
+PAIRED_HIGHLIGHT_BRUSH = QBrush(QColor(220, 245, 220))
 
 
 class BleWorker(QThread):
@@ -259,6 +261,7 @@ class MainWindow(QMainWindow):
         self.worker.start()
         self.model = AppModel()
         self.model.set_status("Готово")
+        self._lock_selection_active = False
 
         self.scan_button = QPushButton("Сканировать")
         self.pair_button = QPushButton("Спарить")
@@ -367,6 +370,59 @@ class MainWindow(QMainWindow):
         self.auto_checkbox.blockSignals(True)
         self.auto_checkbox.setChecked(ui.auto_enabled)
         self.auto_checkbox.blockSignals(False)
+        self._apply_paired_highlight()
+
+    def _apply_paired_highlight(self) -> None:
+        highlight = self.model.ui.paired_highlight
+        for idx in range(self.paired_list.count()):
+            item = self.paired_list.item(idx)
+            info = item.data(USER_ROLE)
+            if highlight and info and getattr(info, "address", None) == highlight.address:
+                item.setBackground(PAIRED_HIGHLIGHT_BRUSH)
+            else:
+                item.setBackground(QBrush())
+
+    def _clear_paired_selection(self) -> None:
+        self.paired_list.blockSignals(True)
+        self.paired_list.clearSelection()
+        self.paired_list.blockSignals(False)
+        if self.model.state.selected_source == SelectionSource.PAIRED:
+            self.model.set_selection(None, None)
+
+    def _lock_selection_to_connected(self) -> None:
+        if self._lock_selection_active:
+            return
+        device = self.model.state.connected_device
+        if not device:
+            return
+        self._lock_selection_active = True
+        try:
+            self.found_list.blockSignals(True)
+            self.found_list.clearSelection()
+            self.found_list.blockSignals(False)
+
+            target_item = None
+            for idx in range(self.paired_list.count()):
+                item = self.paired_list.item(idx)
+                info = item.data(USER_ROLE)
+                if info and getattr(info, "address", None) == device.address:
+                    target_item = item
+                    break
+
+            self.paired_list.blockSignals(True)
+            if target_item is not None:
+                self.paired_list.setCurrentItem(target_item)
+                self.paired_list.scrollToItem(target_item)
+            else:
+                self.paired_list.clearSelection()
+            self.paired_list.blockSignals(False)
+
+            if target_item is not None:
+                self.model.set_selection(SelectionSource.PAIRED, device)
+            else:
+                self.model.set_selection(None, None)
+        finally:
+            self._lock_selection_active = False
 
     def _on_found_selected(self) -> None:
         self._sync_selection(
@@ -385,6 +441,10 @@ class MainWindow(QMainWindow):
     def _sync_selection(
         self, source: SelectionSource, current_list: QListWidget, other_list: QListWidget
     ) -> None:
+        if self.model.state.conn == ConnState.CONNECTED:
+            self._lock_selection_to_connected()
+            self._apply_ui()
+            return
         item = current_list.currentItem()
         if item is not None:
             other_list.blockSignals(True)
@@ -512,6 +572,10 @@ class MainWindow(QMainWindow):
             item.setData(USER_ROLE, dev)
             self.paired_list.addItem(item)
         self.model.set_paired_devices(devices)
+        if self.model.state.conn == ConnState.CONNECTED:
+            self._lock_selection_to_connected()
+            self._apply_ui()
+            return
         prev = (
             self.model.state.selected_device
             if self.model.state.selected_source == SelectionSource.PAIRED
@@ -577,13 +641,14 @@ class MainWindow(QMainWindow):
         if connected and device:
             self.model.set_connected(True, device)
             update_paired_last_connected(device.address)
-            self._select_paired_device(device)
+            self._lock_selection_to_connected()
             if self.model.state.active_action == Action.CONNECT:
                 self._finish_action(Action.CONNECT)
             self.on_log(f"Подключено к {device.name}")
         elif not connected:
             already_disconnected = self.model.state.conn == ConnState.DISCONNECTED
             self.model.set_connected(False, None)
+            self._clear_paired_selection()
             if self.model.state.active_action == Action.DISCONNECT:
                 self._finish_action(Action.DISCONNECT)
             elif self.model.state.active_action == Action.CONNECT:
@@ -596,6 +661,8 @@ class MainWindow(QMainWindow):
             item = self.paired_list.item(idx)
             info = item.data(USER_ROLE)
             if info and getattr(info, "address", None) == device.address:
+                if self.paired_list.currentItem() is item:
+                    return
                 self.paired_list.setCurrentItem(item)
                 self.paired_list.scrollToItem(item)
                 return
@@ -611,12 +678,15 @@ class MainWindow(QMainWindow):
             self.worker.stop_auto()
             self.model.set_auto_enabled(False)
             self.found_list.blockSignals(True)
-            self.paired_list.blockSignals(True)
             self.found_list.clearSelection()
-            self.paired_list.clearSelection()
             self.found_list.blockSignals(False)
-            self.paired_list.blockSignals(False)
-            self.model.set_selection(None, None)
+            if self.model.state.conn == ConnState.CONNECTED:
+                self._lock_selection_to_connected()
+            else:
+                self.paired_list.blockSignals(True)
+                self.paired_list.clearSelection()
+                self.paired_list.blockSignals(False)
+                self.model.set_selection(None, None)
             fut = self._action_futures.pop(Action.AUTO_CONNECT, None)
             if fut and not fut.done():
                 fut.cancel()

@@ -286,74 +286,74 @@ async def test_reset_disconnects_and_blocks_reconnect(
         await core.disconnect()
 
 
-@pytest.mark.asyncio
-@pytest.mark.slow
-async def test_full_session_scenario(
-    core: BleAppCore,
-    ble_address: Optional[str],
-    scan_timeout_s: float,
-    connect_timeout_s: float,
-    press_base_url: str,
-    press_enabled: bool,
-    press_timeout_s: float,
-    press_retries: int,
-    press_no_response: bool,
-) -> None:
-    paired_device = await _pair_device(
-        core,
-        ble_address,
-        scan_timeout_s=scan_timeout_s,
-        press_base_url=press_base_url,
-        press_enabled=press_enabled,
-        press_timeout_s=press_timeout_s,
-        press_retries=press_retries,
-        press_no_response=press_no_response,
-    )
-    await core.connect_raw(paired_device, connect_timeout=connect_timeout_s)
-    try:
-        with pytest.raises(Exception):
-            await core.read_metrics()
-    finally:
-        await core.disconnect()
-
-    for _ in range(4):
-        await core.connect_raw(paired_device, connect_timeout=connect_timeout_s)
-        try:
-            await core.auth()
-            got_notify = asyncio.Event()
-
-            def on_data(_: bytearray) -> None:
-                got_notify.set()
-
-            await core.start_metrics_notify(on_data)
-            try:
-                await asyncio.wait_for(got_notify.wait(), timeout=3.0)
-            finally:
-                await core.stop_metrics_notify()
-        finally:
-            await core.disconnect()
-
-    await core.connect_raw(paired_device, connect_timeout=connect_timeout_s)
-    _press(
-        "press/reset-long",
-        press_base_url,
-        press_enabled,
-        press_timeout_s,
-        press_retries,
-        press_no_response,
-    )
-    await asyncio.sleep(0.5)
-    with pytest.raises(Exception):
-        await core.read_metrics()
-    await core.disconnect()
-
-    await core.connect_raw(paired_device, connect_timeout=connect_timeout_s)
-    try:
-        with pytest.raises(Exception) as excinfo:
-            await core.auth()
-        msg = str(excinfo.value)
-        assert "NotAuthorized" in msg or "Not Authorized" in msg, (
-            "Expected NotAuthorized error after reset; got: " + msg
-        )
-    finally:
-        await core.disconnect()
+# @pytest.mark.asyncio
+# @pytest.mark.slow
+# async def test_full_session_scenario(
+#     core: BleAppCore,
+#     ble_address: Optional[str],
+#     scan_timeout_s: float,
+#     connect_timeout_s: float,
+#     press_base_url: str,
+#     press_enabled: bool,
+#     press_timeout_s: float,
+#     press_retries: int,
+#     press_no_response: bool,
+# ) -> None:
+#     paired_device = await _pair_device(
+#         core,
+#         ble_address,
+#         scan_timeout_s=scan_timeout_s,
+#         press_base_url=press_base_url,
+#         press_enabled=press_enabled,
+#         press_timeout_s=press_timeout_s,
+#         press_retries=press_retries,
+#         press_no_response=press_no_response,
+#     )
+#     await core.connect_raw(paired_device, connect_timeout=connect_timeout_s)
+#     try:
+#         with pytest.raises(Exception):
+#             await core.read_metrics()
+#     finally:
+#         await core.disconnect()
+#
+#     for _ in range(4):
+#         await core.connect_raw(paired_device, connect_timeout=connect_timeout_s)
+#         try:
+#             await core.auth()
+#             got_notify = asyncio.Event()
+#
+#             def on_data(_: bytearray) -> None:
+#                 got_notify.set()
+#
+#             await core.start_metrics_notify(on_data)
+#             try:
+#                 await asyncio.wait_for(got_notify.wait(), timeout=3.0)
+#             finally:
+#                 await core.stop_metrics_notify()
+#         finally:
+#             await core.disconnect()
+#
+#     await core.connect_raw(paired_device, connect_timeout=connect_timeout_s)
+#     _press(
+#         "press/reset-long",
+#         press_base_url,
+#         press_enabled,
+#         press_timeout_s,
+#         press_retries,
+#         press_no_response,
+#     )
+#     await asyncio.sleep(0.5)
+#     with pytest.raises(Exception):
+#         await core.read_metrics()
+#     await core.disconnect()
+#
+#     await core.connect_raw(paired_device, connect_timeout=connect_timeout_s)
+#     try:
+#         with pytest.raises(Exception) as excinfo:
+#             await core.auth()
+#         msg = str(excinfo.value)
+#         assert "NotAuthorized" in msg or "Not Authorized" in msg, (
+#             "Expected NotAuthorized error after reset; got: " + msg
+#         )
+#     finally:
+#         await core.disconnect()

@@ -12,19 +12,38 @@ def test_derive_ui_basics() -> None:
     assert Action.PAIR not in ui.enabled_actions
     assert Action.DISCONNECT not in ui.enabled_actions
     assert Action.DELETE_PAIRED not in ui.enabled_actions
+    assert ui.paired_highlight is None
 
     device = DeviceInfo(name="Dev", address="AA:BB")
     state = AppState(selected_device=device, selected_source=SelectionSource.FOUND)
     ui = derive_ui(state)
     assert ui.enabled_actions == {Action.SCAN, Action.PAIR, Action.AUTO_CONNECT}
+    assert ui.paired_highlight is None
 
     state = AppState(conn=ConnState.CONNECTED)
     ui = derive_ui(state)
     assert ui.enabled_actions == {Action.DISCONNECT}
+    assert ui.paired_highlight is None
 
     state = AppState(selected_device=device, selected_source=SelectionSource.PAIRED)
     ui = derive_ui(state)
     assert ui.enabled_actions == {Action.SCAN, Action.CONNECT, Action.AUTO_CONNECT}
+    assert ui.paired_highlight is None
+
+
+def test_derive_ui_paired_highlight_connected_only() -> None:
+    device = DeviceInfo(name="Dev", address="AA:BB")
+    state = AppState(conn=ConnState.CONNECTED, connected_device=device)
+    ui = derive_ui(state)
+    assert ui.paired_highlight == device
+
+    state = AppState(conn=ConnState.CONNECTING, connected_device=device)
+    ui = derive_ui(state)
+    assert ui.paired_highlight is None
+
+    state = AppState(conn=ConnState.DISCONNECTED, connected_device=device)
+    ui = derive_ui(state)
+    assert ui.paired_highlight is None
 
 
 def test_derive_ui_busy_gates_actions() -> None:
@@ -72,3 +91,4 @@ def test_auto_toggle_sets_state() -> None:
     assert model.state.auto_enabled is False
     assert model.state.busy is False
     assert model.state.active_action is None
+

@@ -49,6 +49,7 @@ class UiModel:
     status_text: str
     busy: bool
     auto_enabled: bool
+    paired_highlight: Optional[DeviceInfo]
 
 
 ASYNC_ACTIONS = {
@@ -79,11 +80,13 @@ def derive_ui(state: AppState) -> UiModel:
     else:
         enabled = {Action.SCAN, Action.SHOW_PAIRED, Action.AUTO_CONNECT}
 
+    highlight = state.connected_device if state.conn == ConnState.CONNECTED else None
     return UiModel(
         enabled_actions=enabled,
         status_text=state.status,
         busy=state.busy,
         auto_enabled=state.auto_enabled,
+        paired_highlight=highlight,
     )
 
 
