@@ -178,7 +178,15 @@ class BleWorker(QThread):
                     self.core.client.set_disconnected_callback(self._on_disconnected)
                 self.log.emit("Connected, starting AUTH...")
                 await self._do_auth()
-                self.log.emit("AUTH ok, starting notify...")
+                self.log.emit("AUTH ok, reading initial METRICS...")
+                try:
+                    values = await self.core.read_metrics(timeout=self.config.metrics_timeout_s)
+                    for idx, value in enumerate(values):
+                        self.temp_received.emit(idx, value)
+                    self.log.emit("Initial METRICS read ok.")
+                except Exception as exc:
+                    self.log.emit(f"Initial METRICS read failed: {exc}")
+                self.log.emit("Starting notify...")
                 try:
                     await self._with_timeout(
                         self.core.start_metrics_notify(self._on_temp),
@@ -288,6 +296,7 @@ class MainWindow(QMainWindow):
         self.data_view.setReadOnly(True)
         self.status_label = QLabel(self.model.state.status)
         self.temp_fields: list[QLineEdit] = []
+        self._temp_is_nc: list[Optional[bool]] = [None] * 4
 
         buttons = QHBoxLayout()
         buttons.addWidget(self.scan_button)
@@ -357,6 +366,7 @@ class MainWindow(QMainWindow):
     def _build_temp_layout(self) -> QGridLayout:
         grid = QGridLayout()
         self.temp_fields.clear()
+        self._temp_is_nc = [None] * 4
         for idx in range(4):
             label = QLabel(f"Темп. {idx + 1}")
             field = QLineEdit("—")
@@ -636,10 +646,18 @@ class MainWindow(QMainWindow):
     @Slot(int, float)
     def on_temp_received(self, channel: int, value: float) -> None:
         if 0 <= channel < len(self.temp_fields):
-            if math.isfinite(value):
+            is_nc = not math.isfinite(value)
+            prev_nc = self._temp_is_nc[channel]
+            if prev_nc is not None and prev_nc != is_nc:
+                if is_nc:
+                    self.on_log(f"Канал {channel + 1}: NC (нет датчика)")
+                else:
+                    self.on_log(f"Канал {channel + 1}: онлайн")
+            self._temp_is_nc[channel] = is_nc
+            if not is_nc:
                 text = f"{value:.2f}"
             else:
-                text = "N/A"
+                text = "NC"
             self.temp_fields[channel].setText(text)
             self.data_view.append(f"Темп. {channel + 1}: {text}")
 
@@ -679,6 +697,7 @@ class MainWindow(QMainWindow):
     def _reset_temp_fields(self) -> None:
         for field in self.temp_fields:
             field.setText("—")
+        self._temp_is_nc = [None] * len(self.temp_fields)
 
     def _select_paired_device(self, device: DeviceInfo) -> None:
         for idx in range(self.paired_list.count()):

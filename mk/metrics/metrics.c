@@ -16,6 +16,7 @@ static bool g_temp_valid[4] = {false};
 static uint8_t g_temp_failures[4] = {0};
 
 #define METRICS_FAIL_THRESHOLD 3
+#define METRICS_RAW_NO_SENSOR_THRESHOLD 500
 
 void metrics_init(void) {
     for (int i = 0; i < 4; i++) {
@@ -57,6 +58,18 @@ uint8_t metrics_sample_all(void) {
     for (uint8_t ch = 0; ch < 4; ch++) {
         int16_t raw = 0;
         if (ads1115_read_raw(ch, &raw)) {
+            if (raw < METRICS_RAW_NO_SENSOR_THRESHOLD) {
+                bool was_offline = g_temp_failures[ch] >= METRICS_FAIL_THRESHOLD;
+                g_temp_failures[ch] = METRICS_FAIL_THRESHOLD;
+                if (!was_offline) {
+                    ESP_LOGW(METRICS_TAG, "channel %u no sensor (raw=%d)", (unsigned)ch, raw);
+                }
+                if (metrics_mark_invalid(ch)) {
+                    changed_mask |= (uint8_t)(1U << ch);
+                }
+                vTaskDelay(pdMS_TO_TICKS(ADS1115_INTER_CH_DELAY_MS));
+                continue;
+            }
             bool was_offline = g_temp_failures[ch] >= METRICS_FAIL_THRESHOLD;
             g_temp_failures[ch] = 0;
             if (was_offline) {
