@@ -100,12 +100,8 @@ async def _pair_device(
     )
     await asyncio.sleep(0.5)
 
-    if ble_address:
-        device = await core.resolve_device(ble_address, timeout=scan_timeout_s)
-    else:
-        devices = await core.scan_pairing(timeout=scan_timeout_s)
-        assert devices, "No pairing device found. Pair button did not start advertising."
-        device = devices[0]
+    device = await core.resolve_device(ble_address, timeout=scan_timeout_s)
+
 
     last_msg = ""
     for attempt in range(3):
@@ -131,8 +127,25 @@ def core(ble_adapter: Optional[str]) -> BleAppCore:
     return BleAppCore(log=LOG.info, adapter=ble_adapter)
 
 
+@pytest.fixture(scope="function", autouse=True)
+def _auto_reset_pairing(
+    press_base_url: str,
+    press_timeout_s: float,
+    press_retries: int,
+    press_no_response: bool,
+) -> None:
+    _press(
+        "press/reset-long",
+        press_base_url,
+        press_timeout_s,
+        press_retries,
+        press_no_response,
+    )
+    time.sleep(0.5)
+
+
 @pytest.fixture(scope="function")
-async def paired_device(
+def paired_device(
     core: BleAppCore,
     ble_address: Optional[str],
     scan_timeout_s: float,
@@ -141,14 +154,16 @@ async def paired_device(
     press_retries: int,
     press_no_response: bool,
 ) -> DeviceInfo:
-    return await _pair_device(
-        core,
-        ble_address,
-        scan_timeout_s,
-        press_base_url,
-        press_timeout_s,
-        press_retries,
-        press_no_response,
+    return asyncio.run(
+        _pair_device(
+            core,
+            ble_address,
+            scan_timeout_s,
+            press_base_url,
+            press_timeout_s,
+            press_retries,
+            press_no_response,
+        )
     )
 
 

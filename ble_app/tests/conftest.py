@@ -13,6 +13,14 @@ def _str_to_bool(value: str) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
+def pytest_sessionstart(session: pytest.Session) -> None:
+    ble_address_env = os.environ.get("BLE_ADDRESS", "").strip()
+    if not ble_address_env:
+        raise pytest.UsageError(
+            "BLE_ADDRESS env var must be set and non-empty to run tests."
+        )
+
+
 def pytest_addoption(parser: pytest.Parser) -> None:
     parser.addoption(
         "--ble-address",
