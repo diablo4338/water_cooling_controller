@@ -40,11 +40,6 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help="Base URL for button presses (env: PRESS_BASE_URL)",
     )
     parser.addoption(
-        "--press-enabled",
-        default=os.environ.get("PRESS_ENABLED", "1"),
-        help="Enable HTTP button presses (1/0, env: PRESS_ENABLED)",
-    )
-    parser.addoption(
         "--press-timeout",
         default=os.environ.get("PRESS_TIMEOUT_S", "10.0"),
         help="HTTP press timeout seconds (env: PRESS_TIMEOUT_S)",

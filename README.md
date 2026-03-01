@@ -140,7 +140,6 @@ pytest -c ble_app/pytest.ini -q -m integration
 - `SCAN_TIMEOUT_S` — таймаут сканирования (для тестов).
 - `CONNECT_TIMEOUT_S` — таймаут подключения (для тестов).
 - `PRESS_BASE_URL` — базовый URL для кнопок.
-- `PRESS_ENABLED` — включить/выключить HTTP нажатия (1/0).
 - `PRESS_TIMEOUT_S` — таймаут HTTP нажатия.
 - `PRESS_RETRIES` — количество ретраев.
 - `PRESS_NO_RESPONSE` — не ждать ответ от HTTP сервиса (1/0).

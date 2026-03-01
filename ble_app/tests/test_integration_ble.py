@@ -18,14 +18,11 @@ pytestmark = pytest.mark.integration
 def _press(
     path: str,
     base_url: str,
-    enabled: bool,
     timeout_s: float,
     retries: int,
     no_response: bool,
     require_status_lt_400: bool = False,
 ) -> None:
-    if not enabled:
-        raise RuntimeError("PRESS_ENABLED=0; cannot trigger hardware actions in strict tests")
     import socket
     from urllib.parse import urlparse
 
@@ -75,30 +72,20 @@ def _press(
                 time.sleep(0.3)
     raise RuntimeError(
         f"Press failed after {retries + 1} attempts: {url}. "
-        "Set PRESS_ENABLED=0 to skip HTTP presses."
     ) from last_error
-
-
-def _require_press(enabled: bool) -> None:
-    if not enabled:
-        raise RuntimeError("PRESS_ENABLED=0; strict tests require hardware button endpoints")
-
 
 async def _pair_device(
     core: BleAppCore,
     ble_address: Optional[str],
     scan_timeout_s: float,
     press_base_url: str,
-    press_enabled: bool,
     press_timeout_s: float,
     press_retries: int,
     press_no_response: bool,
 ) -> DeviceInfo:
-    _require_press(press_enabled)
     _press(
         "press/reset-long",
         press_base_url,
-        press_enabled,
         press_timeout_s,
         press_retries,
         press_no_response,
@@ -107,7 +94,6 @@ async def _pair_device(
     _press(
         "press/pair",
         press_base_url,
-        press_enabled,
         press_timeout_s,
         press_retries,
         press_no_response,
@@ -151,7 +137,6 @@ async def paired_device(
     ble_address: Optional[str],
     scan_timeout_s: float,
     press_base_url: str,
-    press_enabled: bool,
     press_timeout_s: float,
     press_retries: int,
     press_no_response: bool,
@@ -161,7 +146,6 @@ async def paired_device(
         ble_address,
         scan_timeout_s,
         press_base_url,
-        press_enabled,
         press_timeout_s,
         press_retries,
         press_no_response,
@@ -174,16 +158,13 @@ async def test_pair_button_advertises_pairing_service(
     ble_address: Optional[str],
     scan_timeout_s: float,
     press_base_url: str,
-    press_enabled: bool,
     press_timeout_s: float,
     press_retries: int,
     press_no_response: bool,
 ) -> None:
-    _require_press(press_enabled)
     _press(
         "press/reset-long",
         press_base_url,
-        press_enabled,
         press_timeout_s,
         press_retries,
         press_no_response,
@@ -192,7 +173,6 @@ async def test_pair_button_advertises_pairing_service(
     _press(
         "press/pair",
         press_base_url,
-        press_enabled,
         press_timeout_s,
         press_retries,
         press_no_response,
@@ -260,7 +240,6 @@ async def test_reset_disconnects_and_blocks_reconnect(
     paired_device: DeviceInfo,
     connect_timeout_s: float,
     press_base_url: str,
-    press_enabled: bool,
     press_timeout_s: float,
     press_retries: int,
     press_no_response: bool,
@@ -271,7 +250,6 @@ async def test_reset_disconnects_and_blocks_reconnect(
         _press(
             "press/reset-long",
             press_base_url,
-            press_enabled,
             press_timeout_s,
             press_retries,
             press_no_response,
