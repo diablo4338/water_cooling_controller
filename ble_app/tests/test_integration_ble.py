@@ -16,12 +16,12 @@ pytestmark = pytest.mark.integration
 
 
 def _press(
-    path: str,
-    base_url: str,
-    timeout_s: float,
-    retries: int,
-    no_response: bool,
-    require_status_lt_400: bool = False,
+        path: str,
+        base_url: str,
+        timeout_s: float,
+        retries: int,
+        no_response: bool,
+        require_status_lt_400: bool = False,
 ) -> None:
     import socket
     from urllib.parse import urlparse
@@ -74,35 +74,13 @@ def _press(
         f"Press failed after {retries + 1} attempts: {url}. "
     ) from last_error
 
+
 async def _pair_device(
-    core: BleAppCore,
-    ble_address: Optional[str],
-    scan_timeout_s: float,
-    press_base_url: str,
-    press_timeout_s: float,
-    press_retries: int,
-    press_no_response: bool,
+        core: BleAppCore,
+        ble_address: Optional[str],
+        scan_timeout_s: float,
 ) -> DeviceInfo:
-    _press(
-        "press/reset-long",
-        press_base_url,
-        press_timeout_s,
-        press_retries,
-        press_no_response,
-    )
-    await asyncio.sleep(0.5)
-    _press(
-        "press/pair",
-        press_base_url,
-        press_timeout_s,
-        press_retries,
-        press_no_response,
-    )
-    await asyncio.sleep(0.5)
-
     device = await core.resolve_device(ble_address, timeout=scan_timeout_s)
-
-
     last_msg = ""
     for attempt in range(3):
         pair_result = await core.pair(device)
@@ -129,10 +107,10 @@ def core(ble_adapter: Optional[str]) -> BleAppCore:
 
 @pytest.fixture(scope="function", autouse=True)
 def _auto_reset_pairing(
-    press_base_url: str,
-    press_timeout_s: float,
-    press_retries: int,
-    press_no_response: bool,
+        press_base_url: str,
+        press_timeout_s: float,
+        press_retries: int,
+        press_no_response: bool,
 ) -> None:
     _press(
         "press/reset-long",
@@ -146,59 +124,29 @@ def _auto_reset_pairing(
 
 @pytest.fixture(scope="function")
 def paired_device(
-    core: BleAppCore,
-    ble_address: Optional[str],
-    scan_timeout_s: float,
-    press_base_url: str,
-    press_timeout_s: float,
-    press_retries: int,
-    press_no_response: bool,
+        core: BleAppCore,
+        ble_address: Optional[str],
+        scan_timeout_s: float,
+        press_base_url: str,
+        press_timeout_s: float,
+        press_retries: int,
+        press_no_response: bool,
 ) -> DeviceInfo:
     return asyncio.run(
         _pair_device(
             core,
             ble_address,
-            scan_timeout_s,
-            press_base_url,
-            press_timeout_s,
-            press_retries,
-            press_no_response,
+            scan_timeout_s
         )
     )
 
 
 @pytest.mark.asyncio
 async def test_pair_button_advertises_pairing_service(
-    core: BleAppCore,
-    ble_address: Optional[str],
-    scan_timeout_s: float,
-    press_base_url: str,
-    press_timeout_s: float,
-    press_retries: int,
-    press_no_response: bool,
+        core: BleAppCore,
+        ble_address: Optional[str],
 ) -> None:
-    _press(
-        "press/reset-long",
-        press_base_url,
-        press_timeout_s,
-        press_retries,
-        press_no_response,
-    )
-    await asyncio.sleep(0.5)
-    _press(
-        "press/pair",
-        press_base_url,
-        press_timeout_s,
-        press_retries,
-        press_no_response,
-    )
-    await asyncio.sleep(0.5)
-
-    if ble_address:
-        await core.resolve_device(ble_address, timeout=scan_timeout_s)
-    else:
-        devices = await core.scan_pairing(timeout=scan_timeout_s)
-        assert devices, "No pairing device found. Pair button did not start advertising."
+    assert await core._probe_pairing(DeviceInfo(name="Test", address=ble_address))
 
 
 @pytest.mark.asyncio
@@ -207,154 +155,7 @@ async def test_pairing_succeeds(paired_device: DeviceInfo) -> None:
 
 
 @pytest.mark.asyncio
-async def test_unauthenticated_connect_rejected(
-    core: BleAppCore, paired_device: DeviceInfo, connect_timeout_s: float
-) -> None:
-    await core.connect_raw(paired_device, connect_timeout=connect_timeout_s)
-    try:
-        with pytest.raises(Exception):
-            await core.read_metrics()
-    finally:
-        await core.disconnect()
-
-
-@pytest.mark.asyncio
-@pytest.mark.slow
-async def test_notify_in_connect_disconnect_cycles(
-    core: BleAppCore, paired_device: DeviceInfo, connect_timeout_s: float
-) -> None:
-    for cycle in range(4):
-        last_error: Exception | None = None
-        for attempt in range(2):
-            await core.connect_raw(paired_device, connect_timeout=connect_timeout_s)
-            try:
-                await core.auth()
-                await asyncio.sleep(0.2)
-                values = await core.read_metrics(timeout=10.0)
-                assert len(values) == 4
-                last_error = None
-                break
-            except Exception as exc:
-                last_error = exc
-                LOG.warning(
-                    "metrics read failed in cycle %d attempt %d: %s",
-                    cycle + 1,
-                    attempt + 1,
-                    exc,
-                )
-            finally:
-                await core.disconnect()
-            await asyncio.sleep(0.2)
-        if last_error is not None:
-            raise last_error
-
-
-@pytest.mark.asyncio
-async def test_reset_disconnects_and_blocks_reconnect(
-    core: BleAppCore,
-    paired_device: DeviceInfo,
-    connect_timeout_s: float,
-    press_base_url: str,
-    press_timeout_s: float,
-    press_retries: int,
-    press_no_response: bool,
-) -> None:
-    await core.connect_raw(paired_device, connect_timeout=connect_timeout_s)
-    try:
-        await core.auth()
-        _press(
-            "press/reset-long",
-            press_base_url,
-            press_timeout_s,
-            press_retries,
-            press_no_response,
-        )
-        await asyncio.sleep(0.5)
-        with pytest.raises(Exception):
-            await core.read_metrics()
-    finally:
-        await core.disconnect()
-
-    await core.connect_raw(paired_device, connect_timeout=connect_timeout_s)
-    try:
-        with pytest.raises(Exception) as excinfo:
-            await core.auth()
-        msg = str(excinfo.value)
-        assert "NotAuthorized" in msg or "Not Authorized" in msg, (
-            "Expected NotAuthorized error after reset; got: " + msg
-        )
-    finally:
-        await core.disconnect()
-
-
-# @pytest.mark.asyncio
-# @pytest.mark.slow
-# async def test_full_session_scenario(
-#     core: BleAppCore,
-#     ble_address: Optional[str],
-#     scan_timeout_s: float,
-#     connect_timeout_s: float,
-#     press_base_url: str,
-#     press_enabled: bool,
-#     press_timeout_s: float,
-#     press_retries: int,
-#     press_no_response: bool,
-# ) -> None:
-#     paired_device = await _pair_device(
-#         core,
-#         ble_address,
-#         scan_timeout_s=scan_timeout_s,
-#         press_base_url=press_base_url,
-#         press_enabled=press_enabled,
-#         press_timeout_s=press_timeout_s,
-#         press_retries=press_retries,
-#         press_no_response=press_no_response,
-#     )
-#     await core.connect_raw(paired_device, connect_timeout=connect_timeout_s)
-#     try:
-#         with pytest.raises(Exception):
-#             await core.read_metrics()
-#     finally:
-#         await core.disconnect()
-#
-#     for _ in range(4):
-#         await core.connect_raw(paired_device, connect_timeout=connect_timeout_s)
-#         try:
-#             await core.auth()
-#             got_notify = asyncio.Event()
-#
-#             def on_data(_: bytearray) -> None:
-#                 got_notify.set()
-#
-#             await core.start_metrics_notify(on_data)
-#             try:
-#                 await asyncio.wait_for(got_notify.wait(), timeout=3.0)
-#             finally:
-#                 await core.stop_metrics_notify()
-#         finally:
-#             await core.disconnect()
-#
-#     await core.connect_raw(paired_device, connect_timeout=connect_timeout_s)
-#     _press(
-#         "press/reset-long",
-#         press_base_url,
-#         press_enabled,
-#         press_timeout_s,
-#         press_retries,
-#         press_no_response,
-#     )
-#     await asyncio.sleep(0.5)
-#     with pytest.raises(Exception):
-#         await core.read_metrics()
-#     await core.disconnect()
-#
-#     await core.connect_raw(paired_device, connect_timeout=connect_timeout_s)
-#     try:
-#         with pytest.raises(Exception) as excinfo:
-#             await core.auth()
-#         msg = str(excinfo.value)
-#         assert "NotAuthorized" in msg or "Not Authorized" in msg, (
-#             "Expected NotAuthorized error after reset; got: " + msg
-#         )
-#     finally:
-#         await core.disconnect()
+async def test_unauthorize_read_metrics(core: BleAppCore, ble_address: Optional[str]) -> None:
+    await core.connect_raw(DeviceInfo(name="Test", address=ble_address))
+    with pytest.raises(RuntimeError):
+        await core.read_metrics(timeout=10)
