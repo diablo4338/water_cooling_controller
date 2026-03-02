@@ -258,6 +258,17 @@ static int gatt_read_temp_single(uint16_t conn_handle, uint16_t attr_handle,
     return 0;
 }
 
+static int gatt_read_fan_speed(uint16_t conn_handle, uint16_t attr_handle,
+                               struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    (void)attr_handle;
+    (void)arg;
+    if (!can_access_data()) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    if (!auth_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    float rpm = metrics_get_fan_speed_rpm();
+    os_mbuf_append(ctxt->om, &rpm, sizeof(rpm));
+    return 0;
+}
+
 // ====== GATT db (RAM) ======
 static struct ble_gatt_chr_def pair_chrs[] = {
     { .uuid = NULL, .access_cb = gatt_read_dev_nonce,     .flags = BLE_GATT_CHR_F_READ  },
@@ -307,6 +318,13 @@ static struct ble_gatt_chr_def metrics_chrs[] = {
         .val_handle = &g_temp_attr_handles[3],
         .arg = (void *)(uintptr_t)3,
     },
+    {
+        .uuid = NULL,
+        .access_cb = gatt_read_fan_speed,
+        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+        .val_handle = &g_fan_attr_handle,
+        .arg = NULL,
+    },
     { 0 }
 };
 
@@ -344,6 +362,7 @@ void gatt_init_uuids_and_services(void) {
     parse_uuid_or_abort(UUID_TEMP1_VALUE_STR, &UUID_TEMP1_VALUE);
     parse_uuid_or_abort(UUID_TEMP2_VALUE_STR, &UUID_TEMP2_VALUE);
     parse_uuid_or_abort(UUID_TEMP3_VALUE_STR, &UUID_TEMP3_VALUE);
+    parse_uuid_or_abort(UUID_FAN_SPEED_VALUE_STR, &UUID_FAN_SPEED_VALUE);
 
     gatt_svcs[0].uuid = &UUID_PAIR_SVC.u;
     gatt_svcs[1].uuid = &UUID_MAIN_SVC.u;
@@ -362,4 +381,5 @@ void gatt_init_uuids_and_services(void) {
     metrics_chrs[1].uuid = &UUID_TEMP1_VALUE.u;
     metrics_chrs[2].uuid = &UUID_TEMP2_VALUE.u;
     metrics_chrs[3].uuid = &UUID_TEMP3_VALUE.u;
+    metrics_chrs[4].uuid = &UUID_FAN_SPEED_VALUE.u;
 }

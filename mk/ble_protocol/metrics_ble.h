@@ -4,7 +4,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-extern uint16_t g_temp_attr_handles[4];
+#include "metrics.h"
+
+extern uint16_t g_temp_attr_handles[METRICS_TEMP_CHANNELS];
+extern uint16_t g_fan_attr_handle;
 
 void metrics_ble_init(void);
 void metrics_set_notify(uint16_t attr_handle, bool enabled);

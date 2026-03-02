@@ -42,6 +42,7 @@ class BleWorker(QThread):
     log = Signal(str)
     scan_results = Signal(list)
     temp_received = Signal(int, float)
+    fan_received = Signal(float)
     pairing_result = Signal(bool, str, object, object)
     connection_state = Signal(bool, object)
 
@@ -186,10 +187,16 @@ class BleWorker(QThread):
                     self.log.emit("Initial METRICS read ok.")
                 except Exception as exc:
                     self.log.emit(f"Initial METRICS read failed: {exc}")
+                try:
+                    rpm = await self.core.read_fan_speed(timeout=self.config.metrics_timeout_s)
+                    self.fan_received.emit(rpm)
+                    self.log.emit("Initial FAN speed read ok.")
+                except Exception as exc:
+                    self.log.emit(f"Initial FAN speed read failed: {exc}")
                 self.log.emit("Starting notify...")
                 try:
                     await self._with_timeout(
-                        self.core.start_metrics_notify(self._on_temp),
+                        self.core.start_metrics_notify(self._on_temp, self._on_fan),
                         f"start_notify#{attempt}",
                     )
                     self.log.emit("Notify METRICS started.")
@@ -254,6 +261,9 @@ class BleWorker(QThread):
     def _on_temp(self, channel: int, value: float) -> None:
         self.temp_received.emit(channel, value)
 
+    def _on_fan(self, value: float) -> None:
+        self.fan_received.emit(value)
+
 
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
@@ -297,6 +307,8 @@ class MainWindow(QMainWindow):
         self.status_label = QLabel(self.model.state.status)
         self.temp_fields: list[QLineEdit] = []
         self._temp_is_nc: list[Optional[bool]] = [None] * 4
+        self.fan_field: Optional[QLineEdit] = None
+        self._fan_is_nc: Optional[bool] = None
 
         buttons = QHBoxLayout()
         buttons.addWidget(self.scan_button)
@@ -315,6 +327,8 @@ class MainWindow(QMainWindow):
         layout.addLayout(lists_layout)
         layout.addWidget(QLabel("Температуры"))
         layout.addLayout(self._build_temp_layout())
+        layout.addWidget(QLabel("Скорость вентилятора"))
+        layout.addLayout(self._build_fan_layout())
         layout.addWidget(QLabel("Данные в реальном времени"))
         layout.addWidget(self.data_view)
         layout.addWidget(self.status_label)
@@ -333,6 +347,7 @@ class MainWindow(QMainWindow):
         self.worker.log.connect(self.on_log)
         self.worker.scan_results.connect(self.on_scan_results)
         self.worker.temp_received.connect(self.on_temp_received)
+        self.worker.fan_received.connect(self.on_fan_received)
         self.worker.pairing_result.connect(self.on_pairing_result)
         self.worker.connection_state.connect(self.on_connection_state)
 
@@ -377,6 +392,18 @@ class MainWindow(QMainWindow):
             grid.addWidget(label, row, col)
             grid.addWidget(field, row, col + 1)
             self.temp_fields.append(field)
+        return grid
+
+    def _build_fan_layout(self) -> QGridLayout:
+        grid = QGridLayout()
+        label = QLabel("Вентилятор (об/мин)")
+        field = QLineEdit("—")
+        field.setReadOnly(True)
+        field.setAlignment(Qt.AlignmentFlag.AlignRight)
+        grid.addWidget(label, 0, 0)
+        grid.addWidget(field, 0, 1)
+        self.fan_field = field
+        self._fan_is_nc = None
         return grid
 
     def _apply_ui(self) -> None:
@@ -661,6 +688,24 @@ class MainWindow(QMainWindow):
             self.temp_fields[channel].setText(text)
             self.data_view.append(f"Темп. {channel + 1}: {text}")
 
+    @Slot(float)
+    def on_fan_received(self, value: float) -> None:
+        if self.fan_field is None:
+            return
+        is_nc = (not math.isfinite(value)) or value <= 0.0
+        if self._fan_is_nc is not None and self._fan_is_nc != is_nc:
+            if is_nc:
+                self.on_log("Вентилятор: NC (остановлен)")
+            else:
+                self.on_log("Вентилятор: онлайн")
+        self._fan_is_nc = is_nc
+        if is_nc:
+            text = "NC"
+        else:
+            text = f"{value:.0f}"
+        self.fan_field.setText(text)
+        self.data_view.append(f"Вентилятор: {text}")
+
     @Slot(bool, str, object, object)
     def on_pairing_result(self, ok: bool, message: str, device: DeviceInfo, k_hex: Optional[str]) -> None:
         if ok:
@@ -698,6 +743,9 @@ class MainWindow(QMainWindow):
         for field in self.temp_fields:
             field.setText("—")
         self._temp_is_nc = [None] * len(self.temp_fields)
+        if self.fan_field is not None:
+            self.fan_field.setText("—")
+        self._fan_is_nc = None
 
     def _select_paired_device(self, device: DeviceInfo) -> None:
         for idx in range(self.paired_list.count()):

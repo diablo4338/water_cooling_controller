@@ -37,6 +37,7 @@ __all__ = [
     "UUID_TEMP1_VALUE",
     "UUID_TEMP2_VALUE",
     "UUID_TEMP3_VALUE",
+    "UUID_FAN_SPEED_VALUE",
     "PAIR_SVC_NORM",
     "PAIRED_DB",
     "HOST_KEY_PATH",
@@ -48,6 +49,7 @@ __all__ = [
     "load_or_create_host_key",
     "decode_metrics",
     "decode_temp_value",
+    "decode_fan_speed",
     "load_paired_records",
     "save_paired_records",
     "find_paired_record",
@@ -74,6 +76,7 @@ UUID_TEMP0_VALUE = "a1b2c3d4-0b1c-4a2b-9c3d-4e5f60718291"
 UUID_TEMP1_VALUE = "a1b2c3d4-0b1c-4a2b-9c3d-4e5f60718292"
 UUID_TEMP2_VALUE = "a1b2c3d4-0b1c-4a2b-9c3d-4e5f60718293"
 UUID_TEMP3_VALUE = "a1b2c3d4-0b1c-4a2b-9c3d-4e5f60718294"
+UUID_FAN_SPEED_VALUE = "a1b2c3d4-0b1c-4a2b-9c3d-4e5f60718295"
 
 TEMP_CHAR_UUIDS = [UUID_TEMP0_VALUE, UUID_TEMP1_VALUE, UUID_TEMP2_VALUE, UUID_TEMP3_VALUE]
 
@@ -126,6 +129,10 @@ def decode_temp_value(data: bytes) -> Optional[float]:
     if len(data) != 4:
         return None
     return struct.unpack("<f", data)[0]
+
+
+def decode_fan_speed(data: bytes) -> Optional[float]:
+    return decode_temp_value(data)
 
 
 def load_paired_records() -> list[dict]:
@@ -399,6 +406,19 @@ class BleAppCore:
             values.append(value)
         return values
 
+    async def read_fan_speed(self, timeout: Optional[float] = None) -> float:
+        if not self.client:
+            raise RuntimeError("Not connected")
+        if timeout is None:
+            timeout = self._config.metrics_timeout_s
+        data = await asyncio.wait_for(
+            self.client.read_gatt_char(UUID_FAN_SPEED_VALUE), timeout=timeout
+        )
+        value = decode_fan_speed(bytes(data))
+        if value is None:
+            raise RuntimeError(f"Bad fan speed value len={len(data)}")
+        return value
+
     async def _reconnect_for_metrics(self, timeout: float) -> None:
         try:
             await self.disconnect()
@@ -410,7 +430,11 @@ class BleAppCore:
         await self.connect_raw(self.device, connect_timeout=max(self._config.connect_timeout_s, timeout))
         await self.auth(timeout=timeout)
 
-    async def start_metrics_notify(self, callback: Callable[[int, float], None]) -> None:
+    async def start_metrics_notify(
+        self,
+        callback: Callable[[int, float], None],
+        fan_callback: Optional[Callable[[float], None]] = None,
+    ) -> None:
         if not self.client:
             raise RuntimeError("Not connected")
         for idx, uuid in enumerate(TEMP_CHAR_UUIDS):
@@ -418,12 +442,24 @@ class BleAppCore:
                 uuid,
                 lambda _, data, ch=idx: self._emit_temp(callback, ch, data),
             )
+        if fan_callback is not None:
+            try:
+                await self.client.start_notify(
+                    UUID_FAN_SPEED_VALUE,
+                    lambda _, data: self._emit_fan(fan_callback, data),
+                )
+            except Exception as exc:
+                self._emit(f"Fan notify unavailable: {exc}")
 
     async def stop_metrics_notify(self) -> None:
         if not self.client:
             raise RuntimeError("Not connected")
         for uuid in TEMP_CHAR_UUIDS:
             await self.client.stop_notify(uuid)
+        try:
+            await self.client.stop_notify(UUID_FAN_SPEED_VALUE)
+        except Exception:
+            pass
 
     @staticmethod
     def _emit_temp(callback: Callable[[int, float], None], channel: int, data: bytearray) -> None:
@@ -431,3 +467,10 @@ class BleAppCore:
         if value is None:
             return
         callback(channel, value)
+
+    @staticmethod
+    def _emit_fan(callback: Callable[[float], None], data: bytearray) -> None:
+        value = decode_fan_speed(bytes(data))
+        if value is None:
+            return
+        callback(value)
