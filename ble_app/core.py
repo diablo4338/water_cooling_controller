@@ -234,20 +234,41 @@ class BleAppCore:
     async def scan_pairing(self, timeout: Optional[float] = None) -> list[DeviceInfo]:
         if timeout is None:
             timeout = self._config.scan_timeout_s
-        results: dict[str, DeviceInfo] = {}
+        candidates: dict[str, DeviceInfo] = {}
 
         def on_detect(device, advertisement_data) -> None:
             uuids = advertisement_data.service_uuids or []
             norm_uuids = {normalize_uuid(raw) for raw in uuids}
             name = advertisement_data.local_name or device.name or "Unknown"
             if PAIR_SVC_NORM in norm_uuids:
-                results[device.address] = DeviceInfo(name=name, address=device.address)
-                return
+                candidates[device.address] = DeviceInfo(name=name, address=device.address)
 
         async with BleakScanner(detection_callback=on_detect, **self._scanner_kwargs()):
             await asyncio.sleep(timeout)
 
+        results: dict[str, DeviceInfo] = {}
+        for device in candidates.values():
+            if await self._probe_pairing(device):
+                results[device.address] = device
+
         return list(results.values())
+
+    async def _probe_pairing(self, device: DeviceInfo) -> bool:
+        client = BleakClient(device.address, adapter=self._adapter)
+        try:
+            await asyncio.wait_for(client.connect(), timeout=self._config.connect_timeout_s)
+            await asyncio.wait_for(
+                client.read_gatt_char(UUID_PAIR_DEV_NONCE),
+                timeout=self._config.pair_timeout_s,
+            )
+            return True
+        except Exception:
+            return False
+        finally:
+            try:
+                await client.disconnect()
+            except Exception:
+                pass
 
     async def resolve_device(self, address: str, timeout: Optional[float] = None) -> DeviceInfo:
         if timeout is None:
