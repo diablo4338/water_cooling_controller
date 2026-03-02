@@ -11,6 +11,7 @@
 #define NVS_KEY_VER    "ver"
 #define NVS_KEY_HOSTID "hostid"
 #define NVS_KEY_K      "keyK"
+#define NVS_KEY_FORCE  "force_pair"
 #define NVS_VER_VALUE  1
 
 void nvs_load_or_empty(void) {
@@ -97,4 +98,30 @@ void trust_reset(void) {
     esp_timer_stop(g_pair_timer);
     pair_state_full_reset();
     ESP_LOGW(TAG, "Trust reset");
+}
+
+bool nvs_is_pair_forced(void) {
+    nvs_handle_t h;
+    if (nvs_open(NVS_NS, NVS_READONLY, &h) != ESP_OK) {
+        return false;
+    }
+
+    uint8_t v = 0;
+    esp_err_t err = nvs_get_u8(h, NVS_KEY_FORCE, &v);
+    nvs_close(h);
+    return (err == ESP_OK && v == 1);
+}
+
+void nvs_set_pair_forced(bool enabled) {
+    nvs_handle_t h;
+    if (nvs_open(NVS_NS, NVS_READWRITE, &h) != ESP_OK) {
+        return;
+    }
+    if (enabled) {
+        nvs_set_u8(h, NVS_KEY_FORCE, 1);
+    } else {
+        nvs_erase_key(h, NVS_KEY_FORCE);
+    }
+    nvs_commit(h);
+    nvs_close(h);
 }

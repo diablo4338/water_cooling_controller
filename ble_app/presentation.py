@@ -73,7 +73,7 @@ def derive_ui(state: AppState) -> UiModel:
     elif state.conn == ConnState.CONNECTED:
         enabled = {Action.DISCONNECT}
     elif state.selected_device is not None and state.selected_source == SelectionSource.PAIRED:
-        enabled = {Action.SCAN, Action.CONNECT, Action.AUTO_CONNECT}
+        enabled = {Action.SCAN, Action.CONNECT, Action.DELETE_PAIRED, Action.AUTO_CONNECT}
     elif state.selected_device is not None and state.selected_source == SelectionSource.FOUND:
         enabled = {Action.SCAN, Action.PAIR, Action.AUTO_CONNECT}
     else:

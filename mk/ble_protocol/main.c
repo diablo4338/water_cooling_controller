@@ -23,6 +23,7 @@
 #include "uuid.h"
 #include "metrics.h"
 #include "metrics_ble.h"
+#include "pair_mode.h"
 
 #ifdef PAIR_RUN_TESTS
 #include "unity_test_runner.h"
@@ -45,6 +46,7 @@ void app_main(void) {
     nvs_load_or_empty();
 
     ecdh_init();
+    pair_mode_init_from_nvs();
     metrics_init();
     metrics_ble_init();
 

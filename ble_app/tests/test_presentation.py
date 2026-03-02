@@ -26,7 +26,7 @@ def test_derive_ui_basics() -> None:
 
     state = AppState(selected_device=device, selected_source=SelectionSource.PAIRED)
     ui = derive_ui(state)
-    assert ui.enabled_actions == {Action.SCAN, Action.CONNECT, Action.AUTO_CONNECT}
+    assert ui.enabled_actions == {Action.SCAN, Action.CONNECT, Action.DELETE_PAIRED, Action.AUTO_CONNECT}
     assert ui.paired_highlight is None
 
 

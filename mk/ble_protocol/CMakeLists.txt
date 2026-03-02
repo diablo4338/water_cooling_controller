@@ -10,6 +10,7 @@ set(SRCS
     "host_verify.c"
     "metrics_ble.c"
     "rgb.c"
+    "pair_mode.c"
     "pair_state.c"
     "state.c"
     "storage.c"

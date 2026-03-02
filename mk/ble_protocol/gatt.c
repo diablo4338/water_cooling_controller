@@ -11,6 +11,7 @@
 #include "ecdh.h"
 #include "gatt.h"
 #include "pair_state.h"
+#include "pair_mode.h"
 #include "state.h"
 #include "storage.h"
 #include "uuid.h"
@@ -129,7 +130,11 @@ static int gatt_write_pair_finish(uint16_t conn_handle, uint16_t attr_handle,
     if (b != 0x01) return BLE_ATT_ERR_UNLIKELY;
 
     nvs_save_trust();
-    fsm_dispatch(FSM_EVT_PAIR_FINISH, conn_handle);
+    if (pair_mode_is_forced()) {
+        pair_mode_clear_on_success(conn_handle);
+    } else {
+        fsm_dispatch(FSM_EVT_PAIR_FINISH, conn_handle);
+    }
     pair_state_set_finish_ok();
     esp_timer_stop(g_pair_timer);
 

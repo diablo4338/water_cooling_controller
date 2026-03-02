@@ -9,6 +9,7 @@
 #include "conn_guard.h"
 #include "crypto.h"
 #include "gap.h"
+#include "pair_mode.h"
 #include "pair_state.h"
 #include "state.h"
 #include "uuid.h"
@@ -136,6 +137,7 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
         case BLE_GAP_EVENT_DISCONNECT: {
             ESP_LOGI(TAG, "Disconnected; restarting adv");
             bool was_pairing = fsm_is_pairing();
+            bool forced = pair_mode_is_forced();
             fsm_dispatch(FSM_EVT_DISCONNECT, BLE_HS_CONN_HANDLE_NONE);
             state_lock();
             clear_session_secrets_locked();
@@ -146,7 +148,11 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
                 pair_state_full_reset();
                 esp_timer_stop(g_pair_timer);
             }
-            start_advertising();
+            if (forced) {
+                pair_mode_force_on();
+            } else {
+                start_advertising();
+            }
             return 0;
         }
 
