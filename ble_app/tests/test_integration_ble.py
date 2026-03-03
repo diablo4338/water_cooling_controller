@@ -4,7 +4,8 @@ import time
 from typing import Optional
 
 import pytest
-
+import socket
+from urllib.parse import urlparse
 from ble_app import (
     BleAppCore,
     DeviceInfo,
@@ -16,16 +17,13 @@ pytestmark = pytest.mark.integration
 
 
 def _press(
-        path: str,
-        base_url: str,
-        timeout_s: float,
-        retries: int,
-        no_response: bool,
-        require_status_lt_400: bool = False,
+    path: str,
+    base_url: str,
+    timeout_s: float,
+    retries: int,
+    no_response: bool,
+    require_status_lt_400: bool = False,
 ) -> None:
-    import socket
-    from urllib.parse import urlparse
-
     base = base_url.rstrip("/")
     url = f"{base}/{path.lstrip('/')}"
     parsed = urlparse(url)
@@ -76,9 +74,9 @@ def _press(
 
 
 async def _pair_device(
-        core: BleAppCore,
-        ble_address: Optional[str],
-        scan_timeout_s: float,
+    core: BleAppCore,
+    ble_address: Optional[str],
+    scan_timeout_s: float,
 ) -> DeviceInfo:
     device = await core.resolve_device(ble_address, timeout=scan_timeout_s)
     last_msg = ""
@@ -97,7 +95,9 @@ async def _pair_device(
 
 @pytest.fixture(scope="session", autouse=True)
 def _configure_logging() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
+    )
 
 
 @pytest.fixture(scope="session")
@@ -107,10 +107,10 @@ def core(ble_adapter: Optional[str]) -> BleAppCore:
 
 @pytest.fixture(scope="function", autouse=True)
 def _auto_reset_pairing(
-        press_base_url: str,
-        press_timeout_s: float,
-        press_retries: int,
-        press_no_response: bool,
+    press_base_url: str,
+    press_timeout_s: float,
+    press_retries: int,
+    press_no_response: bool,
 ) -> None:
     _press(
         "press/reset-long",
@@ -124,27 +124,17 @@ def _auto_reset_pairing(
 
 @pytest.fixture(scope="function")
 def paired_device(
-        core: BleAppCore,
-        ble_address: Optional[str],
-        scan_timeout_s: float,
-        press_base_url: str,
-        press_timeout_s: float,
-        press_retries: int,
-        press_no_response: bool,
+    core: BleAppCore,
+    ble_address: Optional[str],
+    scan_timeout_s: float,
 ) -> DeviceInfo:
-    return asyncio.run(
-        _pair_device(
-            core,
-            ble_address,
-            scan_timeout_s
-        )
-    )
+    return asyncio.run(_pair_device(core, ble_address, scan_timeout_s))
 
 
 @pytest.mark.asyncio
 async def test_pair_button_advertises_pairing_service(
-        core: BleAppCore,
-        ble_address: Optional[str],
+    core: BleAppCore,
+    ble_address: Optional[str],
 ) -> None:
     assert await core._probe_pairing(DeviceInfo(name="Test", address=ble_address))
 
@@ -155,7 +145,9 @@ async def test_pairing_succeeds(paired_device: DeviceInfo) -> None:
 
 
 @pytest.mark.asyncio
-async def test_unauthorize_read_metrics(core: BleAppCore, ble_address: Optional[str]) -> None:
+async def test_unauthorize_read_metrics(
+    core: BleAppCore, ble_address: Optional[str]
+) -> None:
     await core.connect_raw(DeviceInfo(name="Test", address=ble_address))
     with pytest.raises(RuntimeError):
         await core.read_metrics(timeout=10)
