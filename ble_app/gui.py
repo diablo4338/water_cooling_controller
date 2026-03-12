@@ -467,6 +467,18 @@ class BleWorker(QThread):
         except Exception as exc:
             self.log.emit(f"Ошибка чтения OP статуса: {exc}")
 
+    async def read_params_snapshot(self) -> None:
+        try:
+            params = await self._with_timeout(
+                self.core.read_params(timeout=self.config.metrics_timeout_s),
+                "read_params_snapshot",
+                timeout=self.config.metrics_timeout_s,
+            )
+            self.params_received.emit(params)
+            self.log.emit("Параметры обновлены после операции.")
+        except Exception as exc:
+            self.log.emit(f"Ошибка чтения параметров после операции: {exc}")
+
     def _on_temp(self, channel: int, value: float) -> None:
         self.temp_received.emit(channel, value)
 
@@ -655,6 +667,9 @@ class MainWindow(QMainWindow):
             label = QLabel(f"Темп. {idx + 1}")
             field = QLineEdit("—")
             field.setReadOnly(True)
+            field.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            field.setCursor(Qt.CursorShape.ArrowCursor)
+            field.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
             field.setAlignment(Qt.AlignmentFlag.AlignRight)
             row = idx // 2
             col = (idx % 2) * 2
@@ -668,6 +683,9 @@ class MainWindow(QMainWindow):
         rpm_label = QLabel("Вентилятор (об/мин)")
         rpm_field = QLineEdit("—")
         rpm_field.setReadOnly(True)
+        rpm_field.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        rpm_field.setCursor(Qt.CursorShape.ArrowCursor)
+        rpm_field.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         rpm_field.setAlignment(Qt.AlignmentFlag.AlignRight)
         grid.addWidget(rpm_label, 0, 0)
         grid.addWidget(rpm_field, 0, 1)
@@ -676,6 +694,9 @@ class MainWindow(QMainWindow):
         status_label = QLabel("Статус вентилятора")
         status_field = QLineEdit("—")
         status_field.setReadOnly(True)
+        status_field.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        status_field.setCursor(Qt.CursorShape.ArrowCursor)
+        status_field.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         status_field.setAlignment(Qt.AlignmentFlag.AlignRight)
         grid.addWidget(status_label, 1, 0)
         grid.addWidget(status_field, 1, 1)
@@ -1084,6 +1105,8 @@ class MainWindow(QMainWindow):
 
     @Slot(object)
     def on_params_status(self, status: ParamsStatus) -> None:
+        if self.model.state.active_action == Action.APPLY:
+            QTimer.singleShot(1000, lambda: self._finish_action(Action.APPLY))
         if status.ok:
             self.on_log("Параметры применены")
             return
@@ -1133,6 +1156,7 @@ class MainWindow(QMainWindow):
             self._operation_active = False
             if op_action:
                 self._finish_action(op_action)
+                self.worker.submit(self.worker.read_params_snapshot())
         elif status.state == OP_STATE_ERROR:
             err_text = status.error or "неизвестная ошибка"
             if err_text.strip().lower() == "busy":
@@ -1153,8 +1177,7 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def on_apply_done(self) -> None:
-        if self.model.state.active_action == Action.APPLY:
-            self._finish_action(Action.APPLY)
+        pass
 
     @Slot(bool, str, object, object)
     def on_pairing_result(self, ok: bool, message: str, device: DeviceInfo, k_hex: Optional[str]) -> None:
