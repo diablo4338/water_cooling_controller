@@ -9,6 +9,7 @@ from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
+    QDoubleSpinBox,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -25,9 +26,13 @@ from PySide6.QtWidgets import (
 from .config import DEFAULT_CONFIG
 from .core import (
     BleAppCore,
+    DeviceParams,
     DeviceInfo,
+    ParamsStatus,
     add_or_update_paired,
     load_paired_records,
+    load_device_params,
+    save_device_params,
     save_paired_records,
     update_paired_last_connected,
 )
@@ -36,6 +41,16 @@ from .presentation import Action, AppModel, ConnState, SelectionSource
 APP_TITLE = "BLE Pairing GUI"
 USER_ROLE = Qt.ItemDataRole.UserRole
 PAIRED_HIGHLIGHT_BRUSH = QBrush(QColor(220, 245, 220))
+PARAM_FIELDS = [
+    ("target_temp_c", "Целевая температура, °C"),
+    ("fan_min_rpm", "Мин. обороты вентилятора, об/мин"),
+    ("alarm_delta_c", "Аварийная дельта, °C"),
+]
+PARAM_LABELS_BY_ID = {
+    0: PARAM_FIELDS[0][1],
+    1: PARAM_FIELDS[1][1],
+    2: PARAM_FIELDS[2][1],
+}
 
 
 class BleWorker(QThread):
@@ -43,6 +58,9 @@ class BleWorker(QThread):
     scan_results = Signal(list)
     temp_received = Signal(int, float)
     fan_received = Signal(float)
+    params_received = Signal(object)
+    params_status = Signal(object)
+    apply_done = Signal()
     pairing_result = Signal(bool, str, object, object)
     connection_state = Signal(bool, object)
 
@@ -179,6 +197,13 @@ class BleWorker(QThread):
                     self.core.client.set_disconnected_callback(self._on_disconnected)
                 self.log.emit("Connected, starting AUTH...")
                 await self._do_auth()
+                self.log.emit("AUTH ok, reading initial PARAMS...")
+                try:
+                    params = await self.core.read_params(timeout=self.config.metrics_timeout_s)
+                    self.params_received.emit(params)
+                    self.log.emit("Initial PARAMS read ok.")
+                except Exception as exc:
+                    self.log.emit(f"Initial PARAMS read failed: {exc}")
                 self.log.emit("AUTH ok, reading initial METRICS...")
                 try:
                     values = await self.core.read_metrics(timeout=self.config.metrics_timeout_s)
@@ -202,6 +227,15 @@ class BleWorker(QThread):
                     self.log.emit("Notify METRICS started.")
                 except Exception as exc:
                     self.log.emit(f"Notify METRICS недоступен: {exc}")
+                try:
+                    await self._with_timeout(
+                        self.core.start_params_notify(self._on_params_status),
+                        f"start_params_notify#{attempt}",
+                        timeout=3.0,
+                    )
+                    self.log.emit("Notify PARAMS status started.")
+                except Exception as exc:
+                    self.log.emit(f"Notify PARAMS status недоступен: {exc}")
                 self.device = device
                 self.connection_state.emit(True, device)
                 return
@@ -233,6 +267,14 @@ class BleWorker(QThread):
                     await self._with_timeout(self.core.stop_metrics_notify(), "stop_notify", timeout=3.0)
                 except Exception:
                     pass
+                try:
+                    if log_enabled:
+                        self.log.emit("Stopping notify PARAMS...")
+                    await self._with_timeout(
+                        self.core.stop_params_notify(), "stop_params_notify", timeout=3.0
+                    )
+                except Exception:
+                    pass
                 # noinspection PyBroadException
                 try:
                     if log_enabled:
@@ -258,11 +300,36 @@ class BleWorker(QThread):
     async def _do_auth(self) -> None:
         await self.core.auth(timeout=self.config.auth_timeout_s)
 
+    async def write_params(self, params: DeviceParams) -> None:
+        try:
+            await self._with_timeout(
+                self.core.write_params(params, timeout=self.config.metrics_timeout_s),
+                "write_params",
+                timeout=self.config.metrics_timeout_s,
+            )
+        except Exception as exc:
+            self.log.emit(f"Ошибка отправки параметров: {exc}")
+
+    async def apply_params(self) -> None:
+        try:
+            await self._with_timeout(
+                self.core.apply_params(timeout=self.config.metrics_timeout_s),
+                "apply_params",
+                timeout=self.config.metrics_timeout_s,
+            )
+        except Exception as exc:
+            self.log.emit(f"Ошибка Apply: {exc}")
+        finally:
+            self.apply_done.emit()
+
     def _on_temp(self, channel: int, value: float) -> None:
         self.temp_received.emit(channel, value)
 
     def _on_fan(self, value: float) -> None:
         self.fan_received.emit(value)
+
+    def _on_params_status(self, status: ParamsStatus) -> None:
+        self.params_status.emit(status)
 
 
 class MainWindow(QMainWindow):
@@ -290,6 +357,7 @@ class MainWindow(QMainWindow):
         self.disconnect_button = QPushButton("Отключить")
         self.delete_button = QPushButton("Удалить сохраненное")
         self.auto_checkbox = QCheckBox("Автоподключение (сохраненные)")
+        self.apply_button = QPushButton("Apply")
         self._action_timers: dict[Action, QTimer] = {}
         self._action_futures: dict[Action, Future] = {}
 
@@ -297,6 +365,7 @@ class MainWindow(QMainWindow):
         self.pair_button.setProperty("actionId", Action.PAIR.name)
         self.connect_button.setProperty("actionId", Action.CONNECT.name)
         self.disconnect_button.setProperty("actionId", Action.DISCONNECT.name)
+        self.apply_button.setProperty("actionId", Action.APPLY.name)
         self.delete_button.setProperty("actionId", Action.DELETE_PAIRED.name)
         self.auto_checkbox.setProperty("actionId", Action.AUTO_CONNECT.name)
 
@@ -309,6 +378,8 @@ class MainWindow(QMainWindow):
         self._temp_is_nc: list[Optional[bool]] = [None] * 4
         self.fan_field: Optional[QLineEdit] = None
         self._fan_is_nc: Optional[bool] = None
+        self.param_fields: list[QDoubleSpinBox] = []
+        self._params_update_lock = False
 
         buttons = QHBoxLayout()
         buttons.addWidget(self.scan_button)
@@ -325,6 +396,8 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout()
         layout.addLayout(buttons)
         layout.addLayout(lists_layout)
+        layout.addWidget(QLabel("Параметры устройства"))
+        layout.addWidget(self._build_params_layout())
         layout.addWidget(QLabel("Температуры"))
         layout.addLayout(self._build_temp_layout())
         layout.addWidget(QLabel("Скорость вентилятора"))
@@ -343,11 +416,15 @@ class MainWindow(QMainWindow):
         self.disconnect_button.clicked.connect(self.on_disconnect)
         self.delete_button.clicked.connect(self.on_delete_paired_clicked)
         self.auto_checkbox.toggled.connect(self.on_auto_toggled)
+        self.apply_button.clicked.connect(self.on_apply)
 
         self.worker.log.connect(self.on_log)
         self.worker.scan_results.connect(self.on_scan_results)
         self.worker.temp_received.connect(self.on_temp_received)
         self.worker.fan_received.connect(self.on_fan_received)
+        self.worker.params_received.connect(self.on_params_received)
+        self.worker.params_status.connect(self.on_params_status)
+        self.worker.apply_done.connect(self.on_apply_done)
         self.worker.pairing_result.connect(self.on_pairing_result)
         self.worker.connection_state.connect(self.on_connection_state)
 
@@ -355,6 +432,7 @@ class MainWindow(QMainWindow):
         self.paired_list.itemSelectionChanged.connect(self._on_paired_selected)
 
         self._refresh_paired_list()
+        self._reset_params_fields()
         self._apply_ui()
 
     def closeEvent(self, event) -> None:
@@ -375,6 +453,36 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout()
         layout.addWidget(QLabel(title))
         layout.addWidget(widget)
+        wrapper.setLayout(layout)
+        return wrapper
+
+    def _build_params_layout(self) -> QWidget:
+        wrapper = QWidget()
+        layout = QVBoxLayout()
+        grid = QGridLayout()
+        self.param_fields.clear()
+
+        for idx, (_, label) in enumerate(PARAM_FIELDS):
+            grid.addWidget(QLabel(label), idx, 0)
+            field = QDoubleSpinBox()
+            field.setRange(-1_000_000.0, 1_000_000.0)
+            field.setSpecialValueText("—")
+            field.setDecimals(2)
+            field.setSingleStep(0.5)
+            field.setAlignment(Qt.AlignmentFlag.AlignRight)
+            field.setKeyboardTracking(False)
+            field.valueChanged.connect(self._on_params_changed)
+            field.setValue(field.minimum())
+            field.setEnabled(False)
+            grid.addWidget(field, idx, 1)
+            self.param_fields.append(field)
+
+        button_row = QHBoxLayout()
+        button_row.addStretch(1)
+        button_row.addWidget(self.apply_button)
+
+        layout.addLayout(grid)
+        layout.addLayout(button_row)
         wrapper.setLayout(layout)
         return wrapper
 
@@ -406,6 +514,59 @@ class MainWindow(QMainWindow):
         self._fan_is_nc = None
         return grid
 
+    def _reset_params_fields(self) -> None:
+        if not self.param_fields:
+            return
+        self._params_update_lock = True
+        try:
+            for field in self.param_fields:
+                field.setValue(field.minimum())
+                field.setEnabled(False)
+        finally:
+            self._params_update_lock = False
+
+    def _set_params_fields(self, params: DeviceParams, save: bool = True) -> None:
+        if len(self.param_fields) != 3:
+            return
+        self._params_update_lock = True
+        try:
+            self.param_fields[0].setValue(params.target_temp_c)
+            self.param_fields[1].setValue(params.fan_min_rpm)
+            self.param_fields[2].setValue(params.alarm_delta_c)
+            for field in self.param_fields:
+                field.setEnabled(True)
+        finally:
+            self._params_update_lock = False
+        if save:
+            device = self.model.state.connected_device
+            if device:
+                save_device_params(device.address, params)
+
+    def _current_params(self) -> DeviceParams:
+        values = [field.value() for field in self.param_fields]
+        if len(values) != 3:
+            device = self.model.state.connected_device
+            if device:
+                return load_device_params(device.address)
+            return DeviceParams(target_temp_c=0.0, fan_min_rpm=0.0, alarm_delta_c=0.0)
+        return DeviceParams(
+            target_temp_c=values[0],
+            fan_min_rpm=values[1],
+            alarm_delta_c=values[2],
+        )
+
+    def _on_params_changed(self, _) -> None:
+        if self._params_update_lock:
+            return
+        params = self._current_params()
+        device = self.model.state.connected_device
+        if device is None or self.model.state.conn != ConnState.CONNECTED:
+            return
+        save_device_params(device.address, params)
+        fut = self.worker.submit(self.worker.write_params(params))
+        if fut is None:
+            self.on_log("Не удалось отправить параметры (worker не готов).")
+
     def _apply_ui(self) -> None:
         ui = self.model.ui
         status = ui.status_text
@@ -417,8 +578,12 @@ class MainWindow(QMainWindow):
         self.pair_button.setEnabled(Action.PAIR in ui.enabled_actions)
         self.connect_button.setEnabled(Action.CONNECT in ui.enabled_actions)
         self.disconnect_button.setEnabled(Action.DISCONNECT in ui.enabled_actions)
+        self.apply_button.setEnabled(Action.APPLY in ui.enabled_actions)
         self.delete_button.setEnabled(Action.DELETE_PAIRED in ui.enabled_actions)
         self.auto_checkbox.setEnabled(Action.AUTO_CONNECT in ui.enabled_actions)
+        params_enabled = self.model.state.conn == ConnState.CONNECTED and not self.model.state.busy
+        for field in self.param_fields:
+            field.setEnabled(params_enabled)
 
         self.auto_checkbox.blockSignals(True)
         self.auto_checkbox.setChecked(ui.auto_enabled)
@@ -596,6 +761,8 @@ class MainWindow(QMainWindow):
                 self.worker.disconnect(),
                 timeout_override=self.action_timeouts[Action.DISCONNECT],
             )
+        elif command.action == Action.APPLY:
+            self._start_action(Action.APPLY, self.worker.apply_params())
         elif command.action == Action.DELETE_PAIRED:
             self._delete_selected_paired()
 
@@ -610,6 +777,9 @@ class MainWindow(QMainWindow):
 
     def on_disconnect(self) -> None:
         self._dispatch_action(Action.DISCONNECT)
+
+    def on_apply(self) -> None:
+        self._dispatch_action(Action.APPLY)
 
     def on_delete_paired_clicked(self) -> None:
         self._dispatch_action(Action.DELETE_PAIRED)
@@ -706,6 +876,27 @@ class MainWindow(QMainWindow):
         self.fan_field.setText(text)
         self.data_view.append(f"Вентилятор: {text}")
 
+    @Slot(object)
+    def on_params_received(self, params: DeviceParams) -> None:
+        self._set_params_fields(params, save=True)
+
+    @Slot(object)
+    def on_params_status(self, status: ParamsStatus) -> None:
+        if status.ok:
+            self.on_log("Параметры применены")
+            return
+        field_label = (
+            PARAM_LABELS_BY_ID.get(status.field_id, "неизвестное поле")
+            if status.field_id is not None
+            else "неизвестное поле"
+        )
+        self.on_log(f"Ошибка параметров: {field_label}")
+
+    @Slot()
+    def on_apply_done(self) -> None:
+        if self.model.state.active_action == Action.APPLY:
+            self._finish_action(Action.APPLY)
+
     @Slot(bool, str, object, object)
     def on_pairing_result(self, ok: bool, message: str, device: DeviceInfo, k_hex: Optional[str]) -> None:
         if ok:
@@ -732,6 +923,7 @@ class MainWindow(QMainWindow):
             self.model.set_connected(False, None)
             self._clear_paired_selection()
             self._reset_temp_fields()
+            self._reset_params_fields()
             if self.model.state.active_action == Action.DISCONNECT:
                 self._finish_action(Action.DISCONNECT)
             elif self.model.state.active_action == Action.CONNECT:

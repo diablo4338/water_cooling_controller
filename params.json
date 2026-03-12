@@ -1,0 +1,10 @@
+{
+  "devices": {
+    "18:8B:0E:B0:14:7E": {
+      "version": 1,
+      "target_temp_c": 30.0,
+      "fan_min_rpm": 1200.0,
+      "alarm_delta_c": 5.0
+    }
+  }
+}

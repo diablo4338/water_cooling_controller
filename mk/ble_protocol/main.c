@@ -23,6 +23,7 @@
 #include "uuid.h"
 #include "metrics.h"
 #include "metrics_ble.h"
+#include "params.h"
 #include "pair_mode.h"
 
 #ifdef PAIR_RUN_TESTS
@@ -49,6 +50,7 @@ void app_main(void) {
     pair_mode_init_from_nvs();
     metrics_init();
     metrics_ble_init();
+    params_init();
 
     esp_timer_create_args_t targs = {
         .callback = term_cb,

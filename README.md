@@ -70,6 +70,25 @@ UI поведение (derive_ui):
 3. Пишет `AUTH_PROOF`.
 4. После успешного AUTH устройство разрешает чтение/notify метрик.
 
+### Config service `CONFIG_SVC`
+Характеристики:
+- `CONFIG_PARAMS` (read/write): пакет параметров (версия, маска, 3 float32 LE)
+- `CONFIG_STATUS` (read/notify/write): статус применения; запись `0x01` — Apply
+
+Payload `CONFIG_PARAMS`:
+- `version` (uint8) = `1`
+- `mask` (uint8): бит0=target_temp_c, бит1=fan_min_rpm, бит2=alarm_delta_c
+- `target_temp_c` (float32 LE)
+- `fan_min_rpm` (float32 LE)
+- `alarm_delta_c` (float32 LE)
+
+Payload `CONFIG_STATUS`:
+- `version` (uint8) = `1`
+- `status` (uint8): `0=OK`, `1=INVALID`
+- `field` (uint8): `0..2` или `0xFF`, если без ошибки
+
+Параметры кешируются в RAM и сохраняются в NVS; при старте прошивки загружаются из NVS.
+
 ### Metrics service `METRICS_SVC`
 Характеристики:
 - `TEMP0_VALUE` (read/notify): float32 LE
@@ -81,6 +100,7 @@ UI поведение (derive_ui):
 PAIR_SVC: `8fdd08d6-2a9e-4d5a-9f44-9f58b3a9d3c1`
 MAIN_SVC: `3d1a4b35-9707-43e6-bf3e-2e2f7b561d82`
 METRICS_SVC: `f3a0c1d2-5b6a-4d2e-9b43-1c2d3e4f5061`
+CONFIG_SVC: `6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e10`
 
 PAIR_DEV_NONCE: `0b46b3cf-7e3b-44a3-8f39-4af2a8c9a1ee`
 PAIR_DEV_PUB: `91c66f66-5c92-4c4d-86bf-6d2c58b6f0d7`
@@ -90,6 +110,9 @@ PAIR_FINISH: `a4c8e2c1-1c7b-4b06-a59f-4b5f8a2a8b3c`
 
 AUTH_NONCE: `f1d1f9b6-8c92-47f6-a2f5-5b0a77d2e3a9`
 AUTH_PROOF: `74cde77a-7f14-4e6e-b7f5-92ef0c3ad7e4`
+
+CONFIG_PARAMS: `6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e11`
+CONFIG_STATUS: `6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e12`
 
 TEMP0_VALUE: `a1b2c3d4-0b1c-4a2b-9c3d-4e5f60718291`
 TEMP1_VALUE: `a1b2c3d4-0b1c-4a2b-9c3d-4e5f60718292`

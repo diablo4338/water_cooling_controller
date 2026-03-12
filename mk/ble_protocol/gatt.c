@@ -5,6 +5,7 @@
 
 #include "host/ble_att.h"
 #include "host/ble_gatt.h"
+#include "host/ble_hs.h"
 
 #include "access.h"
 #include "crypto.h"
@@ -19,6 +20,7 @@
 #include "host_verify.h"
 #include "metrics.h"
 #include "metrics_ble.h"
+#include "params.h"
 
 // ====== GATT access callbacks ======
 static int gatt_read_dev_nonce(uint16_t conn_handle, uint16_t attr_handle,
@@ -269,6 +271,90 @@ static int gatt_read_fan_speed(uint16_t conn_handle, uint16_t attr_handle,
     return 0;
 }
 
+// ====== Config params ======
+static int gatt_read_params(uint16_t conn_handle, uint16_t attr_handle,
+                            struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    (void)attr_handle;
+    (void)arg;
+    if (!can_access_data()) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    if (!auth_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+
+    uint8_t payload[PARAMS_PAYLOAD_LEN];
+    if (!params_get_current_payload(payload, sizeof(payload))) return BLE_ATT_ERR_UNLIKELY;
+    os_mbuf_append(ctxt->om, payload, sizeof(payload));
+    return 0;
+}
+
+static int gatt_write_params(uint16_t conn_handle, uint16_t attr_handle,
+                             struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    (void)attr_handle;
+    (void)arg;
+    if (!can_access_data()) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    if (!auth_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+
+    int len = OS_MBUF_PKTLEN(ctxt->om);
+    if (len != PARAMS_PAYLOAD_LEN) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+
+    uint8_t buf[PARAMS_PAYLOAD_LEN];
+    os_mbuf_copydata(ctxt->om, 0, sizeof(buf), buf);
+    if (!params_set_pending_payload(buf, sizeof(buf))) return BLE_ATT_ERR_UNLIKELY;
+    return 0;
+}
+
+static int gatt_access_params(uint16_t conn_handle, uint16_t attr_handle,
+                              struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
+        return gatt_read_params(conn_handle, attr_handle, ctxt, arg);
+    }
+    if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
+        return gatt_write_params(conn_handle, attr_handle, ctxt, arg);
+    }
+    return BLE_ATT_ERR_UNLIKELY;
+}
+
+static uint16_t g_params_status_attr_handle = 0;
+
+static int gatt_access_params_status(uint16_t conn_handle, uint16_t attr_handle,
+                                     struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    (void)attr_handle;
+    (void)arg;
+    if (!can_access_data()) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    if (!auth_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+
+    if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
+        uint8_t payload[PARAMS_STATUS_LEN];
+        params_get_last_status_payload(payload, sizeof(payload));
+        os_mbuf_append(ctxt->om, payload, sizeof(payload));
+        return 0;
+    }
+
+    if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
+        int len = OS_MBUF_PKTLEN(ctxt->om);
+        if (len != 1) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+
+        uint8_t cmd = 0;
+        os_mbuf_copydata(ctxt->om, 0, 1, &cmd);
+        if (cmd != 0x01) return BLE_ATT_ERR_UNLIKELY;
+
+        params_apply(NULL);
+
+        if (g_params_status_attr_handle != 0) {
+            uint8_t payload[PARAMS_STATUS_LEN];
+            params_get_last_status_payload(payload, sizeof(payload));
+            struct os_mbuf *om = ble_hs_mbuf_from_flat(payload, sizeof(payload));
+            if (om) {
+                int rc = ble_gatts_notify_custom(conn_handle, g_params_status_attr_handle, om);
+                if (rc != 0) {
+                    ESP_LOGW(TAG, "notify params status rc=%d", rc);
+                }
+            }
+        }
+        return 0;
+    }
+
+    return BLE_ATT_ERR_UNLIKELY;
+}
+
 // ====== GATT db (RAM) ======
 static struct ble_gatt_chr_def pair_chrs[] = {
     { .uuid = NULL, .access_cb = gatt_read_dev_nonce,     .flags = BLE_GATT_CHR_F_READ  },
@@ -286,6 +372,21 @@ static struct ble_gatt_chr_def pair_chrs[] = {
 static struct ble_gatt_chr_def main_chrs[] = {
     { .uuid = NULL, .access_cb = gatt_read_auth_nonce,  .flags = BLE_GATT_CHR_F_READ  },
     { .uuid = NULL, .access_cb = gatt_write_auth_proof, .flags = BLE_GATT_CHR_F_WRITE },
+    { 0 }
+};
+
+static struct ble_gatt_chr_def config_chrs[] = {
+    {
+        .uuid = NULL,
+        .access_cb = gatt_access_params,
+        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE,
+    },
+    {
+        .uuid = NULL,
+        .access_cb = gatt_access_params_status,
+        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_NOTIFY,
+        .val_handle = &g_params_status_attr_handle,
+    },
     { 0 }
 };
 
@@ -331,6 +432,7 @@ static struct ble_gatt_chr_def metrics_chrs[] = {
 struct ble_gatt_svc_def gatt_svcs[] = {
     { .type = BLE_GATT_SVC_TYPE_PRIMARY, .uuid = NULL, .characteristics = pair_chrs },
     { .type = BLE_GATT_SVC_TYPE_PRIMARY, .uuid = NULL, .characteristics = main_chrs },
+    { .type = BLE_GATT_SVC_TYPE_PRIMARY, .uuid = NULL, .characteristics = config_chrs },
     { .type = BLE_GATT_SVC_TYPE_PRIMARY, .uuid = NULL, .characteristics = metrics_chrs },
     { 0 }
 };
@@ -348,6 +450,7 @@ void gatt_init_uuids_and_services(void) {
     parse_uuid_or_abort(UUID_PAIR_SVC_STR, &UUID_PAIR_SVC);
     parse_uuid_or_abort(UUID_MAIN_SVC_STR, &UUID_MAIN_SVC);
     parse_uuid_or_abort(UUID_METRICS_SVC_STR, &UUID_METRICS_SVC);
+    parse_uuid_or_abort(UUID_CONFIG_SVC_STR, &UUID_CONFIG_SVC);
 
     parse_uuid_or_abort(UUID_PAIR_DEV_NONCE_STR, &UUID_PAIR_DEV_NONCE);
     parse_uuid_or_abort(UUID_PAIR_DEV_PUB_STR,   &UUID_PAIR_DEV_PUB);
@@ -357,6 +460,9 @@ void gatt_init_uuids_and_services(void) {
 
     parse_uuid_or_abort(UUID_AUTH_NONCE_STR, &UUID_AUTH_NONCE);
     parse_uuid_or_abort(UUID_AUTH_PROOF_STR, &UUID_AUTH_PROOF);
+
+    parse_uuid_or_abort(UUID_CONFIG_PARAMS_STR, &UUID_CONFIG_PARAMS);
+    parse_uuid_or_abort(UUID_CONFIG_STATUS_STR, &UUID_CONFIG_STATUS);
     
     parse_uuid_or_abort(UUID_TEMP0_VALUE_STR, &UUID_TEMP0_VALUE);
     parse_uuid_or_abort(UUID_TEMP1_VALUE_STR, &UUID_TEMP1_VALUE);
@@ -366,7 +472,8 @@ void gatt_init_uuids_and_services(void) {
 
     gatt_svcs[0].uuid = &UUID_PAIR_SVC.u;
     gatt_svcs[1].uuid = &UUID_MAIN_SVC.u;
-    gatt_svcs[2].uuid = &UUID_METRICS_SVC.u;
+    gatt_svcs[2].uuid = &UUID_CONFIG_SVC.u;
+    gatt_svcs[3].uuid = &UUID_METRICS_SVC.u;
 
     pair_chrs[0].uuid = &UUID_PAIR_DEV_NONCE.u;
     pair_chrs[1].uuid = &UUID_PAIR_DEV_PUB.u;
@@ -376,6 +483,9 @@ void gatt_init_uuids_and_services(void) {
 
     main_chrs[0].uuid = &UUID_AUTH_NONCE.u;
     main_chrs[1].uuid = &UUID_AUTH_PROOF.u;
+
+    config_chrs[0].uuid = &UUID_CONFIG_PARAMS.u;
+    config_chrs[1].uuid = &UUID_CONFIG_STATUS.u;
 
     metrics_chrs[0].uuid = &UUID_TEMP0_VALUE.u;
     metrics_chrs[1].uuid = &UUID_TEMP1_VALUE.u;

@@ -38,9 +38,20 @@ __all__ = [
     "UUID_TEMP2_VALUE",
     "UUID_TEMP3_VALUE",
     "UUID_FAN_SPEED_VALUE",
+    "UUID_CONFIG_SVC",
+    "UUID_CONFIG_PARAMS",
+    "UUID_CONFIG_STATUS",
     "PAIR_SVC_NORM",
     "PAIRED_DB",
     "HOST_KEY_PATH",
+    "PARAMS_DB",
+    "PARAMS_VERSION",
+    "PARAM_STATUS_OK",
+    "PARAM_STATUS_INVALID",
+    "PARAM_FIELD_NONE",
+    "PARAM_FIELD_NAMES",
+    "DeviceParams",
+    "ParamsStatus",
     "DeviceInfo",
     "PairResult",
     "normalize_uuid",
@@ -50,6 +61,13 @@ __all__ = [
     "decode_metrics",
     "decode_temp_value",
     "decode_fan_speed",
+    "encode_params",
+    "decode_params",
+    "decode_params_status",
+    "load_params",
+    "load_device_params",
+    "save_params",
+    "save_device_params",
     "load_paired_records",
     "save_paired_records",
     "find_paired_record",
@@ -78,10 +96,25 @@ UUID_TEMP2_VALUE = "a1b2c3d4-0b1c-4a2b-9c3d-4e5f60718293"
 UUID_TEMP3_VALUE = "a1b2c3d4-0b1c-4a2b-9c3d-4e5f60718294"
 UUID_FAN_SPEED_VALUE = "a1b2c3d4-0b1c-4a2b-9c3d-4e5f60718295"
 
+UUID_CONFIG_SVC = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e10"
+UUID_CONFIG_PARAMS = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e11"
+UUID_CONFIG_STATUS = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e12"
+
 TEMP_CHAR_UUIDS = [UUID_TEMP0_VALUE, UUID_TEMP1_VALUE, UUID_TEMP2_VALUE, UUID_TEMP3_VALUE]
 
 PAIRED_DB = "paired_devices.json"
 HOST_KEY_PATH = "host_key.pem"
+PARAMS_DB = "params.json"
+
+PARAMS_VERSION = 1
+PARAM_STATUS_OK = 0
+PARAM_STATUS_INVALID = 1
+PARAM_FIELD_NONE = 0xFF
+PARAM_FIELD_NAMES = {
+    0: "target_temp_c",
+    1: "fan_min_rpm",
+    2: "alarm_delta_c",
+}
 
 
 def normalize_uuid(value: str) -> str:
@@ -192,6 +225,140 @@ def add_or_update_paired(device: "DeviceInfo", k_hex: str) -> None:
             }
         )
     save_paired_records(raw)
+
+
+@dataclass(frozen=True)
+class DeviceParams:
+    target_temp_c: float
+    fan_min_rpm: float
+    alarm_delta_c: float
+
+
+@dataclass(frozen=True)
+class ParamsStatus:
+    ok: bool
+    status: int
+    field_id: Optional[int]
+
+
+DEFAULT_PARAMS = DeviceParams(target_temp_c=25.0, fan_min_rpm=1200.0, alarm_delta_c=5.0)
+
+
+def _params_from_dict(raw: dict) -> Optional[DeviceParams]:
+    try:
+        return DeviceParams(
+            target_temp_c=float(raw.get("target_temp_c", DEFAULT_PARAMS.target_temp_c)),
+            fan_min_rpm=float(raw.get("fan_min_rpm", DEFAULT_PARAMS.fan_min_rpm)),
+            alarm_delta_c=float(raw.get("alarm_delta_c", DEFAULT_PARAMS.alarm_delta_c)),
+        )
+    except (TypeError, ValueError):
+        return None
+
+
+def _params_to_dict(params: DeviceParams) -> dict:
+    return {
+        "version": PARAMS_VERSION,
+        "target_temp_c": params.target_temp_c,
+        "fan_min_rpm": params.fan_min_rpm,
+        "alarm_delta_c": params.alarm_delta_c,
+    }
+
+
+def _load_params_db() -> dict:
+    if not os.path.exists(PARAMS_DB):
+        return {}
+    try:
+        with open(PARAMS_DB, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+    return {}
+
+
+def _save_params_db(raw: dict) -> None:
+    with open(PARAMS_DB, "w", encoding="utf-8") as f:
+        json.dump(raw, f, ensure_ascii=False, indent=2)
+
+
+def load_device_params(address: str) -> DeviceParams:
+    raw = _load_params_db()
+    if isinstance(raw, dict):
+        devices = raw.get("devices", {})
+        if isinstance(devices, dict):
+            device_raw = devices.get(address)
+            if isinstance(device_raw, dict):
+                parsed = _params_from_dict(device_raw)
+                if parsed is not None:
+                    return parsed
+        parsed = _params_from_dict(raw.get("global", {}))
+        if parsed is not None:
+            return parsed
+        parsed = _params_from_dict(raw)
+        if parsed is not None:
+            return parsed
+    return DEFAULT_PARAMS
+
+
+def save_device_params(address: str, params: DeviceParams) -> None:
+    raw = _load_params_db()
+    if not isinstance(raw, dict):
+        raw = {}
+    devices = raw.get("devices")
+    if not isinstance(devices, dict):
+        devices = {}
+    devices[address] = _params_to_dict(params)
+    raw["devices"] = devices
+    _save_params_db(raw)
+
+
+def load_params() -> DeviceParams:
+    return load_device_params("_global")
+
+
+def save_params(params: DeviceParams) -> None:
+    raw = _load_params_db()
+    if not isinstance(raw, dict):
+        raw = {}
+    raw["global"] = _params_to_dict(params)
+    _save_params_db(raw)
+
+
+def encode_params(params: DeviceParams, mask: int = 0x07) -> bytes:
+    return struct.pack(
+        "<BBfff",
+        PARAMS_VERSION,
+        mask & 0x07,
+        params.target_temp_c,
+        params.fan_min_rpm,
+        params.alarm_delta_c,
+    )
+
+
+def decode_params(data: bytes) -> DeviceParams:
+    if len(data) != 14:
+        raise RuntimeError(f"Bad params len={len(data)}")
+    version, mask, t_c, fan_rpm, alarm_delta = struct.unpack("<BBfff", data)
+    if version != PARAMS_VERSION:
+        raise RuntimeError(f"Unsupported params version={version}")
+    _ = mask
+    return DeviceParams(
+        target_temp_c=t_c,
+        fan_min_rpm=fan_rpm,
+        alarm_delta_c=alarm_delta,
+    )
+
+
+def decode_params_status(data: bytes) -> ParamsStatus:
+    if len(data) != 3:
+        raise RuntimeError(f"Bad params status len={len(data)}")
+    version, status, field_id = struct.unpack("<BBB", data)
+    if version != PARAMS_VERSION:
+        raise RuntimeError(f"Unsupported params status version={version}")
+    if field_id == PARAM_FIELD_NONE:
+        field = None
+    else:
+        field = int(field_id)
+    return ParamsStatus(ok=status == PARAM_STATUS_OK, status=status, field_id=field)
 
 
 @dataclass(frozen=True)
@@ -419,6 +586,39 @@ class BleAppCore:
             raise RuntimeError(f"Bad fan speed value len={len(data)}")
         return value
 
+    async def read_params(self, timeout: Optional[float] = None) -> DeviceParams:
+        if not self.client:
+            raise RuntimeError("Not connected")
+        if timeout is None:
+            timeout = self._config.metrics_timeout_s
+        data = await asyncio.wait_for(
+            self.client.read_gatt_char(UUID_CONFIG_PARAMS), timeout=timeout
+        )
+        return decode_params(bytes(data))
+
+    async def write_params(
+        self, params: DeviceParams, timeout: Optional[float] = None, mask: int = 0x07
+    ) -> None:
+        if not self.client:
+            raise RuntimeError("Not connected")
+        if timeout is None:
+            timeout = self._config.metrics_timeout_s
+        payload = encode_params(params, mask=mask)
+        await asyncio.wait_for(
+            self.client.write_gatt_char(UUID_CONFIG_PARAMS, payload, response=True),
+            timeout=timeout,
+        )
+
+    async def apply_params(self, timeout: Optional[float] = None) -> None:
+        if not self.client:
+            raise RuntimeError("Not connected")
+        if timeout is None:
+            timeout = self._config.metrics_timeout_s
+        await asyncio.wait_for(
+            self.client.write_gatt_char(UUID_CONFIG_STATUS, b"\x01", response=True),
+            timeout=timeout,
+        )
+
     async def _reconnect_for_metrics(self, timeout: float) -> None:
         try:
             await self.disconnect()
@@ -429,6 +629,22 @@ class BleAppCore:
             return
         await self.connect_raw(self.device, connect_timeout=max(self._config.connect_timeout_s, timeout))
         await self.auth(timeout=timeout)
+
+    async def start_params_notify(self, callback: Callable[[ParamsStatus], None]) -> None:
+        if not self.client:
+            raise RuntimeError("Not connected")
+        await self.client.start_notify(
+            UUID_CONFIG_STATUS,
+            lambda _, data: self._emit_params_status(callback, data),
+        )
+
+    async def stop_params_notify(self) -> None:
+        if not self.client:
+            raise RuntimeError("Not connected")
+        try:
+            await self.client.stop_notify(UUID_CONFIG_STATUS)
+        except Exception:
+            pass
 
     async def start_metrics_notify(
         self,
@@ -474,3 +690,11 @@ class BleAppCore:
         if value is None:
             return
         callback(value)
+
+    @staticmethod
+    def _emit_params_status(callback: Callable[[ParamsStatus], None], data: bytearray) -> None:
+        try:
+            status = decode_params_status(bytes(data))
+        except Exception:
+            return
+        callback(status)
