@@ -1,25 +1,25 @@
 set(SRCS
-    "main.c"
-    "app_tasks.c"
-    "access.c"
-    "conn_guard.c"
-    "crypto.c"
-    "ecdh.c"
-    "fan_control.c"
-    "fan_status_ble.c"
-    "gatt.c"
-    "gap.c"
-    "host_verify.c"
-    "metrics_ble.c"
-    "operation_manager.c"
-    "operation_status_ble.c"
-    "params.c"
-    "rgb.c"
-    "pair_mode.c"
-    "pair_state.c"
-    "state.c"
-    "storage.c"
-    "uuid.c")
+    "app/main.c"
+    "app/app_tasks.c"
+    "ble/access.c"
+    "ble/fan_status_ble.c"
+    "ble/gap.c"
+    "ble/gatt.c"
+    "ble/metrics_ble.c"
+    "ble/operation_status_ble.c"
+    "ble/uuid.c"
+    "control/fan_control.c"
+    "control/operation_manager.c"
+    "control/params.c"
+    "hw/rgb.c"
+    "pairing/conn_guard.c"
+    "pairing/crypto.c"
+    "pairing/ecdh.c"
+    "pairing/host_verify.c"
+    "pairing/pair_mode.c"
+    "pairing/pair_state.c"
+    "pairing/state.c"
+    "pairing/storage.c")
 
 if(DEFINED PAIR_RUN_TESTS)
     list(APPEND SRCS "test/test_pair_state.c")
@@ -28,7 +28,7 @@ if(DEFINED PAIR_RUN_TESTS)
 endif()
 
 idf_component_register(SRCS ${SRCS}
-                       INCLUDE_DIRS "."
+                       INCLUDE_DIRS "." "app" "ble" "control" "pairing" "hw"
                        REQUIRES bt mbedtls nvs_flash driver esp_timer log freertos esp_driver_rmt metrics
                        PRIV_REQUIRES unity)
 
