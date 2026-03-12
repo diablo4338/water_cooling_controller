@@ -34,6 +34,7 @@ from .core import (
     FAN_STATE_STARTING,
     FAN_STATE_RUNNING,
     FAN_STATE_STALL,
+    UUID_CONFIG_STATUS,
     add_or_update_paired,
     load_paired_records,
     load_device_params,
@@ -80,6 +81,8 @@ class BleWorker(QThread):
         self._auto_stop_evt: Optional[asyncio.Event] = None
         self._auto_running = False
         self._manual_disconnect = False
+        self._monitor_stop_evt: Optional[asyncio.Event] = None
+        self._monitor_task: Optional[asyncio.Task] = None
 
     def run(self) -> None:
         self.loop = asyncio.new_event_loop()
@@ -119,10 +122,46 @@ class BleWorker(QThread):
             return
         if self._disconnect_evt is not None:
             self._disconnect_evt.set()
+        if self._monitor_stop_evt is not None:
+            self._monitor_stop_evt.set()
         if self._manual_disconnect:
             return
         self.log.emit("Соединение разорвано устройством.")
         self.connection_state.emit(False, None)
+
+    def _start_monitor(self) -> None:
+        if self._monitor_task is not None:
+            return
+        self._monitor_stop_evt = asyncio.Event()
+        self._monitor_task = asyncio.create_task(self._monitor_connection())
+
+    async def _monitor_connection(self) -> None:
+        try:
+            ping_interval = 2.0
+            ping_every = 3
+            counter = 0
+            while self._monitor_stop_evt is not None and not self._monitor_stop_evt.is_set():
+                client = self.core.client
+                if client is None:
+                    break
+                if not getattr(client, "is_connected", False):
+                    self._on_disconnected(None)
+                    break
+                counter += 1
+                if counter >= ping_every:
+                    counter = 0
+                    try:
+                        await asyncio.wait_for(
+                            client.read_gatt_char(UUID_CONFIG_STATUS),
+                            timeout=1.0,
+                        )
+                    except Exception:
+                        self._on_disconnected(None)
+                        break
+                await asyncio.sleep(ping_interval)
+        finally:
+            self._monitor_task = None
+            self._monitor_stop_evt = None
 
     async def scan(self) -> None:
         self.log.emit("Поиск устройств в режиме сопряжения...")
@@ -258,6 +297,7 @@ class BleWorker(QThread):
                     self.log.emit("Notify FAN status started.")
                 except Exception as exc:
                     self.log.emit(f"Notify FAN status недоступен: {exc}")
+                self._start_monitor()
                 self.device = device
                 self.connection_state.emit(True, device)
                 return
@@ -282,6 +322,8 @@ class BleWorker(QThread):
                 log_enabled = not already_disconnected
                 if log_enabled:
                     self.log.emit("Отключение...")
+                if self._monitor_stop_evt is not None:
+                    self._monitor_stop_evt.set()
                 # noinspection PyBroadException
                 try:
                     if log_enabled:
