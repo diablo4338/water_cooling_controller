@@ -15,6 +15,7 @@
 #include "uuid.h"
 #include "metrics_ble.h"
 #include "fan_status_ble.h"
+#include "operation_status_ble.h"
 
 // ====== Terminate timer ======
 static void clear_session_secrets_locked(void) {
@@ -145,6 +146,7 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
             state_unlock();
             esp_timer_stop(g_term_timer);
             metrics_reset_notify();
+            operation_status_reset_notify();
             if (was_pairing) {
                 pair_state_full_reset();
                 esp_timer_stop(g_pair_timer);
@@ -162,6 +164,8 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
                                event->subscribe.cur_notify != 0);
             fan_status_set_notify(event->subscribe.attr_handle,
                                   event->subscribe.cur_notify != 0);
+            operation_status_set_notify(event->subscribe.attr_handle,
+                                        event->subscribe.cur_notify != 0);
             return 0;
 
         default:

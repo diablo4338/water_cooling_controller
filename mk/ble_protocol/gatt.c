@@ -22,6 +22,8 @@
 #include "metrics_ble.h"
 #include "fan_control.h"
 #include "fan_status_ble.h"
+#include "operation_manager.h"
+#include "operation_status_ble.h"
 #include "params.h"
 
 // ====== GATT access callbacks ======
@@ -293,7 +295,7 @@ static int gatt_write_params(uint16_t conn_handle, uint16_t attr_handle,
     (void)arg;
     if (!can_access_data()) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
     if (!auth_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
-    if (fan_control_is_calibrating()) {
+    if (operation_manager_is_active()) {
         params_set_last_status(PARAM_STATUS_BUSY, PARAM_FIELD_NONE);
         return BLE_ATT_ERR_INSUFFICIENT_RES;
     }
@@ -342,7 +344,7 @@ static int gatt_access_params_status(uint16_t conn_handle, uint16_t attr_handle,
         os_mbuf_copydata(ctxt->om, 0, 1, &cmd);
         if (cmd != 0x01) return BLE_ATT_ERR_UNLIKELY;
 
-        if (fan_control_is_calibrating()) {
+        if (operation_manager_is_active()) {
             params_set_last_status(PARAM_STATUS_BUSY, PARAM_FIELD_NONE);
             return BLE_ATT_ERR_INSUFFICIENT_RES;
         }
@@ -379,33 +381,48 @@ static int gatt_read_fan_status(uint16_t conn_handle, uint16_t attr_handle,
     return 0;
 }
 
-static int gatt_access_fan_calibrate(uint16_t conn_handle, uint16_t attr_handle,
-                                     struct ble_gatt_access_ctxt *ctxt, void *arg) {
+// ====== Operations ======
+static int gatt_access_operation_control(uint16_t conn_handle, uint16_t attr_handle,
+                                         struct ble_gatt_access_ctxt *ctxt, void *arg) {
     (void)attr_handle;
     (void)arg;
     if (!can_access_data()) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
     if (!auth_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
 
-    if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
-        uint8_t active = fan_control_is_calibrating() ? 1u : 0u;
-        os_mbuf_append(ctxt->om, &active, sizeof(active));
-        return 0;
+    if (ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR) {
+        return BLE_ATT_ERR_UNLIKELY;
     }
 
-    if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
-        int len = OS_MBUF_PKTLEN(ctxt->om);
-        if (len != 1) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+    int len = OS_MBUF_PKTLEN(ctxt->om);
+    if (len != 3) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
 
-        uint8_t cmd = 0;
-        os_mbuf_copydata(ctxt->om, 0, 1, &cmd);
-        if (cmd != 0x01) return BLE_ATT_ERR_UNLIKELY;
-        if (!fan_control_start_calibration()) {
-            return BLE_ATT_ERR_INSUFFICIENT_RES;
-        }
-        return 0;
+    uint8_t buf[3];
+    os_mbuf_copydata(ctxt->om, 0, sizeof(buf), buf);
+    uint8_t version = buf[0];
+    uint8_t op_type = buf[1];
+    uint8_t action = buf[2];
+    if (version != OP_CONTROL_VERSION) return BLE_ATT_ERR_UNLIKELY;
+    if (action != 0x01) return BLE_ATT_ERR_UNLIKELY;
+
+    operation_manager_start((operation_type_t)op_type);
+    return 0;
+}
+
+static int gatt_access_operation_status(uint16_t conn_handle, uint16_t attr_handle,
+                                        struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    (void)attr_handle;
+    (void)arg;
+    if (!can_access_data()) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    if (!auth_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+
+    if (ctxt->op != BLE_GATT_ACCESS_OP_READ_CHR) {
+        return BLE_ATT_ERR_UNLIKELY;
     }
 
-    return BLE_ATT_ERR_UNLIKELY;
+    uint8_t payload[OP_STATUS_PAYLOAD_LEN];
+    operation_manager_get_status_payload(payload, sizeof(payload));
+    os_mbuf_append(ctxt->om, payload, sizeof(payload));
+    return 0;
 }
 
 // ====== GATT db (RAM) ======
@@ -446,10 +463,20 @@ static struct ble_gatt_chr_def config_chrs[] = {
         .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
         .val_handle = &g_fan_status_attr_handle,
     },
+    { 0 }
+};
+
+static struct ble_gatt_chr_def operations_chrs[] = {
     {
         .uuid = NULL,
-        .access_cb = gatt_access_fan_calibrate,
-        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE,
+        .access_cb = gatt_access_operation_control,
+        .flags = BLE_GATT_CHR_F_WRITE,
+    },
+    {
+        .uuid = NULL,
+        .access_cb = gatt_access_operation_status,
+        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+        .val_handle = &g_operation_status_attr_handle,
     },
     { 0 }
 };
@@ -497,6 +524,7 @@ struct ble_gatt_svc_def gatt_svcs[] = {
     { .type = BLE_GATT_SVC_TYPE_PRIMARY, .uuid = NULL, .characteristics = pair_chrs },
     { .type = BLE_GATT_SVC_TYPE_PRIMARY, .uuid = NULL, .characteristics = main_chrs },
     { .type = BLE_GATT_SVC_TYPE_PRIMARY, .uuid = NULL, .characteristics = config_chrs },
+    { .type = BLE_GATT_SVC_TYPE_PRIMARY, .uuid = NULL, .characteristics = operations_chrs },
     { .type = BLE_GATT_SVC_TYPE_PRIMARY, .uuid = NULL, .characteristics = metrics_chrs },
     { 0 }
 };
@@ -515,6 +543,7 @@ void gatt_init_uuids_and_services(void) {
     parse_uuid_or_abort(UUID_MAIN_SVC_STR, &UUID_MAIN_SVC);
     parse_uuid_or_abort(UUID_METRICS_SVC_STR, &UUID_METRICS_SVC);
     parse_uuid_or_abort(UUID_CONFIG_SVC_STR, &UUID_CONFIG_SVC);
+    parse_uuid_or_abort(UUID_OPERATIONS_SVC_STR, &UUID_OPERATIONS_SVC);
 
     parse_uuid_or_abort(UUID_PAIR_DEV_NONCE_STR, &UUID_PAIR_DEV_NONCE);
     parse_uuid_or_abort(UUID_PAIR_DEV_PUB_STR,   &UUID_PAIR_DEV_PUB);
@@ -528,7 +557,8 @@ void gatt_init_uuids_and_services(void) {
     parse_uuid_or_abort(UUID_CONFIG_PARAMS_STR, &UUID_CONFIG_PARAMS);
     parse_uuid_or_abort(UUID_CONFIG_STATUS_STR, &UUID_CONFIG_STATUS);
     parse_uuid_or_abort(UUID_CONFIG_FAN_STATUS_STR, &UUID_CONFIG_FAN_STATUS);
-    parse_uuid_or_abort(UUID_CONFIG_FAN_CALIBRATE_STR, &UUID_CONFIG_FAN_CALIBRATE);
+    parse_uuid_or_abort(UUID_OP_CONTROL_STR, &UUID_OP_CONTROL);
+    parse_uuid_or_abort(UUID_OP_STATUS_STR, &UUID_OP_STATUS);
     
     parse_uuid_or_abort(UUID_TEMP0_VALUE_STR, &UUID_TEMP0_VALUE);
     parse_uuid_or_abort(UUID_TEMP1_VALUE_STR, &UUID_TEMP1_VALUE);
@@ -539,7 +569,8 @@ void gatt_init_uuids_and_services(void) {
     gatt_svcs[0].uuid = &UUID_PAIR_SVC.u;
     gatt_svcs[1].uuid = &UUID_MAIN_SVC.u;
     gatt_svcs[2].uuid = &UUID_CONFIG_SVC.u;
-    gatt_svcs[3].uuid = &UUID_METRICS_SVC.u;
+    gatt_svcs[3].uuid = &UUID_OPERATIONS_SVC.u;
+    gatt_svcs[4].uuid = &UUID_METRICS_SVC.u;
 
     pair_chrs[0].uuid = &UUID_PAIR_DEV_NONCE.u;
     pair_chrs[1].uuid = &UUID_PAIR_DEV_PUB.u;
@@ -553,7 +584,8 @@ void gatt_init_uuids_and_services(void) {
     config_chrs[0].uuid = &UUID_CONFIG_PARAMS.u;
     config_chrs[1].uuid = &UUID_CONFIG_STATUS.u;
     config_chrs[2].uuid = &UUID_CONFIG_FAN_STATUS.u;
-    config_chrs[3].uuid = &UUID_CONFIG_FAN_CALIBRATE.u;
+    operations_chrs[0].uuid = &UUID_OP_CONTROL.u;
+    operations_chrs[1].uuid = &UUID_OP_STATUS.u;
 
     metrics_chrs[0].uuid = &UUID_TEMP0_VALUE.u;
     metrics_chrs[1].uuid = &UUID_TEMP1_VALUE.u;

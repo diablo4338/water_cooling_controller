@@ -9,6 +9,7 @@
 
 #include "fan_status_ble.h"
 #include "metrics.h"
+#include "operation_manager.h"
 #include "params.h"
 #include "state.h"
 
@@ -89,13 +90,25 @@ bool fan_control_start_calibration(void) {
 
 static bool fan_control_calibration_update(int64_t now_us) {
     bool calibrating;
+    bool done = false;
     portENTER_CRITICAL(&g_fan_mux);
     if (g_calibrating && now_us >= g_calibrate_until_us) {
         g_calibrating = false;
+        done = true;
     }
     calibrating = g_calibrating;
     portEXIT_CRITICAL(&g_fan_mux);
+    if (done) {
+        operation_manager_finish_success(OP_TYPE_FAN_CALIBRATION);
+    }
     return calibrating;
+}
+
+static operation_type_t fan_control_current_operation(void) {
+    if (!operation_manager_is_active()) {
+        return OP_TYPE_NONE;
+    }
+    return operation_manager_get_active_type();
 }
 
 static void fan_control_notify_state(fan_state_t state) {
@@ -103,7 +116,12 @@ static void fan_control_notify_state(fan_state_t state) {
         return;
     }
     g_last_reported = state;
-    uint8_t payload[FAN_STATUS_PAYLOAD_LEN] = {FAN_STATUS_VERSION, (uint8_t)state};
+    operation_type_t op = fan_control_current_operation();
+    uint8_t payload[FAN_STATUS_PAYLOAD_LEN] = {
+        FAN_STATUS_VERSION,
+        (uint8_t)state,
+        (uint8_t)op,
+    };
     uint16_t conn = fsm_get_conn_handle();
     fan_status_notify(conn, payload, sizeof(payload));
 }
@@ -111,8 +129,10 @@ static void fan_control_notify_state(fan_state_t state) {
 void fan_control_get_status_payload(uint8_t *out, size_t len) {
     if (!out || len < FAN_STATUS_PAYLOAD_LEN) return;
     fan_state_t state = fan_control_get_state();
+    operation_type_t op = fan_control_current_operation();
     out[0] = FAN_STATUS_VERSION;
     out[1] = (uint8_t)state;
+    out[2] = (uint8_t)op;
 }
 
 void fan_control_init(void) {

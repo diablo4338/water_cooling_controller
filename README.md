@@ -74,8 +74,7 @@ UI поведение (derive_ui):
 Характеристики:
 - `CONFIG_PARAMS` (read/write): пакет параметров (версия, маска, 3 float32 LE)
 - `CONFIG_STATUS` (read/notify/write): статус применения; запись `0x01` — Apply
-- `CONFIG_FAN_STATUS` (read/notify): статус вентилятора (`IDLE/STARTING/RUNNING/STALL`)
-- `CONFIG_FAN_CALIBRATE` (read/write): калибровка вентилятора (`0x01` — start)
+- `CONFIG_FAN_STATUS` (read/notify): статус вентилятора (`IDLE/STARTING/RUNNING/STALL/IN_SERVICE`)
 
 Payload `CONFIG_PARAMS`:
 - `version` (uint8) = `1`
@@ -91,12 +90,28 @@ Payload `CONFIG_STATUS`:
 
 Payload `CONFIG_FAN_STATUS`:
 - `version` (uint8) = `1`
-- `state` (uint8): `0=IDLE`, `1=STARTING`, `2=RUNNING`, `3=STALL`, `4=CALIBRATE`
-
-Payload `CONFIG_FAN_CALIBRATE`:
-- `active` (uint8): `0` — выкл, `1` — в процессе
+- `state` (uint8): `0=IDLE`, `1=STARTING`, `2=RUNNING`, `3=STALL`, `4=IN_SERVICE`
+- `op_type` (uint8): `0=NONE`, `1=FAN_CALIBRATION` (заполняется когда `state=IN_SERVICE`)
 
 Параметры кешируются в RAM и сохраняются в NVS; при старте прошивки загружаются из NVS.
+
+### Operations service `OPERATIONS_SVC`
+Характеристики:
+- `OP_CONTROL` (write): запуск операции (`version/op_type/action`)
+- `OP_STATUS` (read/notify): состояние операции
+
+Payload `OP_CONTROL`:
+- `version` (uint8) = `1`
+- `op_type` (uint8): `1=FAN_CALIBRATION`
+- `action` (uint8): `1=start`
+
+Payload `OP_STATUS` (фикс. длина 24 байта):
+- `version` (uint8) = `1`
+- `op_type` (uint8): `1=FAN_CALIBRATION`
+- `state` (uint8): `0=IDLE`, `1=IN_SERVICE`, `2=DONE`, `3=ERROR`
+- `err_len` (uint8): `0..20`
+- `err_text` (char[20], ASCII/UTF-8), заполнен только при `state=ERROR`
+При старте при активной операции устройство отвечает `state=ERROR` и `err_text="busy"`.
 
 ### Metrics service `METRICS_SVC`
 Характеристики:
@@ -110,6 +125,7 @@ PAIR_SVC: `8fdd08d6-2a9e-4d5a-9f44-9f58b3a9d3c1`
 MAIN_SVC: `3d1a4b35-9707-43e6-bf3e-2e2f7b561d82`
 METRICS_SVC: `f3a0c1d2-5b6a-4d2e-9b43-1c2d3e4f5061`
 CONFIG_SVC: `6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e10`
+OPERATIONS_SVC: `6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e20`
 
 PAIR_DEV_NONCE: `0b46b3cf-7e3b-44a3-8f39-4af2a8c9a1ee`
 PAIR_DEV_PUB: `91c66f66-5c92-4c4d-86bf-6d2c58b6f0d7`
@@ -123,7 +139,8 @@ AUTH_PROOF: `74cde77a-7f14-4e6e-b7f5-92ef0c3ad7e4`
 CONFIG_PARAMS: `6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e11`
 CONFIG_STATUS: `6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e12`
 CONFIG_FAN_STATUS: `6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e13`
-CONFIG_FAN_CALIBRATE: `6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e14`
+OP_CONTROL: `6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e21`
+OP_STATUS: `6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e22`
 
 TEMP0_VALUE: `a1b2c3d4-0b1c-4a2b-9c3d-4e5f60718291`
 TEMP1_VALUE: `a1b2c3d4-0b1c-4a2b-9c3d-4e5f60718292`

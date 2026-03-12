@@ -11,6 +11,8 @@ set(SRCS
     "gap.c"
     "host_verify.c"
     "metrics_ble.c"
+    "operation_manager.c"
+    "operation_status_ble.c"
     "params.c"
     "rgb.c"
     "pair_mode.c"

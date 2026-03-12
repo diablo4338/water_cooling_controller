@@ -10,7 +10,7 @@ extern "C" {
 #endif
 
 #define FAN_STATUS_VERSION 1
-#define FAN_STATUS_PAYLOAD_LEN 2
+#define FAN_STATUS_PAYLOAD_LEN 3
 
 typedef enum {
     FAN_STATE_IDLE = 0,

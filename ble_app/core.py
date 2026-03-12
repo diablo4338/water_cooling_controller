@@ -42,7 +42,9 @@ __all__ = [
     "UUID_CONFIG_PARAMS",
     "UUID_CONFIG_STATUS",
     "UUID_CONFIG_FAN_STATUS",
-    "UUID_CONFIG_FAN_CALIBRATE",
+    "UUID_OPERATIONS_SVC",
+    "UUID_OP_CONTROL",
+    "UUID_OP_STATUS",
     "PAIR_SVC_NORM",
     "PAIRED_DB",
     "HOST_KEY_PATH",
@@ -58,10 +60,22 @@ __all__ = [
     "FAN_STATE_STARTING",
     "FAN_STATE_RUNNING",
     "FAN_STATE_STALL",
-    "FAN_STATE_CALIBRATE",
+    "FAN_STATE_IN_SERVICE",
     "FAN_STATE_NAMES",
+    "OP_STATUS_VERSION",
+    "OP_CONTROL_VERSION",
+    "OP_ERROR_TEXT_MAX",
+    "OP_TYPE_NONE",
+    "OP_TYPE_FAN_CALIBRATION",
+    "OP_TYPE_NAMES",
+    "OP_STATE_IDLE",
+    "OP_STATE_IN_SERVICE",
+    "OP_STATE_DONE",
+    "OP_STATE_ERROR",
+    "OP_STATE_NAMES",
     "DeviceParams",
     "FanStatus",
+    "OperationStatus",
     "ParamsStatus",
     "DeviceInfo",
     "PairResult",
@@ -76,6 +90,8 @@ __all__ = [
     "decode_params",
     "decode_params_status",
     "decode_fan_status",
+    "encode_operation_control",
+    "decode_operation_status",
     "load_params",
     "load_device_params",
     "save_params",
@@ -112,7 +128,9 @@ UUID_CONFIG_SVC = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e10"
 UUID_CONFIG_PARAMS = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e11"
 UUID_CONFIG_STATUS = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e12"
 UUID_CONFIG_FAN_STATUS = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e13"
-UUID_CONFIG_FAN_CALIBRATE = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e14"
+UUID_OPERATIONS_SVC = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e20"
+UUID_OP_CONTROL = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e21"
+UUID_OP_STATUS = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e22"
 
 TEMP_CHAR_UUIDS = [UUID_TEMP0_VALUE, UUID_TEMP1_VALUE, UUID_TEMP2_VALUE, UUID_TEMP3_VALUE]
 
@@ -135,13 +153,33 @@ FAN_STATE_IDLE = 0
 FAN_STATE_STARTING = 1
 FAN_STATE_RUNNING = 2
 FAN_STATE_STALL = 3
-FAN_STATE_CALIBRATE = 4
+FAN_STATE_IN_SERVICE = 4
 FAN_STATE_NAMES = {
     FAN_STATE_IDLE: "IDLE",
     FAN_STATE_STARTING: "STARTING",
     FAN_STATE_RUNNING: "RUNNING",
     FAN_STATE_STALL: "STALL",
-    FAN_STATE_CALIBRATE: "CALIBRATE",
+    FAN_STATE_IN_SERVICE: "IN_SERVICE",
+}
+
+OP_STATUS_VERSION = 1
+OP_CONTROL_VERSION = 1
+OP_ERROR_TEXT_MAX = 20
+OP_TYPE_NONE = 0
+OP_TYPE_FAN_CALIBRATION = 1
+OP_TYPE_NAMES = {
+    OP_TYPE_NONE: "NONE",
+    OP_TYPE_FAN_CALIBRATION: "FAN_CALIBRATION",
+}
+OP_STATE_IDLE = 0
+OP_STATE_IN_SERVICE = 1
+OP_STATE_DONE = 2
+OP_STATE_ERROR = 3
+OP_STATE_NAMES = {
+    OP_STATE_IDLE: "IDLE",
+    OP_STATE_IN_SERVICE: "IN_SERVICE",
+    OP_STATE_DONE: "DONE",
+    OP_STATE_ERROR: "ERROR",
 }
 
 
@@ -273,6 +311,15 @@ class ParamsStatus:
 class FanStatus:
     state: int
     label: str
+    op_type: int
+    op_label: str
+
+
+@dataclass(frozen=True)
+class OperationStatus:
+    op_type: int
+    state: int
+    error: str
 
 
 DEFAULT_PARAMS = DeviceParams(target_temp_c=25.0, fan_min_rpm=1200.0, alarm_delta_c=5.0)
@@ -396,13 +443,33 @@ def decode_params_status(data: bytes) -> ParamsStatus:
 
 
 def decode_fan_status(data: bytes) -> FanStatus:
-    if len(data) != 2:
+    if len(data) != 3:
         raise RuntimeError(f"Bad fan status len={len(data)}")
-    version, state = struct.unpack("<BB", data)
+    version, state, op_type = struct.unpack("<BBB", data)
     if version != FAN_STATUS_VERSION:
         raise RuntimeError(f"Unsupported fan status version={version}")
     label = FAN_STATE_NAMES.get(state, "UNKNOWN")
-    return FanStatus(state=int(state), label=label)
+    op_label = OP_TYPE_NAMES.get(op_type, "UNKNOWN")
+    return FanStatus(state=int(state), label=label, op_type=int(op_type), op_label=op_label)
+
+
+def encode_operation_control(op_type: int, action: int = 1) -> bytes:
+    return struct.pack("<BBB", OP_CONTROL_VERSION, op_type, action)
+
+
+def decode_operation_status(data: bytes) -> OperationStatus:
+    expected_len = 4 + OP_ERROR_TEXT_MAX
+    if len(data) != expected_len:
+        raise RuntimeError(f"Bad operation status len={len(data)}")
+    version, op_type, state, err_len = struct.unpack("<BBBB", data[:4])
+    if version != OP_STATUS_VERSION:
+        raise RuntimeError(f"Unsupported operation status version={version}")
+    err_len = min(int(err_len), OP_ERROR_TEXT_MAX)
+    err_raw = data[4:4 + OP_ERROR_TEXT_MAX]
+    err_text = ""
+    if err_len > 0:
+        err_text = err_raw[:err_len].decode("utf-8", errors="replace")
+    return OperationStatus(op_type=int(op_type), state=int(state), error=err_text)
 
 
 @dataclass(frozen=True)
@@ -650,6 +717,16 @@ class BleAppCore:
         )
         return decode_fan_status(bytes(data))
 
+    async def read_operation_status(self, timeout: Optional[float] = None) -> OperationStatus:
+        if not self.client:
+            raise RuntimeError("Not connected")
+        if timeout is None:
+            timeout = self._config.metrics_timeout_s
+        data = await asyncio.wait_for(
+            self.client.read_gatt_char(UUID_OP_STATUS), timeout=timeout
+        )
+        return decode_operation_status(bytes(data))
+
     async def write_params(
         self, params: DeviceParams, timeout: Optional[float] = None, mask: int = 0x07
     ) -> None:
@@ -673,15 +750,19 @@ class BleAppCore:
             timeout=timeout,
         )
 
-    async def start_fan_calibration(self, timeout: Optional[float] = None) -> None:
+    async def start_operation(self, op_type: int, timeout: Optional[float] = None) -> None:
         if not self.client:
             raise RuntimeError("Not connected")
         if timeout is None:
             timeout = self._config.metrics_timeout_s
+        payload = encode_operation_control(op_type, action=1)
         await asyncio.wait_for(
-            self.client.write_gatt_char(UUID_CONFIG_FAN_CALIBRATE, b"\x01", response=True),
+            self.client.write_gatt_char(UUID_OP_CONTROL, payload, response=True),
             timeout=timeout,
         )
+
+    async def start_fan_calibration(self, timeout: Optional[float] = None) -> None:
+        await self.start_operation(OP_TYPE_FAN_CALIBRATION, timeout=timeout)
 
     async def _reconnect_for_metrics(self, timeout: float) -> None:
         try:
@@ -718,11 +799,29 @@ class BleAppCore:
             lambda _, data: self._emit_fan_status(callback, data),
         )
 
+    async def start_operation_status_notify(
+        self, callback: Callable[[OperationStatus], None]
+    ) -> None:
+        if not self.client:
+            raise RuntimeError("Not connected")
+        await self.client.start_notify(
+            UUID_OP_STATUS,
+            lambda _, data: self._emit_operation_status(callback, data),
+        )
+
     async def stop_fan_status_notify(self) -> None:
         if not self.client:
             raise RuntimeError("Not connected")
         try:
             await self.client.stop_notify(UUID_CONFIG_FAN_STATUS)
+        except Exception:
+            pass
+
+    async def stop_operation_status_notify(self) -> None:
+        if not self.client:
+            raise RuntimeError("Not connected")
+        try:
+            await self.client.stop_notify(UUID_OP_STATUS)
         except Exception:
             pass
 
@@ -783,6 +882,14 @@ class BleAppCore:
     def _emit_fan_status(callback: Callable[[FanStatus], None], data: bytearray) -> None:
         try:
             status = decode_fan_status(bytes(data))
+        except Exception:
+            return
+        callback(status)
+
+    @staticmethod
+    def _emit_operation_status(callback: Callable[[OperationStatus], None], data: bytearray) -> None:
+        try:
+            status = decode_operation_status(bytes(data))
         except Exception:
             return
         callback(status)

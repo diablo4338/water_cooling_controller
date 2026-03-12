@@ -29,12 +29,20 @@ from .core import (
     DeviceParams,
     DeviceInfo,
     FanStatus,
+    OperationStatus,
     ParamsStatus,
     FAN_STATE_IDLE,
     FAN_STATE_STARTING,
     FAN_STATE_RUNNING,
     FAN_STATE_STALL,
-    FAN_STATE_CALIBRATE,
+    FAN_STATE_IN_SERVICE,
+    OP_STATE_IDLE,
+    OP_STATE_IN_SERVICE,
+    OP_STATE_DONE,
+    OP_STATE_ERROR,
+    OP_STATE_NAMES,
+    OP_TYPE_NONE,
+    OP_TYPE_NAMES,
     PARAM_STATUS_BUSY,
     UUID_CONFIG_STATUS,
     add_or_update_paired,
@@ -70,6 +78,7 @@ class BleWorker(QThread):
     params_status = Signal(object)
     apply_done = Signal()
     fan_status_received = Signal(object)
+    operation_status_received = Signal(object)
     pairing_result = Signal(bool, str, object, object)
     connection_state = Signal(bool, object)
 
@@ -258,6 +267,13 @@ class BleWorker(QThread):
                     self.log.emit("Initial FAN status read ok.")
                 except Exception as exc:
                     self.log.emit(f"Initial FAN status read failed: {exc}")
+                self.log.emit("AUTH ok, reading initial OP status...")
+                try:
+                    status = await self.core.read_operation_status(timeout=self.config.metrics_timeout_s)
+                    self.operation_status_received.emit(status)
+                    self.log.emit("Initial OP status read ok.")
+                except Exception as exc:
+                    self.log.emit(f"Initial OP status read failed: {exc}")
                 self.log.emit("AUTH ok, reading initial METRICS...")
                 try:
                     values = await self.core.read_metrics(timeout=self.config.metrics_timeout_s)
@@ -299,6 +315,15 @@ class BleWorker(QThread):
                     self.log.emit("Notify FAN status started.")
                 except Exception as exc:
                     self.log.emit(f"Notify FAN status недоступен: {exc}")
+                try:
+                    await self._with_timeout(
+                        self.core.start_operation_status_notify(self._on_operation_status),
+                        f"start_operation_status_notify#{attempt}",
+                        timeout=3.0,
+                    )
+                    self.log.emit("Notify OP status started.")
+                except Exception as exc:
+                    self.log.emit(f"Notify OP status недоступен: {exc}")
                 self._start_monitor()
                 self.device = device
                 self.connection_state.emit(True, device)
@@ -346,6 +371,16 @@ class BleWorker(QThread):
                         self.log.emit("Stopping notify FAN status...")
                     await self._with_timeout(
                         self.core.stop_fan_status_notify(), "stop_fan_status_notify", timeout=3.0
+                    )
+                except Exception:
+                    pass
+                try:
+                    if log_enabled:
+                        self.log.emit("Stopping notify OP status...")
+                    await self._with_timeout(
+                        self.core.stop_operation_status_notify(),
+                        "stop_operation_status_notify",
+                        timeout=3.0,
                     )
                 except Exception:
                     pass
@@ -403,7 +438,7 @@ class BleWorker(QThread):
                 "fan_calibration",
                 timeout=self.config.metrics_timeout_s,
             )
-            self.log.emit("Калибровка вентилятора запущена")
+            self.log.emit("Запрос калибровки отправлен")
         except Exception as exc:
             self.log.emit(f"Ошибка калибровки вентилятора: {exc}")
 
@@ -418,6 +453,9 @@ class BleWorker(QThread):
 
     def _on_fan_status(self, status: FanStatus) -> None:
         self.fan_status_received.emit(status)
+
+    def _on_operation_status(self, status: OperationStatus) -> None:
+        self.operation_status_received.emit(status)
 
 
 class MainWindow(QMainWindow):
@@ -469,7 +507,7 @@ class MainWindow(QMainWindow):
         self.fan_field: Optional[QLineEdit] = None
         self._fan_is_nc: Optional[bool] = None
         self.fan_status_field: Optional[QLineEdit] = None
-        self._fan_calibrating = False
+        self._operation_active = False
         self.param_fields: list[QDoubleSpinBox] = []
         self._params_update_lock = False
 
@@ -519,6 +557,7 @@ class MainWindow(QMainWindow):
         self.worker.params_status.connect(self.on_params_status)
         self.worker.apply_done.connect(self.on_apply_done)
         self.worker.fan_status_received.connect(self.on_fan_status)
+        self.worker.operation_status_received.connect(self.on_operation_status)
         self.worker.pairing_result.connect(self.on_pairing_result)
         self.worker.connection_state.connect(self.on_connection_state)
 
@@ -686,7 +725,7 @@ class MainWindow(QMainWindow):
         self.delete_button.setEnabled(Action.DELETE_PAIRED in ui.enabled_actions)
         self.auto_checkbox.setEnabled(Action.AUTO_CONNECT in ui.enabled_actions)
         params_enabled = self.model.state.conn == ConnState.CONNECTED and not self.model.state.busy
-        if self._fan_calibrating:
+        if self._operation_active:
             self.apply_button.setEnabled(False)
             self.calibrate_button.setEnabled(False)
             params_enabled = False
@@ -1012,7 +1051,6 @@ class MainWindow(QMainWindow):
     def on_fan_status(self, status: FanStatus) -> None:
         if self.fan_status_field is None:
             return
-        self._fan_calibrating = status.state == FAN_STATE_CALIBRATE
         if status.state == FAN_STATE_IDLE:
             self.fan_status_field.setText("IDLE")
         elif status.state == FAN_STATE_STARTING:
@@ -1021,8 +1059,35 @@ class MainWindow(QMainWindow):
             self.fan_status_field.setText("RUNNING")
         elif status.state == FAN_STATE_STALL:
             self.fan_status_field.setText("STALL")
-        elif status.state == FAN_STATE_CALIBRATE:
-            self.fan_status_field.setText("CALIBRATE")
+        elif status.state == FAN_STATE_IN_SERVICE:
+            if status.op_type != OP_TYPE_NONE:
+                self.fan_status_field.setText(f"IN_SERVICE ({status.op_label})")
+            else:
+                self.fan_status_field.setText("IN_SERVICE")
+        self._apply_ui()
+
+    @Slot(object)
+    def on_operation_status(self, status: OperationStatus) -> None:
+        op_label = OP_TYPE_NAMES.get(status.op_type, f"OP{status.op_type}")
+        state_label = OP_STATE_NAMES.get(status.state, "UNKNOWN")
+        if status.state == OP_STATE_IN_SERVICE:
+            self.on_log(f"Операция запущена: {op_label}")
+            self._operation_active = True
+        elif status.state == OP_STATE_DONE:
+            self.on_log(f"Операция завершена: {op_label}")
+            self._operation_active = False
+        elif status.state == OP_STATE_ERROR:
+            err_text = status.error or "неизвестная ошибка"
+            if err_text.strip().lower() == "busy":
+                self.on_log(f"Операция занята: {op_label}")
+                self._operation_active = True
+            else:
+                self.on_log(f"Ошибка операции {op_label}: {err_text}")
+                self._operation_active = False
+        elif status.state == OP_STATE_IDLE:
+            self._operation_active = False
+        else:
+            self.on_log(f"Операция {op_label}: {state_label}")
         self._apply_ui()
 
     @Slot()
@@ -1073,7 +1138,7 @@ class MainWindow(QMainWindow):
         self._fan_is_nc = None
         if self.fan_status_field is not None:
             self.fan_status_field.setText("—")
-        self._fan_calibrating = False
+        self._operation_active = False
 
     def _select_paired_device(self, device: DeviceInfo) -> None:
         for idx in range(self.paired_list.count()):

@@ -26,6 +26,8 @@
 #include "params.h"
 #include "fan_control.h"
 #include "fan_status_ble.h"
+#include "operation_manager.h"
+#include "operation_status_ble.h"
 #include "pair_mode.h"
 
 #ifdef PAIR_RUN_TESTS
@@ -54,6 +56,8 @@ void app_main(void) {
     metrics_ble_init();
     params_init();
     fan_status_ble_init();
+    operation_status_ble_init();
+    operation_manager_init();
     fan_control_init();
 
     esp_timer_create_args_t targs = {
