@@ -167,18 +167,30 @@ void fan_control_task(void *param) {
 
         fan_state_t state = fan_control_get_state();
         bool calibrating = fan_control_calibration_update(now);
+        bool op_active = operation_manager_is_active();
+        operation_type_t op_type = op_active ? operation_manager_get_active_type() : OP_TYPE_NONE;
 
-        if (calibrating) {
-            if (state != FAN_STATE_CALIBRATE) {
-                fan_control_set_state(FAN_STATE_CALIBRATE, now);
-                fan_control_notify_state(FAN_STATE_CALIBRATE);
+        if (op_active) {
+            if (op_type == OP_TYPE_FAN_CALIBRATION && calibrating) {
+                if (state != FAN_STATE_IN_SERVICE) {
+                    fan_control_set_state(FAN_STATE_IN_SERVICE, now);
+                    fan_control_notify_state(FAN_STATE_IN_SERVICE);
+                }
+                fan_control_apply_output(FAN_CALIBRATION_RPM);
+                vTaskDelay(delay);
+                continue;
             }
-            fan_control_apply_output(FAN_CALIBRATION_RPM);
+
+            if (state != FAN_STATE_IN_SERVICE) {
+                fan_control_set_state(FAN_STATE_IN_SERVICE, now);
+                fan_control_notify_state(FAN_STATE_IN_SERVICE);
+            }
+            fan_control_apply_output(0.0f);
             vTaskDelay(delay);
             continue;
         }
 
-        if (state == FAN_STATE_CALIBRATE) {
+        if (state == FAN_STATE_IN_SERVICE) {
             fan_control_set_state(FAN_STATE_IDLE, now);
             fan_control_notify_state(FAN_STATE_IDLE);
             state = FAN_STATE_IDLE;

@@ -17,7 +17,6 @@ typedef enum {
     FAN_STATE_STARTING = 1,
     FAN_STATE_RUNNING = 2,
     FAN_STATE_STALL = 3,
-    FAN_STATE_CALIBRATE = 4,
 } fan_state_t;
 
 void fan_control_init(void);
