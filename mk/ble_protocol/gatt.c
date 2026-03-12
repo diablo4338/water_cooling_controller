@@ -20,6 +20,8 @@
 #include "host_verify.h"
 #include "metrics.h"
 #include "metrics_ble.h"
+#include "fan_control.h"
+#include "fan_status_ble.h"
 #include "params.h"
 
 // ====== GATT access callbacks ======
@@ -355,6 +357,19 @@ static int gatt_access_params_status(uint16_t conn_handle, uint16_t attr_handle,
     return BLE_ATT_ERR_UNLIKELY;
 }
 
+static int gatt_read_fan_status(uint16_t conn_handle, uint16_t attr_handle,
+                                struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    (void)attr_handle;
+    (void)arg;
+    if (!can_access_data()) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    if (!auth_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+
+    uint8_t payload[FAN_STATUS_PAYLOAD_LEN];
+    fan_control_get_status_payload(payload, sizeof(payload));
+    os_mbuf_append(ctxt->om, payload, sizeof(payload));
+    return 0;
+}
+
 // ====== GATT db (RAM) ======
 static struct ble_gatt_chr_def pair_chrs[] = {
     { .uuid = NULL, .access_cb = gatt_read_dev_nonce,     .flags = BLE_GATT_CHR_F_READ  },
@@ -386,6 +401,12 @@ static struct ble_gatt_chr_def config_chrs[] = {
         .access_cb = gatt_access_params_status,
         .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_NOTIFY,
         .val_handle = &g_params_status_attr_handle,
+    },
+    {
+        .uuid = NULL,
+        .access_cb = gatt_read_fan_status,
+        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+        .val_handle = &g_fan_status_attr_handle,
     },
     { 0 }
 };
@@ -463,6 +484,7 @@ void gatt_init_uuids_and_services(void) {
 
     parse_uuid_or_abort(UUID_CONFIG_PARAMS_STR, &UUID_CONFIG_PARAMS);
     parse_uuid_or_abort(UUID_CONFIG_STATUS_STR, &UUID_CONFIG_STATUS);
+    parse_uuid_or_abort(UUID_CONFIG_FAN_STATUS_STR, &UUID_CONFIG_FAN_STATUS);
     
     parse_uuid_or_abort(UUID_TEMP0_VALUE_STR, &UUID_TEMP0_VALUE);
     parse_uuid_or_abort(UUID_TEMP1_VALUE_STR, &UUID_TEMP1_VALUE);
@@ -486,6 +508,7 @@ void gatt_init_uuids_and_services(void) {
 
     config_chrs[0].uuid = &UUID_CONFIG_PARAMS.u;
     config_chrs[1].uuid = &UUID_CONFIG_STATUS.u;
+    config_chrs[2].uuid = &UUID_CONFIG_FAN_STATUS.u;
 
     metrics_chrs[0].uuid = &UUID_TEMP0_VALUE.u;
     metrics_chrs[1].uuid = &UUID_TEMP1_VALUE.u;

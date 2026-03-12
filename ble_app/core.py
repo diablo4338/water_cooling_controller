@@ -41,6 +41,7 @@ __all__ = [
     "UUID_CONFIG_SVC",
     "UUID_CONFIG_PARAMS",
     "UUID_CONFIG_STATUS",
+    "UUID_CONFIG_FAN_STATUS",
     "PAIR_SVC_NORM",
     "PAIRED_DB",
     "HOST_KEY_PATH",
@@ -50,7 +51,14 @@ __all__ = [
     "PARAM_STATUS_INVALID",
     "PARAM_FIELD_NONE",
     "PARAM_FIELD_NAMES",
+    "FAN_STATUS_VERSION",
+    "FAN_STATE_IDLE",
+    "FAN_STATE_STARTING",
+    "FAN_STATE_RUNNING",
+    "FAN_STATE_STALL",
+    "FAN_STATE_NAMES",
     "DeviceParams",
+    "FanStatus",
     "ParamsStatus",
     "DeviceInfo",
     "PairResult",
@@ -64,6 +72,7 @@ __all__ = [
     "encode_params",
     "decode_params",
     "decode_params_status",
+    "decode_fan_status",
     "load_params",
     "load_device_params",
     "save_params",
@@ -99,6 +108,7 @@ UUID_FAN_SPEED_VALUE = "a1b2c3d4-0b1c-4a2b-9c3d-4e5f60718295"
 UUID_CONFIG_SVC = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e10"
 UUID_CONFIG_PARAMS = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e11"
 UUID_CONFIG_STATUS = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e12"
+UUID_CONFIG_FAN_STATUS = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e13"
 
 TEMP_CHAR_UUIDS = [UUID_TEMP0_VALUE, UUID_TEMP1_VALUE, UUID_TEMP2_VALUE, UUID_TEMP3_VALUE]
 
@@ -114,6 +124,17 @@ PARAM_FIELD_NAMES = {
     0: "target_temp_c",
     1: "fan_min_rpm",
     2: "alarm_delta_c",
+}
+FAN_STATUS_VERSION = 1
+FAN_STATE_IDLE = 0
+FAN_STATE_STARTING = 1
+FAN_STATE_RUNNING = 2
+FAN_STATE_STALL = 3
+FAN_STATE_NAMES = {
+    FAN_STATE_IDLE: "IDLE",
+    FAN_STATE_STARTING: "STARTING",
+    FAN_STATE_RUNNING: "RUNNING",
+    FAN_STATE_STALL: "STALL",
 }
 
 
@@ -241,6 +262,12 @@ class ParamsStatus:
     field_id: Optional[int]
 
 
+@dataclass(frozen=True)
+class FanStatus:
+    state: int
+    label: str
+
+
 DEFAULT_PARAMS = DeviceParams(target_temp_c=25.0, fan_min_rpm=1200.0, alarm_delta_c=5.0)
 
 
@@ -359,6 +386,16 @@ def decode_params_status(data: bytes) -> ParamsStatus:
     else:
         field = int(field_id)
     return ParamsStatus(ok=status == PARAM_STATUS_OK, status=status, field_id=field)
+
+
+def decode_fan_status(data: bytes) -> FanStatus:
+    if len(data) != 2:
+        raise RuntimeError(f"Bad fan status len={len(data)}")
+    version, state = struct.unpack("<BB", data)
+    if version != FAN_STATUS_VERSION:
+        raise RuntimeError(f"Unsupported fan status version={version}")
+    label = FAN_STATE_NAMES.get(state, "UNKNOWN")
+    return FanStatus(state=int(state), label=label)
 
 
 @dataclass(frozen=True)
@@ -596,6 +633,16 @@ class BleAppCore:
         )
         return decode_params(bytes(data))
 
+    async def read_fan_status(self, timeout: Optional[float] = None) -> FanStatus:
+        if not self.client:
+            raise RuntimeError("Not connected")
+        if timeout is None:
+            timeout = self._config.metrics_timeout_s
+        data = await asyncio.wait_for(
+            self.client.read_gatt_char(UUID_CONFIG_FAN_STATUS), timeout=timeout
+        )
+        return decode_fan_status(bytes(data))
+
     async def write_params(
         self, params: DeviceParams, timeout: Optional[float] = None, mask: int = 0x07
     ) -> None:
@@ -643,6 +690,22 @@ class BleAppCore:
             raise RuntimeError("Not connected")
         try:
             await self.client.stop_notify(UUID_CONFIG_STATUS)
+        except Exception:
+            pass
+
+    async def start_fan_status_notify(self, callback: Callable[[FanStatus], None]) -> None:
+        if not self.client:
+            raise RuntimeError("Not connected")
+        await self.client.start_notify(
+            UUID_CONFIG_FAN_STATUS,
+            lambda _, data: self._emit_fan_status(callback, data),
+        )
+
+    async def stop_fan_status_notify(self) -> None:
+        if not self.client:
+            raise RuntimeError("Not connected")
+        try:
+            await self.client.stop_notify(UUID_CONFIG_FAN_STATUS)
         except Exception:
             pass
 
@@ -695,6 +758,14 @@ class BleAppCore:
     def _emit_params_status(callback: Callable[[ParamsStatus], None], data: bytearray) -> None:
         try:
             status = decode_params_status(bytes(data))
+        except Exception:
+            return
+        callback(status)
+
+    @staticmethod
+    def _emit_fan_status(callback: Callable[[FanStatus], None], data: bytearray) -> None:
+        try:
+            status = decode_fan_status(bytes(data))
         except Exception:
             return
         callback(status)

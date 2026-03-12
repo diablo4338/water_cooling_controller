@@ -24,6 +24,8 @@
 #include "metrics.h"
 #include "metrics_ble.h"
 #include "params.h"
+#include "fan_control.h"
+#include "fan_status_ble.h"
 #include "pair_mode.h"
 
 #ifdef PAIR_RUN_TESTS
@@ -51,6 +53,8 @@ void app_main(void) {
     metrics_init();
     metrics_ble_init();
     params_init();
+    fan_status_ble_init();
+    fan_control_init();
 
     esp_timer_create_args_t targs = {
         .callback = term_cb,
@@ -92,6 +96,7 @@ void app_main(void) {
     if (rc != 0) ESP_LOGE(TAG, "ble_gatts_add_svcs rc=%d", rc);
 
     xTaskCreate(metrics_task, "metrics", 4096, NULL, 5, NULL);
+    xTaskCreate(fan_control_task, "fan_ctl", 4096, NULL, 5, NULL);
 
     ble_hs_cfg.sync_cb = ble_app_on_sync;
 

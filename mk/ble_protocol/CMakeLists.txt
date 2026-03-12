@@ -5,6 +5,8 @@ set(SRCS
     "conn_guard.c"
     "crypto.c"
     "ecdh.c"
+    "fan_control.c"
+    "fan_status_ble.c"
     "gatt.c"
     "gap.c"
     "host_verify.c"

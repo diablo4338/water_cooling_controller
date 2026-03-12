@@ -74,6 +74,7 @@ UI поведение (derive_ui):
 Характеристики:
 - `CONFIG_PARAMS` (read/write): пакет параметров (версия, маска, 3 float32 LE)
 - `CONFIG_STATUS` (read/notify/write): статус применения; запись `0x01` — Apply
+- `CONFIG_FAN_STATUS` (read/notify): статус вентилятора (`IDLE/STARTING/RUNNING/STALL`)
 
 Payload `CONFIG_PARAMS`:
 - `version` (uint8) = `1`
@@ -86,6 +87,10 @@ Payload `CONFIG_STATUS`:
 - `version` (uint8) = `1`
 - `status` (uint8): `0=OK`, `1=INVALID`
 - `field` (uint8): `0..2` или `0xFF`, если без ошибки
+
+Payload `CONFIG_FAN_STATUS`:
+- `version` (uint8) = `1`
+- `state` (uint8): `0=IDLE`, `1=STARTING`, `2=RUNNING`, `3=STALL`
 
 Параметры кешируются в RAM и сохраняются в NVS; при старте прошивки загружаются из NVS.
 
@@ -113,6 +118,7 @@ AUTH_PROOF: `74cde77a-7f14-4e6e-b7f5-92ef0c3ad7e4`
 
 CONFIG_PARAMS: `6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e11`
 CONFIG_STATUS: `6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e12`
+CONFIG_FAN_STATUS: `6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e13`
 
 TEMP0_VALUE: `a1b2c3d4-0b1c-4a2b-9c3d-4e5f60718291`
 TEMP1_VALUE: `a1b2c3d4-0b1c-4a2b-9c3d-4e5f60718292`

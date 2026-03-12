@@ -28,7 +28,12 @@ from .core import (
     BleAppCore,
     DeviceParams,
     DeviceInfo,
+    FanStatus,
     ParamsStatus,
+    FAN_STATE_IDLE,
+    FAN_STATE_STARTING,
+    FAN_STATE_RUNNING,
+    FAN_STATE_STALL,
     add_or_update_paired,
     load_paired_records,
     load_device_params,
@@ -61,6 +66,7 @@ class BleWorker(QThread):
     params_received = Signal(object)
     params_status = Signal(object)
     apply_done = Signal()
+    fan_status_received = Signal(object)
     pairing_result = Signal(bool, str, object, object)
     connection_state = Signal(bool, object)
 
@@ -204,6 +210,13 @@ class BleWorker(QThread):
                     self.log.emit("Initial PARAMS read ok.")
                 except Exception as exc:
                     self.log.emit(f"Initial PARAMS read failed: {exc}")
+                self.log.emit("AUTH ok, reading initial FAN status...")
+                try:
+                    status = await self.core.read_fan_status(timeout=self.config.metrics_timeout_s)
+                    self.fan_status_received.emit(status)
+                    self.log.emit("Initial FAN status read ok.")
+                except Exception as exc:
+                    self.log.emit(f"Initial FAN status read failed: {exc}")
                 self.log.emit("AUTH ok, reading initial METRICS...")
                 try:
                     values = await self.core.read_metrics(timeout=self.config.metrics_timeout_s)
@@ -236,6 +249,15 @@ class BleWorker(QThread):
                     self.log.emit("Notify PARAMS status started.")
                 except Exception as exc:
                     self.log.emit(f"Notify PARAMS status недоступен: {exc}")
+                try:
+                    await self._with_timeout(
+                        self.core.start_fan_status_notify(self._on_fan_status),
+                        f"start_fan_status_notify#{attempt}",
+                        timeout=3.0,
+                    )
+                    self.log.emit("Notify FAN status started.")
+                except Exception as exc:
+                    self.log.emit(f"Notify FAN status недоступен: {exc}")
                 self.device = device
                 self.connection_state.emit(True, device)
                 return
@@ -272,6 +294,14 @@ class BleWorker(QThread):
                         self.log.emit("Stopping notify PARAMS...")
                     await self._with_timeout(
                         self.core.stop_params_notify(), "stop_params_notify", timeout=3.0
+                    )
+                except Exception:
+                    pass
+                try:
+                    if log_enabled:
+                        self.log.emit("Stopping notify FAN status...")
+                    await self._with_timeout(
+                        self.core.stop_fan_status_notify(), "stop_fan_status_notify", timeout=3.0
                     )
                 except Exception:
                     pass
@@ -331,6 +361,9 @@ class BleWorker(QThread):
     def _on_params_status(self, status: ParamsStatus) -> None:
         self.params_status.emit(status)
 
+    def _on_fan_status(self, status: FanStatus) -> None:
+        self.fan_status_received.emit(status)
+
 
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
@@ -378,6 +411,7 @@ class MainWindow(QMainWindow):
         self._temp_is_nc: list[Optional[bool]] = [None] * 4
         self.fan_field: Optional[QLineEdit] = None
         self._fan_is_nc: Optional[bool] = None
+        self.fan_status_field: Optional[QLineEdit] = None
         self.param_fields: list[QDoubleSpinBox] = []
         self._params_update_lock = False
 
@@ -425,6 +459,7 @@ class MainWindow(QMainWindow):
         self.worker.params_received.connect(self.on_params_received)
         self.worker.params_status.connect(self.on_params_status)
         self.worker.apply_done.connect(self.on_apply_done)
+        self.worker.fan_status_received.connect(self.on_fan_status)
         self.worker.pairing_result.connect(self.on_pairing_result)
         self.worker.connection_state.connect(self.on_connection_state)
 
@@ -504,13 +539,21 @@ class MainWindow(QMainWindow):
 
     def _build_fan_layout(self) -> QGridLayout:
         grid = QGridLayout()
-        label = QLabel("Вентилятор (об/мин)")
-        field = QLineEdit("—")
-        field.setReadOnly(True)
-        field.setAlignment(Qt.AlignmentFlag.AlignRight)
-        grid.addWidget(label, 0, 0)
-        grid.addWidget(field, 0, 1)
-        self.fan_field = field
+        rpm_label = QLabel("Вентилятор (об/мин)")
+        rpm_field = QLineEdit("—")
+        rpm_field.setReadOnly(True)
+        rpm_field.setAlignment(Qt.AlignmentFlag.AlignRight)
+        grid.addWidget(rpm_label, 0, 0)
+        grid.addWidget(rpm_field, 0, 1)
+        self.fan_field = rpm_field
+
+        status_label = QLabel("Статус вентилятора")
+        status_field = QLineEdit("—")
+        status_field.setReadOnly(True)
+        status_field.setAlignment(Qt.AlignmentFlag.AlignRight)
+        grid.addWidget(status_label, 1, 0)
+        grid.addWidget(status_field, 1, 1)
+        self.fan_status_field = status_field
         self._fan_is_nc = None
         return grid
 
@@ -892,6 +935,19 @@ class MainWindow(QMainWindow):
         )
         self.on_log(f"Ошибка параметров: {field_label}")
 
+    @Slot(object)
+    def on_fan_status(self, status: FanStatus) -> None:
+        if self.fan_status_field is None:
+            return
+        if status.state == FAN_STATE_IDLE:
+            self.fan_status_field.setText("IDLE")
+        elif status.state == FAN_STATE_STARTING:
+            self.fan_status_field.setText("STARTING")
+        elif status.state == FAN_STATE_RUNNING:
+            self.fan_status_field.setText("RUNNING")
+        elif status.state == FAN_STATE_STALL:
+            self.fan_status_field.setText("STALL")
+
     @Slot()
     def on_apply_done(self) -> None:
         if self.model.state.active_action == Action.APPLY:
@@ -938,6 +994,8 @@ class MainWindow(QMainWindow):
         if self.fan_field is not None:
             self.fan_field.setText("—")
         self._fan_is_nc = None
+        if self.fan_status_field is not None:
+            self.fan_status_field.setText("—")
 
     def _select_paired_device(self, device: DeviceInfo) -> None:
         for idx in range(self.paired_list.count()):
