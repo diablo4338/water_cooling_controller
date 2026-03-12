@@ -15,6 +15,7 @@ extern "C" {
 
 #define PARAM_STATUS_OK 0x00
 #define PARAM_STATUS_INVALID 0x01
+#define PARAM_STATUS_BUSY 0x02
 
 #define PARAM_FIELD_TARGET_TEMP 0
 #define PARAM_FIELD_FAN_MIN_RPM 1
@@ -40,6 +41,7 @@ bool params_write(const params_t *params, uint8_t mask);
 bool params_set_pending_payload(const uint8_t *data, size_t len);
 bool params_get_current_payload(uint8_t *out, size_t len);
 void params_get_last_status_payload(uint8_t *out, size_t len);
+void params_set_last_status(uint8_t status, uint8_t field);
 uint8_t params_apply(uint8_t *field_id);
 
 #ifdef __cplusplus

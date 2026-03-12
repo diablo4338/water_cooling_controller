@@ -42,6 +42,7 @@ __all__ = [
     "UUID_CONFIG_PARAMS",
     "UUID_CONFIG_STATUS",
     "UUID_CONFIG_FAN_STATUS",
+    "UUID_CONFIG_FAN_CALIBRATE",
     "PAIR_SVC_NORM",
     "PAIRED_DB",
     "HOST_KEY_PATH",
@@ -49,6 +50,7 @@ __all__ = [
     "PARAMS_VERSION",
     "PARAM_STATUS_OK",
     "PARAM_STATUS_INVALID",
+    "PARAM_STATUS_BUSY",
     "PARAM_FIELD_NONE",
     "PARAM_FIELD_NAMES",
     "FAN_STATUS_VERSION",
@@ -56,6 +58,7 @@ __all__ = [
     "FAN_STATE_STARTING",
     "FAN_STATE_RUNNING",
     "FAN_STATE_STALL",
+    "FAN_STATE_CALIBRATE",
     "FAN_STATE_NAMES",
     "DeviceParams",
     "FanStatus",
@@ -109,6 +112,7 @@ UUID_CONFIG_SVC = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e10"
 UUID_CONFIG_PARAMS = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e11"
 UUID_CONFIG_STATUS = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e12"
 UUID_CONFIG_FAN_STATUS = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e13"
+UUID_CONFIG_FAN_CALIBRATE = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e14"
 
 TEMP_CHAR_UUIDS = [UUID_TEMP0_VALUE, UUID_TEMP1_VALUE, UUID_TEMP2_VALUE, UUID_TEMP3_VALUE]
 
@@ -119,6 +123,7 @@ PARAMS_DB = "params.json"
 PARAMS_VERSION = 1
 PARAM_STATUS_OK = 0
 PARAM_STATUS_INVALID = 1
+PARAM_STATUS_BUSY = 2
 PARAM_FIELD_NONE = 0xFF
 PARAM_FIELD_NAMES = {
     0: "target_temp_c",
@@ -130,11 +135,13 @@ FAN_STATE_IDLE = 0
 FAN_STATE_STARTING = 1
 FAN_STATE_RUNNING = 2
 FAN_STATE_STALL = 3
+FAN_STATE_CALIBRATE = 4
 FAN_STATE_NAMES = {
     FAN_STATE_IDLE: "IDLE",
     FAN_STATE_STARTING: "STARTING",
     FAN_STATE_RUNNING: "RUNNING",
     FAN_STATE_STALL: "STALL",
+    FAN_STATE_CALIBRATE: "CALIBRATE",
 }
 
 
@@ -663,6 +670,16 @@ class BleAppCore:
             timeout = self._config.metrics_timeout_s
         await asyncio.wait_for(
             self.client.write_gatt_char(UUID_CONFIG_STATUS, b"\x01", response=True),
+            timeout=timeout,
+        )
+
+    async def start_fan_calibration(self, timeout: Optional[float] = None) -> None:
+        if not self.client:
+            raise RuntimeError("Not connected")
+        if timeout is None:
+            timeout = self._config.metrics_timeout_s
+        await asyncio.wait_for(
+            self.client.write_gatt_char(UUID_CONFIG_FAN_CALIBRATE, b"\x01", response=True),
             timeout=timeout,
         )
 

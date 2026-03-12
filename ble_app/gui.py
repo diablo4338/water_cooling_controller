@@ -34,6 +34,8 @@ from .core import (
     FAN_STATE_STARTING,
     FAN_STATE_RUNNING,
     FAN_STATE_STALL,
+    FAN_STATE_CALIBRATE,
+    PARAM_STATUS_BUSY,
     UUID_CONFIG_STATUS,
     add_or_update_paired,
     load_paired_records,
@@ -394,6 +396,17 @@ class BleWorker(QThread):
         finally:
             self.apply_done.emit()
 
+    async def start_fan_calibration(self) -> None:
+        try:
+            await self._with_timeout(
+                self.core.start_fan_calibration(timeout=self.config.metrics_timeout_s),
+                "fan_calibration",
+                timeout=self.config.metrics_timeout_s,
+            )
+            self.log.emit("Калибровка вентилятора запущена")
+        except Exception as exc:
+            self.log.emit(f"Ошибка калибровки вентилятора: {exc}")
+
     def _on_temp(self, channel: int, value: float) -> None:
         self.temp_received.emit(channel, value)
 
@@ -433,6 +446,7 @@ class MainWindow(QMainWindow):
         self.delete_button = QPushButton("Удалить сохраненное")
         self.auto_checkbox = QCheckBox("Автоподключение (сохраненные)")
         self.apply_button = QPushButton("Apply")
+        self.calibrate_button = QPushButton("Калибровка вентилятора")
         self._action_timers: dict[Action, QTimer] = {}
         self._action_futures: dict[Action, Future] = {}
 
@@ -441,6 +455,7 @@ class MainWindow(QMainWindow):
         self.connect_button.setProperty("actionId", Action.CONNECT.name)
         self.disconnect_button.setProperty("actionId", Action.DISCONNECT.name)
         self.apply_button.setProperty("actionId", Action.APPLY.name)
+        self.calibrate_button.setProperty("actionId", Action.CALIBRATE.name)
         self.delete_button.setProperty("actionId", Action.DELETE_PAIRED.name)
         self.auto_checkbox.setProperty("actionId", Action.AUTO_CONNECT.name)
 
@@ -454,6 +469,7 @@ class MainWindow(QMainWindow):
         self.fan_field: Optional[QLineEdit] = None
         self._fan_is_nc: Optional[bool] = None
         self.fan_status_field: Optional[QLineEdit] = None
+        self._fan_calibrating = False
         self.param_fields: list[QDoubleSpinBox] = []
         self._params_update_lock = False
 
@@ -493,6 +509,7 @@ class MainWindow(QMainWindow):
         self.delete_button.clicked.connect(self.on_delete_paired_clicked)
         self.auto_checkbox.toggled.connect(self.on_auto_toggled)
         self.apply_button.clicked.connect(self.on_apply)
+        self.calibrate_button.clicked.connect(self.on_calibrate)
 
         self.worker.log.connect(self.on_log)
         self.worker.scan_results.connect(self.on_scan_results)
@@ -596,6 +613,7 @@ class MainWindow(QMainWindow):
         grid.addWidget(status_label, 1, 0)
         grid.addWidget(status_field, 1, 1)
         self.fan_status_field = status_field
+        grid.addWidget(self.calibrate_button, 2, 0, 1, 2)
         self._fan_is_nc = None
         return grid
 
@@ -664,9 +682,14 @@ class MainWindow(QMainWindow):
         self.connect_button.setEnabled(Action.CONNECT in ui.enabled_actions)
         self.disconnect_button.setEnabled(Action.DISCONNECT in ui.enabled_actions)
         self.apply_button.setEnabled(Action.APPLY in ui.enabled_actions)
+        self.calibrate_button.setEnabled(Action.CALIBRATE in ui.enabled_actions)
         self.delete_button.setEnabled(Action.DELETE_PAIRED in ui.enabled_actions)
         self.auto_checkbox.setEnabled(Action.AUTO_CONNECT in ui.enabled_actions)
         params_enabled = self.model.state.conn == ConnState.CONNECTED and not self.model.state.busy
+        if self._fan_calibrating:
+            self.apply_button.setEnabled(False)
+            self.calibrate_button.setEnabled(False)
+            params_enabled = False
         for field in self.param_fields:
             field.setEnabled(params_enabled)
 
@@ -848,6 +871,8 @@ class MainWindow(QMainWindow):
             )
         elif command.action == Action.APPLY:
             self._start_action(Action.APPLY, self.worker.apply_params())
+        elif command.action == Action.CALIBRATE:
+            self._start_action(Action.CALIBRATE, self.worker.start_fan_calibration())
         elif command.action == Action.DELETE_PAIRED:
             self._delete_selected_paired()
 
@@ -865,6 +890,9 @@ class MainWindow(QMainWindow):
 
     def on_apply(self) -> None:
         self._dispatch_action(Action.APPLY)
+
+    def on_calibrate(self) -> None:
+        self._dispatch_action(Action.CALIBRATE)
 
     def on_delete_paired_clicked(self) -> None:
         self._dispatch_action(Action.DELETE_PAIRED)
@@ -970,6 +998,9 @@ class MainWindow(QMainWindow):
         if status.ok:
             self.on_log("Параметры применены")
             return
+        if status.status == PARAM_STATUS_BUSY:
+            self.on_log("Параметры не применены: устройство занято")
+            return
         field_label = (
             PARAM_LABELS_BY_ID.get(status.field_id, "неизвестное поле")
             if status.field_id is not None
@@ -981,6 +1012,7 @@ class MainWindow(QMainWindow):
     def on_fan_status(self, status: FanStatus) -> None:
         if self.fan_status_field is None:
             return
+        self._fan_calibrating = status.state == FAN_STATE_CALIBRATE
         if status.state == FAN_STATE_IDLE:
             self.fan_status_field.setText("IDLE")
         elif status.state == FAN_STATE_STARTING:
@@ -989,6 +1021,9 @@ class MainWindow(QMainWindow):
             self.fan_status_field.setText("RUNNING")
         elif status.state == FAN_STATE_STALL:
             self.fan_status_field.setText("STALL")
+        elif status.state == FAN_STATE_CALIBRATE:
+            self.fan_status_field.setText("CALIBRATE")
+        self._apply_ui()
 
     @Slot()
     def on_apply_done(self) -> None:
@@ -1038,6 +1073,7 @@ class MainWindow(QMainWindow):
         self._fan_is_nc = None
         if self.fan_status_field is not None:
             self.fan_status_field.setText("—")
+        self._fan_calibrating = False
 
     def _select_paired_device(self, device: DeviceInfo) -> None:
         for idx in range(self.paired_list.count()):

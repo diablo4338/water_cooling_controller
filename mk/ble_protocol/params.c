@@ -154,6 +154,12 @@ void params_get_last_status_payload(uint8_t *out, size_t len) {
     out[2] = st.field;
 }
 
+void params_set_last_status(uint8_t status, uint8_t field) {
+    state_lock();
+    set_last_status_locked(status, field);
+    state_unlock();
+}
+
 static bool params_validate(const params_t *params, uint8_t *field) {
     if (!isfinite(params->target_temp_c) ||
         params->target_temp_c < 10.0f || params->target_temp_c > 90.0f) {

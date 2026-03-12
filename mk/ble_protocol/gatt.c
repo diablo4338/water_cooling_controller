@@ -293,6 +293,10 @@ static int gatt_write_params(uint16_t conn_handle, uint16_t attr_handle,
     (void)arg;
     if (!can_access_data()) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
     if (!auth_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    if (fan_control_is_calibrating()) {
+        params_set_last_status(PARAM_STATUS_BUSY, PARAM_FIELD_NONE);
+        return BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
 
     int len = OS_MBUF_PKTLEN(ctxt->om);
     if (len != PARAMS_PAYLOAD_LEN) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
@@ -338,6 +342,11 @@ static int gatt_access_params_status(uint16_t conn_handle, uint16_t attr_handle,
         os_mbuf_copydata(ctxt->om, 0, 1, &cmd);
         if (cmd != 0x01) return BLE_ATT_ERR_UNLIKELY;
 
+        if (fan_control_is_calibrating()) {
+            params_set_last_status(PARAM_STATUS_BUSY, PARAM_FIELD_NONE);
+            return BLE_ATT_ERR_INSUFFICIENT_RES;
+        }
+
         params_apply(NULL);
 
         if (g_params_status_attr_handle != 0) {
@@ -368,6 +377,35 @@ static int gatt_read_fan_status(uint16_t conn_handle, uint16_t attr_handle,
     fan_control_get_status_payload(payload, sizeof(payload));
     os_mbuf_append(ctxt->om, payload, sizeof(payload));
     return 0;
+}
+
+static int gatt_access_fan_calibrate(uint16_t conn_handle, uint16_t attr_handle,
+                                     struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    (void)attr_handle;
+    (void)arg;
+    if (!can_access_data()) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    if (!auth_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+
+    if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
+        uint8_t active = fan_control_is_calibrating() ? 1u : 0u;
+        os_mbuf_append(ctxt->om, &active, sizeof(active));
+        return 0;
+    }
+
+    if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
+        int len = OS_MBUF_PKTLEN(ctxt->om);
+        if (len != 1) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+
+        uint8_t cmd = 0;
+        os_mbuf_copydata(ctxt->om, 0, 1, &cmd);
+        if (cmd != 0x01) return BLE_ATT_ERR_UNLIKELY;
+        if (!fan_control_start_calibration()) {
+            return BLE_ATT_ERR_INSUFFICIENT_RES;
+        }
+        return 0;
+    }
+
+    return BLE_ATT_ERR_UNLIKELY;
 }
 
 // ====== GATT db (RAM) ======
@@ -407,6 +445,11 @@ static struct ble_gatt_chr_def config_chrs[] = {
         .access_cb = gatt_read_fan_status,
         .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
         .val_handle = &g_fan_status_attr_handle,
+    },
+    {
+        .uuid = NULL,
+        .access_cb = gatt_access_fan_calibrate,
+        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE,
     },
     { 0 }
 };
@@ -485,6 +528,7 @@ void gatt_init_uuids_and_services(void) {
     parse_uuid_or_abort(UUID_CONFIG_PARAMS_STR, &UUID_CONFIG_PARAMS);
     parse_uuid_or_abort(UUID_CONFIG_STATUS_STR, &UUID_CONFIG_STATUS);
     parse_uuid_or_abort(UUID_CONFIG_FAN_STATUS_STR, &UUID_CONFIG_FAN_STATUS);
+    parse_uuid_or_abort(UUID_CONFIG_FAN_CALIBRATE_STR, &UUID_CONFIG_FAN_CALIBRATE);
     
     parse_uuid_or_abort(UUID_TEMP0_VALUE_STR, &UUID_TEMP0_VALUE);
     parse_uuid_or_abort(UUID_TEMP1_VALUE_STR, &UUID_TEMP1_VALUE);
@@ -509,6 +553,7 @@ void gatt_init_uuids_and_services(void) {
     config_chrs[0].uuid = &UUID_CONFIG_PARAMS.u;
     config_chrs[1].uuid = &UUID_CONFIG_STATUS.u;
     config_chrs[2].uuid = &UUID_CONFIG_FAN_STATUS.u;
+    config_chrs[3].uuid = &UUID_CONFIG_FAN_CALIBRATE.u;
 
     metrics_chrs[0].uuid = &UUID_TEMP0_VALUE.u;
     metrics_chrs[1].uuid = &UUID_TEMP1_VALUE.u;
