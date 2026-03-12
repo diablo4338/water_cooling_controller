@@ -18,16 +18,15 @@
 #define FAN_RPM_THRESHOLD 300.0f
 #define FAN_START_TIMEOUT_US 500000
 #define FAN_FAIL_TIMEOUT_US 1000000
-#define FAN_CALIBRATION_RPM 2500.0f
-#define FAN_CALIBRATION_TIME_US (5 * 1000000LL)
-
 static portMUX_TYPE g_fan_mux = portMUX_INITIALIZER_UNLOCKED;
 static fan_state_t g_state = FAN_STATE_IDLE;
 static int64_t g_state_enter_us = 0;
 static int64_t g_last_rpm_ok_us = 0;
 static fan_state_t g_last_reported = FAN_STATE_IDLE;
-static bool g_calibrating = false;
-static int64_t g_calibrate_until_us = 0;
+static operation_type_t g_last_reported_op = OP_TYPE_NONE;
+static bool g_override_active = false;
+static operation_type_t g_override_op = OP_TYPE_NONE;
+static float g_override_rpm = 0.0f;
 
 static float fan_control_regulate(const params_t *params, float temp_c, float rpm) {
     (void)rpm;
@@ -68,40 +67,27 @@ static fan_state_t fan_control_get_state(void) {
     return state;
 }
 
-bool fan_control_is_calibrating(void) {
-    bool value;
-    portENTER_CRITICAL(&g_fan_mux);
-    value = g_calibrating;
-    portEXIT_CRITICAL(&g_fan_mux);
-    return value;
-}
-
-bool fan_control_start_calibration(void) {
+bool fan_control_override_set(uint8_t op_type, float target_rpm) {
     bool ok = false;
     portENTER_CRITICAL(&g_fan_mux);
-    if (!g_calibrating) {
-        g_calibrating = true;
-        g_calibrate_until_us = esp_timer_get_time() + FAN_CALIBRATION_TIME_US;
+    if (!g_override_active) {
+        g_override_active = true;
+        g_override_op = (operation_type_t)op_type;
+        g_override_rpm = target_rpm;
         ok = true;
     }
     portEXIT_CRITICAL(&g_fan_mux);
     return ok;
 }
 
-static bool fan_control_calibration_update(int64_t now_us) {
-    bool calibrating;
-    bool done = false;
+void fan_control_override_clear(uint8_t op_type) {
     portENTER_CRITICAL(&g_fan_mux);
-    if (g_calibrating && now_us >= g_calibrate_until_us) {
-        g_calibrating = false;
-        done = true;
+    if (g_override_active && g_override_op == (operation_type_t)op_type) {
+        g_override_active = false;
+        g_override_op = OP_TYPE_NONE;
+        g_override_rpm = 0.0f;
     }
-    calibrating = g_calibrating;
     portEXIT_CRITICAL(&g_fan_mux);
-    if (done) {
-        operation_manager_finish_success(OP_TYPE_FAN_CALIBRATION);
-    }
-    return calibrating;
 }
 
 static operation_type_t fan_control_current_operation(void) {
@@ -111,12 +97,25 @@ static operation_type_t fan_control_current_operation(void) {
     return operation_manager_get_active_type();
 }
 
+static bool fan_control_override_get(operation_type_t *op_type, float *rpm) {
+    bool active = false;
+    portENTER_CRITICAL(&g_fan_mux);
+    active = g_override_active;
+    if (active) {
+        if (op_type) *op_type = g_override_op;
+        if (rpm) *rpm = g_override_rpm;
+    }
+    portEXIT_CRITICAL(&g_fan_mux);
+    return active;
+}
+
 static void fan_control_notify_state(fan_state_t state) {
-    if (state == g_last_reported) {
+    operation_type_t op = fan_control_current_operation();
+    if (state == g_last_reported && op == g_last_reported_op) {
         return;
     }
     g_last_reported = state;
-    operation_type_t op = fan_control_current_operation();
+    g_last_reported_op = op;
     uint8_t payload[FAN_STATUS_PAYLOAD_LEN] = {
         FAN_STATUS_VERSION,
         (uint8_t)state,
@@ -141,8 +140,10 @@ void fan_control_init(void) {
     g_state_enter_us = esp_timer_get_time();
     g_last_rpm_ok_us = 0;
     g_last_reported = FAN_STATE_IDLE;
-    g_calibrating = false;
-    g_calibrate_until_us = 0;
+    g_last_reported_op = OP_TYPE_NONE;
+    g_override_active = false;
+    g_override_op = OP_TYPE_NONE;
+    g_override_rpm = 0.0f;
     portEXIT_CRITICAL(&g_fan_mux);
 }
 
@@ -152,6 +153,34 @@ void fan_control_task(void *param) {
 
     while (1) {
         int64_t now = esp_timer_get_time();
+        operation_manager_tick(now);
+
+        fan_state_t state = fan_control_get_state();
+        bool op_active = operation_manager_is_active();
+        operation_type_t op_type = op_active ? operation_manager_get_active_type() : OP_TYPE_NONE;
+        operation_type_t override_op = OP_TYPE_NONE;
+        float override_rpm = 0.0f;
+        bool override_active = fan_control_override_get(&override_op, &override_rpm);
+
+        if (op_active) {
+            if (state != FAN_STATE_IN_SERVICE) {
+                fan_control_set_state(FAN_STATE_IN_SERVICE, now);
+                fan_control_notify_state(FAN_STATE_IN_SERVICE);
+            }
+            if (override_active && override_op == op_type) {
+                fan_control_apply_output(override_rpm);
+            } else {
+                fan_control_apply_output(0.0f);
+            }
+            vTaskDelay(delay);
+            continue;
+        }
+
+        if (state == FAN_STATE_IN_SERVICE) {
+            fan_control_set_state(FAN_STATE_IDLE, now);
+            fan_control_notify_state(FAN_STATE_IDLE);
+            state = FAN_STATE_IDLE;
+        }
 
         params_t params;
         if (!params_read(&params)) {
@@ -164,37 +193,6 @@ void fan_control_task(void *param) {
         float target_rpm = fan_control_regulate(&params, temp, rpm);
         bool command_on = target_rpm > 0.0f;
         bool rpm_ok = isfinite(rpm) && rpm >= FAN_RPM_THRESHOLD;
-
-        fan_state_t state = fan_control_get_state();
-        bool calibrating = fan_control_calibration_update(now);
-        bool op_active = operation_manager_is_active();
-        operation_type_t op_type = op_active ? operation_manager_get_active_type() : OP_TYPE_NONE;
-
-        if (op_active) {
-            if (op_type == OP_TYPE_FAN_CALIBRATION && calibrating) {
-                if (state != FAN_STATE_IN_SERVICE) {
-                    fan_control_set_state(FAN_STATE_IN_SERVICE, now);
-                    fan_control_notify_state(FAN_STATE_IN_SERVICE);
-                }
-                fan_control_apply_output(FAN_CALIBRATION_RPM);
-                vTaskDelay(delay);
-                continue;
-            }
-
-            if (state != FAN_STATE_IN_SERVICE) {
-                fan_control_set_state(FAN_STATE_IN_SERVICE, now);
-                fan_control_notify_state(FAN_STATE_IN_SERVICE);
-            }
-            fan_control_apply_output(0.0f);
-            vTaskDelay(delay);
-            continue;
-        }
-
-        if (state == FAN_STATE_IN_SERVICE) {
-            fan_control_set_state(FAN_STATE_IDLE, now);
-            fan_control_notify_state(FAN_STATE_IDLE);
-            state = FAN_STATE_IDLE;
-        }
 
         fan_control_apply_output(target_rpm);
 

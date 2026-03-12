@@ -91,7 +91,7 @@ Payload `CONFIG_STATUS`:
 Payload `CONFIG_FAN_STATUS`:
 - `version` (uint8) = `1`
 - `state` (uint8): `0=IDLE`, `1=STARTING`, `2=RUNNING`, `3=STALL`, `4=IN_SERVICE`
-- `op_type` (uint8): `0=NONE`, `1=FAN_CALIBRATION` (заполняется когда `state=IN_SERVICE`)
+- `op_type` (uint8): `0=NONE`, `1=FAN_CALIBRATION`, `2=FAN_CONTROL_DETECT` (заполняется когда `state=IN_SERVICE`)
 
 Параметры кешируются в RAM и сохраняются в NVS; при старте прошивки загружаются из NVS.
 
@@ -102,12 +102,12 @@ Payload `CONFIG_FAN_STATUS`:
 
 Payload `OP_CONTROL`:
 - `version` (uint8) = `1`
-- `op_type` (uint8): `1=FAN_CALIBRATION`
+- `op_type` (uint8): `1=FAN_CALIBRATION`, `2=FAN_CONTROL_DETECT`
 - `action` (uint8): `1=start`
 
 Payload `OP_STATUS` (фикс. длина 24 байта):
 - `version` (uint8) = `1`
-- `op_type` (uint8): `1=FAN_CALIBRATION`
+- `op_type` (uint8): `1=FAN_CALIBRATION`, `2=FAN_CONTROL_DETECT`
 - `state` (uint8): `0=IDLE`, `1=IN_SERVICE`, `2=DONE`, `3=ERROR`
 - `err_len` (uint8): `0..20`
 - `err_text` (char[20], ASCII/UTF-8), заполнен только при `state=ERROR`

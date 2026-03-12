@@ -17,11 +17,12 @@ extern "C" {
 typedef enum {
     OP_TYPE_NONE = 0,
     OP_TYPE_FAN_CALIBRATION = 1,
+    OP_TYPE_FAN_CONTROL_DETECT = 2,
 } operation_type_t;
 
 typedef enum {
     OP_STATE_IDLE = 0,
-    OP_STATE_IN_WORK = 1,
+    OP_STATE_IN_SERVICE = 1,
     OP_STATE_DONE = 2,
     OP_STATE_ERROR = 3,
 } operation_state_t;
@@ -41,6 +42,7 @@ bool operation_manager_is_active(void);
 void operation_manager_get_status_payload(uint8_t *out, size_t len);
 
 operation_start_result_t operation_manager_start(operation_type_t type);
+void operation_manager_tick(int64_t now_us);
 void operation_manager_finish_success(operation_type_t type);
 void operation_manager_finish_error(operation_type_t type, const char *err_text);
 
