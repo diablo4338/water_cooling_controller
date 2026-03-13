@@ -19,7 +19,7 @@ static bool g_temp_valid[METRICS_TEMP_CHANNELS] = {false};
 static uint8_t g_temp_failures[METRICS_TEMP_CHANNELS] = {0};
 
 #define FAN_TACH_GPIO 3
-#define FAN_TACH_PULSES_PER_REV 4
+#define FAN_TACH_PULSES_PER_REV 2
 #define FAN_TACH_GLITCH_US 200
 #define FAN_TACH_MIN_SAMPLES 4
 #define FAN_TACH_AVG_SAMPLES 8
