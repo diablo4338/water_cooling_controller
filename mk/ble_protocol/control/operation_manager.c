@@ -1,5 +1,7 @@
 #include "operation_manager.h"
 
+#include <math.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "esp_log.h"
@@ -10,6 +12,7 @@
 
 #include "driver/gpio.h"
 #include "fan_control.h"
+#include "metrics.h"
 #include "operation_status_ble.h"
 #include "params.h"
 #include "state.h"
@@ -18,6 +21,18 @@
 #define OP_DETECT_GPIO 0
 #define OP_DETECT_TARGET_TEMP_C 85.0f
 #define OP_OPERATION_SLEEP_US (3 * 1000000LL)
+#define OP_CALIB_BASELINE_WAIT_US (4 * 1000000LL)
+#define OP_CALIB_STEP_WAIT_US (2 * 1000000LL)
+#define OP_CALIB_STEP_DELTA 5
+#define OP_CALIB_RPM_DELTA 50.0f
+#define OP_CALIB_MIN_SPEED 30
+#define OP_CALIB_MAX_SPEED 70
+
+typedef enum {
+    CALIB_PHASE_IDLE = 0,
+    CALIB_PHASE_WAIT_BASELINE,
+    CALIB_PHASE_RAMP,
+} calib_phase_t;
 
 typedef struct {
     bool uses_override;
@@ -41,6 +56,10 @@ typedef struct {
     op_step_fn step;
     op_finish_fn finish;
 } op_def_t;
+
+static void operation_manager_notify_custom(operation_type_t type,
+                                            operation_state_t state,
+                                            const char *err_text);
 
 static bool op_gpio_set_output(uint8_t gpio_num, int level, const char **err_text) {
     gpio_config_t io = {
@@ -76,26 +95,118 @@ static void op_gpio_set_input(uint8_t gpio_num) {
 
 static int64_t g_calibration_sleep_until_us = 0;
 static int64_t g_detect_sleep_until_us = 0;
+static calib_phase_t g_calib_phase = CALIB_PHASE_IDLE;
+static int64_t g_calib_next_check_us = 0;
+static float g_calib_baseline_rpm = 0.0f;
+static uint8_t g_calib_target = 0;
+
+static float op_calib_read_rpm(void) {
+    float rpm = metrics_get_fan_speed_rpm();
+    if (!isfinite(rpm)) return 0.0f;
+    return rpm;
+}
+
+static bool op_calib_apply_target(uint8_t target, const char **err_text) {
+    if (target < OP_CALIB_MIN_SPEED) {
+        target = OP_CALIB_MIN_SPEED;
+    }
+    if (target > OP_CALIB_MAX_SPEED) {
+        target = OP_CALIB_MAX_SPEED;
+    }
+    if (!fan_control_override_set(OP_TYPE_FAN_CALIBRATION, (float)target)) {
+        if (err_text) *err_text = "fan busy";
+        return false;
+    }
+    g_calib_target = target;
+    g_calib_next_check_us = esp_timer_get_time() + OP_CALIB_STEP_WAIT_US;
+    return true;
+}
 
 static bool op_calibration_start(const char **err_text) {
     if (!op_gpio_set_output(OP_CALIB_GPIO, 0, err_text)) {
         return false;
     }
-    g_calibration_sleep_until_us = esp_timer_get_time() + OP_OPERATION_SLEEP_US;
+    if (!op_calib_apply_target(OP_CALIB_MIN_SPEED, err_text)) {
+        return false;
+    }
+    g_calib_phase = CALIB_PHASE_WAIT_BASELINE;
+    g_calib_baseline_rpm = 0.0f;
+    g_calib_next_check_us = esp_timer_get_time() + OP_CALIB_BASELINE_WAIT_US;
     return true;
 }
 
 static op_step_result_t op_calibration_step(int64_t now_us, const char **err_text) {
-    (void)err_text;
-    if (now_us < g_calibration_sleep_until_us) {
+    if (g_calib_phase == CALIB_PHASE_WAIT_BASELINE) {
+        if (now_us < g_calib_next_check_us) {
+            return OP_STEP_CONTINUE;
+        }
+        g_calib_baseline_rpm = op_calib_read_rpm();
+        g_calib_phase = CALIB_PHASE_RAMP;
+        {
+            char msg[OP_ERROR_TEXT_MAX + 1];
+            uint16_t rpm_u = (uint16_t)fminf(fmaxf(g_calib_baseline_rpm, 0.0f), 65535.0f);
+            uint16_t step_u = (uint16_t)g_calib_target;
+            snprintf(msg, sizeof(msg), "calib S%03hu R%05hu", step_u, rpm_u);
+            operation_manager_notify_custom(OP_TYPE_FAN_CALIBRATION, OP_STATE_IN_SERVICE, msg);
+        }
+        if (!op_calib_apply_target((uint8_t)(g_calib_target + OP_CALIB_STEP_DELTA), err_text)) {
+            return OP_STEP_ERROR;
+        }
         return OP_STEP_CONTINUE;
     }
-    return OP_STEP_DONE;
+    if (g_calib_phase == CALIB_PHASE_RAMP) {
+        if (now_us < g_calib_next_check_us) {
+            return OP_STEP_CONTINUE;
+        }
+        float rpm = op_calib_read_rpm();
+        {
+            char msg[OP_ERROR_TEXT_MAX + 1];
+            uint16_t rpm_u = (uint16_t)fminf(fmaxf(rpm, 0.0f), 65535.0f);
+            uint16_t step_u = (uint16_t)g_calib_target;
+            snprintf(msg, sizeof(msg), "calib S%03hu R%05hu", step_u, rpm_u);
+            operation_manager_notify_custom(OP_TYPE_FAN_CALIBRATION, OP_STATE_IN_SERVICE, msg);
+        }
+        if (rpm >= g_calib_baseline_rpm + OP_CALIB_RPM_DELTA) {
+            params_t current;
+            if (!params_cache_get(&current) && !params_read(&current)) {
+                if (err_text) *err_text = "params read";
+                return OP_STEP_ERROR;
+            }
+            current.fan_min_speed = (int32_t)g_calib_target;
+            if (!params_write(&current, PARAM_MASK_FAN_MIN_SPEED)) {
+                if (err_text) *err_text = "params write";
+                return OP_STEP_ERROR;
+            }
+            if (params_apply(NULL) != PARAM_STATUS_OK) {
+                if (err_text) *err_text = "params apply";
+                return OP_STEP_ERROR;
+            }
+            return OP_STEP_DONE;
+        }
+        if (g_calib_target >= OP_CALIB_MAX_SPEED) {
+            if (err_text) *err_text = "no rpm change";
+            return OP_STEP_ERROR;
+        }
+        uint8_t next = g_calib_target + OP_CALIB_STEP_DELTA;
+        if (next > OP_CALIB_MAX_SPEED) {
+            next = OP_CALIB_MAX_SPEED;
+        }
+        if (!op_calib_apply_target(next, err_text)) {
+            return OP_STEP_ERROR;
+        }
+        return OP_STEP_CONTINUE;
+    }
+    if (err_text) *err_text = "calib state";
+    return OP_STEP_ERROR;
 }
 
 static void op_calibration_finish(void) {
     op_gpio_set_input(OP_CALIB_GPIO);
     g_calibration_sleep_until_us = 0;
+    g_calib_phase = CALIB_PHASE_IDLE;
+    g_calib_next_check_us = 0;
+    g_calib_baseline_rpm = 0.0f;
+    g_calib_target = 0;
 }
 
 static bool op_detect_start(const char **err_text) {
@@ -184,7 +295,7 @@ static void operation_manager_cache_write(operation_type_t type,
         .err_len = 0,
         .err_text = {0},
     };
-    if (state == OP_STATE_ERROR && err_text) {
+    if (err_text && err_text[0] != '\0') {
         size_t len = strnlen(err_text, OP_ERROR_TEXT_MAX);
         memcpy(snap.err_text, err_text, len);
         snap.err_len = (uint8_t)len;
@@ -242,7 +353,7 @@ static void operation_manager_notify_custom(operation_type_t type,
     uint8_t payload[OP_STATUS_PAYLOAD_LEN];
     uint8_t err_len = 0;
 
-    if (state == OP_STATE_ERROR && err_text) {
+    if (err_text && err_text[0] != '\0') {
         err_len = (uint8_t)strnlen(err_text, OP_ERROR_TEXT_MAX);
     }
 

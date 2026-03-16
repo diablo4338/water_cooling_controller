@@ -561,6 +561,8 @@ class MainWindow(QMainWindow):
         self.paired_list = QListWidget()
         self.data_view = QTextEdit()
         self.data_view.setReadOnly(True)
+        self.op_log_view = QTextEdit()
+        self.op_log_view.setReadOnly(True)
         self.status_label = QLabel(self.model.state.status)
         self.temp_fields: list[QLineEdit] = []
         self._temp_is_nc: list[Optional[bool]] = [None] * 4
@@ -592,6 +594,8 @@ class MainWindow(QMainWindow):
         layout.addLayout(self._build_temp_layout())
         layout.addWidget(QLabel("Скорость вентилятора"))
         layout.addLayout(self._build_fan_layout())
+        layout.addWidget(QLabel("Операции (лог)"))
+        layout.addWidget(self.op_log_view)
         layout.addWidget(QLabel("Данные в реальном времени"))
         layout.addWidget(self.data_view)
         layout.addWidget(self.status_label)
@@ -1084,9 +1088,11 @@ class MainWindow(QMainWindow):
         self._dispatch_action(Action.DISCARD)
 
     def on_calibrate(self) -> None:
+        self._clear_op_log()
         self._dispatch_action(Action.CALIBRATE)
 
     def on_detect_fan_control(self) -> None:
+        self._clear_op_log()
         self._dispatch_action(Action.DETECT_FAN_CONTROL)
 
     def on_delete_paired_clicked(self) -> None:
@@ -1115,6 +1121,10 @@ class MainWindow(QMainWindow):
             self.model.set_selection(None, None)
             self.paired_list.clearSelection()
         self._apply_ui()
+
+    def _clear_op_log(self) -> None:
+        if self.op_log_view is not None:
+            self.op_log_view.clear()
 
     def _delete_selected_paired(self) -> None:
         item = self.paired_list.currentItem()
@@ -1230,6 +1240,13 @@ class MainWindow(QMainWindow):
     def on_operation_status(self, status: OperationStatus) -> None:
         op_label = OP_TYPE_NAMES.get(status.op_type, f"OP{status.op_type}")
         state_label = OP_STATE_NAMES.get(status.state, "UNKNOWN")
+        if status.state == OP_STATE_IN_SERVICE and not self._operation_active:
+            self._clear_op_log()
+        if self.op_log_view is not None:
+            if status.error:
+                self.op_log_view.append(f"{op_label}: {status.error}")
+            else:
+                self.op_log_view.append(f"{op_label}: {state_label}")
         op_action = None
         if status.op_type == OP_TYPE_FAN_CALIBRATION:
             op_action = Action.CALIBRATE
