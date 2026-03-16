@@ -28,6 +28,16 @@ static params_t g_pending;
 static uint8_t g_pending_mask = 0;
 static bool g_pending_valid = false;
 static params_status_t g_last_status = {PARAM_STATUS_OK, PARAM_FIELD_NONE};
+static params_t g_cache;
+static uint32_t g_cache_seq = 0;
+static bool g_cache_valid = false;
+
+static void params_cache_write(const params_t *params) {
+    __atomic_fetch_add(&g_cache_seq, 1U, __ATOMIC_ACQ_REL);
+    g_cache = *params;
+    __atomic_store_n(&g_cache_valid, true, __ATOMIC_RELEASE);
+    __atomic_fetch_add(&g_cache_seq, 1U, __ATOMIC_ACQ_REL);
+}
 
 static bool params_load_from_nvs(params_t *out) {
     nvs_handle_t h;
@@ -116,6 +126,7 @@ void params_init(void) {
     g_pending_mask = 0;
     set_last_status_locked(PARAM_STATUS_OK, PARAM_FIELD_NONE);
     state_unlock();
+    params_cache_write(&g_current);
 }
 
 bool params_read(params_t *out) {
@@ -134,6 +145,23 @@ bool params_write(const params_t *params, uint8_t mask) {
     g_pending_valid = true;
     state_unlock();
     return true;
+}
+
+bool params_cache_get(params_t *out) {
+    if (out == NULL) return false;
+    if (!__atomic_load_n(&g_cache_valid, __ATOMIC_ACQUIRE)) return false;
+    while (1) {
+        uint32_t seq1 = __atomic_load_n(&g_cache_seq, __ATOMIC_ACQUIRE);
+        if (seq1 & 1U) {
+            continue;
+        }
+        params_t snap = g_cache;
+        uint32_t seq2 = __atomic_load_n(&g_cache_seq, __ATOMIC_ACQUIRE);
+        if (seq1 == seq2) {
+            *out = snap;
+            return true;
+        }
+    }
 }
 
 bool params_set_pending_payload(const uint8_t *data, size_t len) {
@@ -235,6 +263,7 @@ uint8_t params_apply(uint8_t *field_id) {
     g_pending_mask = 0;
     set_last_status_locked(PARAM_STATUS_OK, PARAM_FIELD_NONE);
     state_unlock();
+    params_cache_write(&candidate);
 
     if (field_id) *field_id = PARAM_FIELD_NONE;
     return PARAM_STATUS_OK;

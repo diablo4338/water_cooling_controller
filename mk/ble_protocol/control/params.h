@@ -47,6 +47,7 @@ void params_init(void);
 
 bool params_read(params_t *out);
 bool params_write(const params_t *params, uint8_t mask);
+bool params_cache_get(params_t *out);
 
 bool params_set_pending_payload(const uint8_t *data, size_t len);
 bool params_get_current_payload(uint8_t *out, size_t len);

@@ -4,6 +4,7 @@
 
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "driver/ledc.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -18,6 +19,14 @@
 #define FAN_RPM_THRESHOLD 300.0f
 #define FAN_START_TIMEOUT_US 500000
 #define FAN_FAIL_TIMEOUT_US 1000000
+#define FAN_PWM_GPIO_DC 5
+#define FAN_PWM_GPIO_PWM 4
+#define FAN_PWM_FREQ_HZ 25000
+#define FAN_PWM_RES_BITS LEDC_TIMER_10_BIT
+#define FAN_PWM_MAX_DUTY ((1U << 10) - 1U)
+static const ledc_mode_t FAN_PWM_MODE = LEDC_LOW_SPEED_MODE;
+static const ledc_channel_t FAN_PWM_CHANNEL = LEDC_CHANNEL_0;
+static const ledc_timer_t FAN_PWM_TIMER = LEDC_TIMER_0;
 static portMUX_TYPE g_fan_mux = portMUX_INITIALIZER_UNLOCKED;
 static fan_state_t g_state = FAN_STATE_IDLE;
 static int64_t g_state_enter_us = 0;
@@ -35,18 +44,63 @@ static float fan_control_regulate(const params_t *params, float temp_c, float rp
         return 0.0f;
     }
     if (temp_c > 15.0f) {
-        return params->fan_min_rpm;
+        return (float)params->fan_min_speed;
     }
     return 0.0f;
 }
 
-static void fan_control_apply_output(float target_rpm) {
+static void fan_control_apply_output(uint8_t control_type, float target_percent) {
     static float last_target = -1.0f;
-    if (fabsf(target_rpm - last_target) < 1.0f) {
+    static uint8_t last_type = 0xFF;
+    static int last_gpio = -1;
+    static bool pwm_ready = false;
+
+    if (target_percent < 0.0f) target_percent = 0.0f;
+    if (target_percent > 100.0f) target_percent = 100.0f;
+
+    int gpio = (control_type == PARAM_FAN_CONTROL_PWM) ? FAN_PWM_GPIO_PWM : FAN_PWM_GPIO_DC;
+    if (!pwm_ready) {
+        ledc_timer_config_t timer = {
+            .speed_mode = FAN_PWM_MODE,
+            .duty_resolution = FAN_PWM_RES_BITS,
+            .timer_num = FAN_PWM_TIMER,
+            .freq_hz = FAN_PWM_FREQ_HZ,
+            .clk_cfg = LEDC_AUTO_CLK,
+        };
+        if (ledc_timer_config(&timer) == ESP_OK) {
+            pwm_ready = true;
+        }
+    }
+
+    if (fabsf(target_percent - last_target) < 0.5f && last_type == control_type && last_gpio == gpio) {
         return;
     }
-    last_target = target_rpm;
-    ESP_LOGI(FAN_TAG, "Fan target rpm=%.1f (stub)", (double)target_rpm);
+
+    if (pwm_ready && (last_gpio != gpio || last_type != control_type)) {
+        ledc_channel_config_t ch = {
+            .gpio_num = gpio,
+            .speed_mode = FAN_PWM_MODE,
+            .channel = FAN_PWM_CHANNEL,
+            .timer_sel = FAN_PWM_TIMER,
+            .duty = 0,
+            .hpoint = 0,
+        };
+        ledc_channel_config(&ch);
+    }
+
+    uint32_t duty = (uint32_t)lroundf((target_percent / 100.0f) * (float)FAN_PWM_MAX_DUTY);
+    if (pwm_ready) {
+        ledc_set_duty(FAN_PWM_MODE, FAN_PWM_CHANNEL, duty);
+        ledc_update_duty(FAN_PWM_MODE, FAN_PWM_CHANNEL);
+    }
+
+    last_target = target_percent;
+    last_type = control_type;
+    last_gpio = gpio;
+    ESP_LOGI(FAN_TAG, "Fan target=%.1f%% type=%s gpio=%d",
+             (double)target_percent,
+             control_type == PARAM_FAN_CONTROL_PWM ? "PWM" : "DC",
+             gpio);
 }
 
 static void fan_control_set_state(fan_state_t next, int64_t now_us) {
@@ -167,10 +221,15 @@ void fan_control_task(void *param) {
                 fan_control_set_state(FAN_STATE_IN_SERVICE, now);
                 fan_control_notify_state(FAN_STATE_IN_SERVICE);
             }
+            params_t params;
+            uint8_t control_type = PARAM_FAN_CONTROL_DC;
+            if (params_cache_get(&params)) {
+                control_type = params.fan_control_type;
+            }
             if (override_active && override_op == op_type) {
-                fan_control_apply_output(override_rpm);
+                fan_control_apply_output(control_type, override_rpm);
             } else {
-                fan_control_apply_output(0.0f);
+                fan_control_apply_output(control_type, 0.0f);
             }
             vTaskDelay(delay);
             continue;
@@ -183,18 +242,18 @@ void fan_control_task(void *param) {
         }
 
         params_t params;
-        if (!params_read(&params)) {
+        if (!params_cache_get(&params)) {
             vTaskDelay(delay);
             continue;
         }
 
         float rpm = metrics_get_fan_speed_rpm();
         float temp = metrics_get_temp(3);
-        float target_rpm = fan_control_regulate(&params, temp, rpm);
-        bool command_on = target_rpm > 0.0f;
+        float target_percent = fan_control_regulate(&params, temp, rpm);
+        bool command_on = target_percent > 0.0f;
         bool rpm_ok = isfinite(rpm) && rpm >= FAN_RPM_THRESHOLD;
 
-        fan_control_apply_output(target_rpm);
+        fan_control_apply_output(params.fan_control_type, target_percent);
 
         if (!command_on) {
             if (state != FAN_STATE_IDLE) {
