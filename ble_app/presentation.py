@@ -13,6 +13,7 @@ class Action(Enum):
     CONNECT = auto()
     DISCONNECT = auto()
     APPLY = auto()
+    DISCARD = auto()
     CALIBRATE = auto()
     DETECT_FAN_CONTROL = auto()
     DELETE_PAIRED = auto()
@@ -60,6 +61,7 @@ ASYNC_ACTIONS = {
     Action.CONNECT,
     Action.DISCONNECT,
     Action.APPLY,
+    Action.DISCARD,
     Action.CALIBRATE,
     Action.DETECT_FAN_CONTROL,
     Action.AUTO_CONNECT,
@@ -77,7 +79,13 @@ def derive_ui(state: AppState) -> UiModel:
     elif state.busy:
         enabled = set()
     elif state.conn == ConnState.CONNECTED:
-        enabled = {Action.DISCONNECT, Action.APPLY, Action.CALIBRATE, Action.DETECT_FAN_CONTROL}
+        enabled = {
+            Action.DISCONNECT,
+            Action.APPLY,
+            Action.DISCARD,
+            Action.CALIBRATE,
+            Action.DETECT_FAN_CONTROL,
+        }
     elif state.selected_device is not None and state.selected_source == SelectionSource.PAIRED:
         enabled = {Action.SCAN, Action.CONNECT, Action.DELETE_PAIRED, Action.AUTO_CONNECT}
     elif state.selected_device is not None and state.selected_source == SelectionSource.FOUND:

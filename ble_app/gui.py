@@ -9,6 +9,7 @@ from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
+    QComboBox,
     QDoubleSpinBox,
     QGridLayout,
     QHBoxLayout,
@@ -18,6 +19,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMainWindow,
     QPushButton,
+    QSpinBox,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -47,6 +49,9 @@ from .core import (
     OP_TYPE_NAMES,
     PARAM_STATUS_BUSY,
     UUID_CONFIG_STATUS,
+    FAN_CONTROL_DC,
+    FAN_CONTROL_PWM,
+    FAN_CONTROL_TYPE_NAMES,
     add_or_update_paired,
     load_paired_records,
     load_device_params,
@@ -59,16 +64,30 @@ from .presentation import Action, AppModel, ConnState, SelectionSource
 APP_TITLE = "BLE Pairing GUI"
 USER_ROLE = Qt.ItemDataRole.UserRole
 PAIRED_HIGHLIGHT_BRUSH = QBrush(QColor(220, 245, 220))
-PARAM_FIELDS = [
-    ("target_temp_c", "Целевая температура, °C"),
-    ("fan_min_rpm", "Мин. обороты вентилятора, об/мин"),
-    ("alarm_delta_c", "Аварийная дельта, °C"),
+FAN_CONTROL_CHOICES = [
+    (FAN_CONTROL_DC, FAN_CONTROL_TYPE_NAMES[FAN_CONTROL_DC]),
+    (FAN_CONTROL_PWM, FAN_CONTROL_TYPE_NAMES[FAN_CONTROL_PWM]),
 ]
-PARAM_LABELS_BY_ID = {
-    0: PARAM_FIELDS[0][1],
-    1: PARAM_FIELDS[1][1],
-    2: PARAM_FIELDS[2][1],
-}
+PARAM_FIELDS = [
+    {"key": "target_temp_c", "label": "Целевая температура, °C", "kind": "float"},
+    {"key": "fan_min_rpm", "label": "Мин. обороты вентилятора, об/мин", "kind": "float"},
+    {"key": "alarm_delta_c", "label": "Аварийная дельта, °C", "kind": "float"},
+    {
+        "key": "fan_min_speed",
+        "label": "Мин. скорость вентилятора, %",
+        "kind": "int",
+        "min": 0,
+        "max": 120,
+        "unset": -1,
+    },
+    {
+        "key": "fan_control_type",
+        "label": "Тип управления",
+        "kind": "enum",
+        "choices": FAN_CONTROL_CHOICES,
+    },
+]
+PARAM_LABELS_BY_ID = {idx: spec["label"] for idx, spec in enumerate(PARAM_FIELDS)}
 
 
 class BleWorker(QThread):
@@ -521,6 +540,7 @@ class MainWindow(QMainWindow):
         self.delete_button = QPushButton("Удалить сохраненное")
         self.auto_checkbox = QCheckBox("Автоподключение (сохраненные)")
         self.apply_button = QPushButton("Apply")
+        self.discard_button = QPushButton("Discard")
         self.calibrate_button = QPushButton("Калибровка вентилятора")
         self.detect_button = QPushButton("Определить управление вентилятором")
         self._action_timers: dict[Action, QTimer] = {}
@@ -531,6 +551,7 @@ class MainWindow(QMainWindow):
         self.connect_button.setProperty("actionId", Action.CONNECT.name)
         self.disconnect_button.setProperty("actionId", Action.DISCONNECT.name)
         self.apply_button.setProperty("actionId", Action.APPLY.name)
+        self.discard_button.setProperty("actionId", Action.DISCARD.name)
         self.calibrate_button.setProperty("actionId", Action.CALIBRATE.name)
         self.detect_button.setProperty("actionId", Action.DETECT_FAN_CONTROL.name)
         self.delete_button.setProperty("actionId", Action.DELETE_PAIRED.name)
@@ -547,7 +568,7 @@ class MainWindow(QMainWindow):
         self._fan_is_nc: Optional[bool] = None
         self.fan_status_field: Optional[QLineEdit] = None
         self._operation_active = False
-        self.param_fields: list[QDoubleSpinBox] = []
+        self.param_fields: list[dict] = []
         self._params_update_lock = False
 
         buttons = QHBoxLayout()
@@ -586,6 +607,7 @@ class MainWindow(QMainWindow):
         self.delete_button.clicked.connect(self.on_delete_paired_clicked)
         self.auto_checkbox.toggled.connect(self.on_auto_toggled)
         self.apply_button.clicked.connect(self.on_apply)
+        self.discard_button.clicked.connect(self.on_discard)
         self.calibrate_button.clicked.connect(self.on_calibrate)
         self.detect_button.clicked.connect(self.on_detect_fan_control)
 
@@ -635,24 +657,48 @@ class MainWindow(QMainWindow):
         grid = QGridLayout()
         self.param_fields.clear()
 
-        for idx, (_, label) in enumerate(PARAM_FIELDS):
-            grid.addWidget(QLabel(label), idx, 0)
-            field = QDoubleSpinBox()
-            field.setRange(-1_000_000.0, 1_000_000.0)
-            field.setSpecialValueText("—")
-            field.setDecimals(2)
-            field.setSingleStep(0.5)
-            field.setAlignment(Qt.AlignmentFlag.AlignRight)
-            field.setKeyboardTracking(False)
-            field.valueChanged.connect(self._on_params_changed)
-            field.setValue(field.minimum())
+        for idx, spec in enumerate(PARAM_FIELDS):
+            grid.addWidget(QLabel(spec["label"]), idx, 0)
+            kind = spec["kind"]
+            if kind == "float":
+                field = QDoubleSpinBox()
+                field.setRange(-1_000_000.0, 1_000_000.0)
+                field.setSpecialValueText("—")
+                field.setDecimals(2)
+                field.setSingleStep(0.5)
+                field.setAlignment(Qt.AlignmentFlag.AlignRight)
+                field.setKeyboardTracking(False)
+                field.valueChanged.connect(self._on_params_changed)
+                field.setValue(field.minimum())
+            elif kind == "int":
+                field = QSpinBox()
+                min_val = spec.get("min", -1_000_000)
+                max_val = spec.get("max", 1_000_000)
+                unset_val = spec.get("unset", min_val)
+                field.setRange(unset_val, max_val)
+                field.setSingleStep(1)
+                field.setSpecialValueText("—")
+                field.setAlignment(Qt.AlignmentFlag.AlignRight)
+                field.setKeyboardTracking(False)
+                field.valueChanged.connect(self._on_params_changed)
+                field.setValue(unset_val)
+            elif kind == "enum":
+                field = QComboBox()
+                field.addItem("—", None)
+                for value, label in spec.get("choices", []):
+                    field.addItem(label, value)
+                field.currentIndexChanged.connect(self._on_params_changed)
+                field.setCurrentIndex(0)
+            else:
+                continue
             field.setEnabled(False)
             grid.addWidget(field, idx, 1)
-            self.param_fields.append(field)
+            self.param_fields.append({"spec": spec, "widget": field})
 
         button_row = QHBoxLayout()
         button_row.addStretch(1)
         button_row.addWidget(self.apply_button)
+        button_row.addWidget(self.discard_button)
 
         layout.addLayout(grid)
         layout.addLayout(button_row)
@@ -711,22 +757,32 @@ class MainWindow(QMainWindow):
             return
         self._params_update_lock = True
         try:
-            for field in self.param_fields:
-                field.setValue(field.minimum())
-                field.setEnabled(False)
+            for item in self.param_fields:
+                spec = item["spec"]
+                widget = item["widget"]
+                if spec["kind"] == "enum":
+                    widget.setCurrentIndex(0)
+                else:
+                    widget.setValue(widget.minimum())
+                widget.setEnabled(False)
         finally:
             self._params_update_lock = False
 
     def _set_params_fields(self, params: DeviceParams, save: bool = True) -> None:
-        if len(self.param_fields) != 3:
+        if len(self.param_fields) != len(PARAM_FIELDS):
             return
         self._params_update_lock = True
         try:
-            self.param_fields[0].setValue(params.target_temp_c)
-            self.param_fields[1].setValue(params.fan_min_rpm)
-            self.param_fields[2].setValue(params.alarm_delta_c)
-            for field in self.param_fields:
-                field.setEnabled(True)
+            for item in self.param_fields:
+                spec = item["spec"]
+                widget = item["widget"]
+                value = getattr(params, spec["key"])
+                if spec["kind"] == "enum":
+                    idx = widget.findData(int(value))
+                    widget.setCurrentIndex(idx if idx >= 0 else 0)
+                else:
+                    widget.setValue(value)
+                widget.setEnabled(True)
         finally:
             self._params_update_lock = False
         if save:
@@ -735,16 +791,38 @@ class MainWindow(QMainWindow):
                 save_device_params(device.address, params)
 
     def _current_params(self) -> DeviceParams:
-        values = [field.value() for field in self.param_fields]
-        if len(values) != 3:
+        if len(self.param_fields) != len(PARAM_FIELDS):
             device = self.model.state.connected_device
             if device:
                 return load_device_params(device.address)
-            return DeviceParams(target_temp_c=0.0, fan_min_rpm=0.0, alarm_delta_c=0.0)
+            return DeviceParams(
+                target_temp_c=0.0,
+                fan_min_rpm=0.0,
+                alarm_delta_c=0.0,
+                fan_min_speed=0,
+                fan_control_type=FAN_CONTROL_DC,
+            )
+        values: dict[str, object] = {}
+        for item in self.param_fields:
+            spec = item["spec"]
+            widget = item["widget"]
+            kind = spec["kind"]
+            if kind == "enum":
+                data = widget.currentData()
+                value = int(data) if data is not None else FAN_CONTROL_DC
+            else:
+                value = widget.value()
+                if kind == "int":
+                    value = int(value)
+                    if value < 0:
+                        value = 0
+            values[spec["key"]] = value
         return DeviceParams(
-            target_temp_c=values[0],
-            fan_min_rpm=values[1],
-            alarm_delta_c=values[2],
+            target_temp_c=float(values["target_temp_c"]),
+            fan_min_rpm=float(values["fan_min_rpm"]),
+            alarm_delta_c=float(values["alarm_delta_c"]),
+            fan_min_speed=int(values["fan_min_speed"]),
+            fan_control_type=int(values["fan_control_type"]),
         )
 
     def _on_params_changed(self, _) -> None:
@@ -771,6 +849,7 @@ class MainWindow(QMainWindow):
         self.connect_button.setEnabled(Action.CONNECT in ui.enabled_actions)
         self.disconnect_button.setEnabled(Action.DISCONNECT in ui.enabled_actions)
         self.apply_button.setEnabled(Action.APPLY in ui.enabled_actions)
+        self.discard_button.setEnabled(Action.DISCARD in ui.enabled_actions)
         self.calibrate_button.setEnabled(Action.CALIBRATE in ui.enabled_actions)
         self.detect_button.setEnabled(Action.DETECT_FAN_CONTROL in ui.enabled_actions)
         self.delete_button.setEnabled(Action.DELETE_PAIRED in ui.enabled_actions)
@@ -778,11 +857,12 @@ class MainWindow(QMainWindow):
         params_enabled = self.model.state.conn == ConnState.CONNECTED and not self.model.state.busy
         if self._operation_active:
             self.apply_button.setEnabled(False)
+            self.discard_button.setEnabled(False)
             self.calibrate_button.setEnabled(False)
             self.detect_button.setEnabled(False)
             params_enabled = False
-        for field in self.param_fields:
-            field.setEnabled(params_enabled)
+        for item in self.param_fields:
+            item["widget"].setEnabled(params_enabled)
 
         self.auto_checkbox.blockSignals(True)
         self.auto_checkbox.setChecked(ui.auto_enabled)
@@ -968,6 +1048,8 @@ class MainWindow(QMainWindow):
             )
         elif command.action == Action.APPLY:
             self._start_action(Action.APPLY, self.worker.apply_params())
+        elif command.action == Action.DISCARD:
+            self._start_action(Action.DISCARD, self.worker.read_params_snapshot())
         elif command.action == Action.CALIBRATE:
             self._start_action(
                 Action.CALIBRATE,
@@ -997,6 +1079,9 @@ class MainWindow(QMainWindow):
 
     def on_apply(self) -> None:
         self._dispatch_action(Action.APPLY)
+
+    def on_discard(self) -> None:
+        self._dispatch_action(Action.DISCARD)
 
     def on_calibrate(self) -> None:
         self._dispatch_action(Action.CALIBRATE)
@@ -1102,6 +1187,8 @@ class MainWindow(QMainWindow):
     @Slot(object)
     def on_params_received(self, params: DeviceParams) -> None:
         self._set_params_fields(params, save=True)
+        if self.model.state.active_action == Action.DISCARD:
+            self._finish_action(Action.DISCARD)
 
     @Slot(object)
     def on_params_status(self, status: ParamsStatus) -> None:

@@ -10,7 +10,7 @@
 #define PARAMS_NS "params"
 #define PARAMS_KEY_VER "ver"
 #define PARAMS_KEY_BLOB "blob"
-#define PARAMS_VER_VALUE 1
+#define PARAMS_VER_VALUE 2
 
 typedef struct {
     uint8_t status;
@@ -21,6 +21,8 @@ static params_t g_current = {
     .target_temp_c = 25.0f,
     .fan_min_rpm = 1200.0f,
     .alarm_delta_c = 5.0f,
+    .fan_min_speed = 0,
+    .fan_control_type = PARAM_FAN_CONTROL_DC,
 };
 static params_t g_pending;
 static uint8_t g_pending_mask = 0;
@@ -77,6 +79,8 @@ static bool params_decode_payload(const uint8_t *data, size_t len, params_t *out
     memcpy(&out->target_temp_c, data + 2, 4);
     memcpy(&out->fan_min_rpm, data + 6, 4);
     memcpy(&out->alarm_delta_c, data + 10, 4);
+    memcpy(&out->fan_min_speed, data + 14, 4);
+    out->fan_control_type = data[18];
     return true;
 }
 
@@ -86,6 +90,8 @@ static void params_encode_payload(const params_t *params, uint8_t mask, uint8_t 
     memcpy(out + 2, &params->target_temp_c, 4);
     memcpy(out + 6, &params->fan_min_rpm, 4);
     memcpy(out + 10, &params->alarm_delta_c, 4);
+    memcpy(out + 14, &params->fan_min_speed, 4);
+    out[18] = params->fan_control_type;
 }
 
 static void set_last_status_locked(uint8_t status, uint8_t field) {
@@ -103,6 +109,8 @@ void params_init(void) {
         g_current.target_temp_c = 25.0f;
         g_current.fan_min_rpm = 1200.0f;
         g_current.alarm_delta_c = 5.0f;
+        g_current.fan_min_speed = 0;
+        g_current.fan_control_type = PARAM_FAN_CONTROL_DC;
     }
     g_pending_valid = false;
     g_pending_mask = 0;
@@ -176,6 +184,15 @@ static bool params_validate(const params_t *params, uint8_t *field) {
         if (field) *field = PARAM_FIELD_ALARM_DELTA;
         return false;
     }
+    if (params->fan_min_speed < 0 || params->fan_min_speed > 100) {
+        if (field) *field = PARAM_FIELD_FAN_MIN_SPEED;
+        return false;
+    }
+    if (params->fan_control_type != PARAM_FAN_CONTROL_DC &&
+        params->fan_control_type != PARAM_FAN_CONTROL_PWM) {
+        if (field) *field = PARAM_FIELD_FAN_CONTROL_TYPE;
+        return false;
+    }
     return true;
 }
 
@@ -197,6 +214,8 @@ uint8_t params_apply(uint8_t *field_id) {
         if (mask & PARAM_MASK_TARGET_TEMP) candidate.target_temp_c = pending.target_temp_c;
         if (mask & PARAM_MASK_FAN_MIN_RPM) candidate.fan_min_rpm = pending.fan_min_rpm;
         if (mask & PARAM_MASK_ALARM_DELTA) candidate.alarm_delta_c = pending.alarm_delta_c;
+        if (mask & PARAM_MASK_FAN_MIN_SPEED) candidate.fan_min_speed = pending.fan_min_speed;
+        if (mask & PARAM_MASK_FAN_CONTROL_TYPE) candidate.fan_control_type = pending.fan_control_type;
     }
 
     uint8_t field = PARAM_FIELD_NONE;

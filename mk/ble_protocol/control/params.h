@@ -9,8 +9,8 @@
 extern "C" {
 #endif
 
-#define PARAMS_VERSION 1
-#define PARAMS_PAYLOAD_LEN 14
+#define PARAMS_VERSION 2
+#define PARAMS_PAYLOAD_LEN 19
 #define PARAMS_STATUS_LEN 3
 
 #define PARAM_STATUS_OK 0x00
@@ -20,17 +20,27 @@ extern "C" {
 #define PARAM_FIELD_TARGET_TEMP 0
 #define PARAM_FIELD_FAN_MIN_RPM 1
 #define PARAM_FIELD_ALARM_DELTA 2
+#define PARAM_FIELD_FAN_MIN_SPEED 3
+#define PARAM_FIELD_FAN_CONTROL_TYPE 4
 #define PARAM_FIELD_NONE 0xFF
 
 #define PARAM_MASK_TARGET_TEMP (1u << 0)
 #define PARAM_MASK_FAN_MIN_RPM (1u << 1)
 #define PARAM_MASK_ALARM_DELTA (1u << 2)
-#define PARAM_MASK_ALL (PARAM_MASK_TARGET_TEMP | PARAM_MASK_FAN_MIN_RPM | PARAM_MASK_ALARM_DELTA)
+#define PARAM_MASK_FAN_MIN_SPEED (1u << 3)
+#define PARAM_MASK_FAN_CONTROL_TYPE (1u << 4)
+#define PARAM_MASK_ALL (PARAM_MASK_TARGET_TEMP | PARAM_MASK_FAN_MIN_RPM | PARAM_MASK_ALARM_DELTA | \
+                        PARAM_MASK_FAN_MIN_SPEED | PARAM_MASK_FAN_CONTROL_TYPE)
+
+#define PARAM_FAN_CONTROL_DC 0
+#define PARAM_FAN_CONTROL_PWM 1
 
 typedef struct {
     float target_temp_c;
     float fan_min_rpm;
     float alarm_delta_c;
+    int32_t fan_min_speed;
+    uint8_t fan_control_type;
 } params_t;
 
 void params_init(void);

@@ -21,7 +21,13 @@ def test_derive_ui_basics() -> None:
 
     state = AppState(conn=ConnState.CONNECTED)
     ui = derive_ui(state)
-    assert ui.enabled_actions == {Action.DISCONNECT, Action.APPLY, Action.CALIBRATE}
+    assert ui.enabled_actions == {
+        Action.DISCONNECT,
+        Action.APPLY,
+        Action.DISCARD,
+        Action.CALIBRATE,
+        Action.DETECT_FAN_CONTROL,
+    }
     assert ui.paired_highlight is None
 
     state = AppState(selected_device=device, selected_source=SelectionSource.PAIRED)
