@@ -27,7 +27,7 @@
 static const ledc_mode_t FAN_PWM_MODE = LEDC_LOW_SPEED_MODE;
 static const ledc_channel_t FAN_PWM_CHANNEL = LEDC_CHANNEL_0;
 static const ledc_timer_t FAN_PWM_TIMER = LEDC_TIMER_0;
-static portMUX_TYPE g_fan_mux = portMUX_INITIALIZER_UNLOCKED;
+static operation_type_t fan_control_current_operation(void);
 static fan_state_t g_state = FAN_STATE_IDLE;
 static int64_t g_state_enter_us = 0;
 static int64_t g_last_rpm_ok_us = 0;
@@ -36,6 +36,38 @@ static operation_type_t g_last_reported_op = OP_TYPE_NONE;
 static bool g_override_active = false;
 static operation_type_t g_override_op = OP_TYPE_NONE;
 static float g_override_rpm = 0.0f;
+static uint32_t g_status_seq = 0;
+typedef struct {
+    fan_state_t state;
+    operation_type_t op;
+} fan_status_cache_t;
+static fan_status_cache_t g_status_cache = {0};
+
+static void fan_status_cache_write(fan_state_t state, operation_type_t op) {
+    fan_status_cache_t snap = {
+        .state = state,
+        .op = op,
+    };
+    __atomic_fetch_add(&g_status_seq, 1U, __ATOMIC_ACQ_REL);
+    g_status_cache = snap;
+    __atomic_fetch_add(&g_status_seq, 1U, __ATOMIC_ACQ_REL);
+}
+
+static void fan_status_cache_read(fan_status_cache_t *out) {
+    if (!out) return;
+    while (1) {
+        uint32_t seq1 = __atomic_load_n(&g_status_seq, __ATOMIC_ACQUIRE);
+        if (seq1 & 1U) {
+            continue;
+        }
+        fan_status_cache_t snap = g_status_cache;
+        uint32_t seq2 = __atomic_load_n(&g_status_seq, __ATOMIC_ACQUIRE);
+        if (seq1 == seq2) {
+            *out = snap;
+            return;
+        }
+    }
+}
 
 static float fan_control_regulate(const params_t *params, float temp_c, float rpm) {
     (void)rpm;
@@ -88,7 +120,8 @@ static void fan_control_apply_output(uint8_t control_type, float target_percent)
         ledc_channel_config(&ch);
     }
 
-    uint32_t duty = (uint32_t)lroundf((target_percent / 100.0f) * (float)FAN_PWM_MAX_DUTY);
+    float inv_percent = 100.0f - target_percent;
+    uint32_t duty = (uint32_t)lroundf((inv_percent / 100.0f) * (float)FAN_PWM_MAX_DUTY);
     if (pwm_ready) {
         ledc_set_duty(FAN_PWM_MODE, FAN_PWM_CHANNEL, duty);
         ledc_update_duty(FAN_PWM_MODE, FAN_PWM_CHANNEL);
@@ -97,51 +130,42 @@ static void fan_control_apply_output(uint8_t control_type, float target_percent)
     last_target = target_percent;
     last_type = control_type;
     last_gpio = gpio;
-    ESP_LOGI(FAN_TAG, "Fan target=%.1f%% type=%s gpio=%d",
+    ESP_LOGI(FAN_TAG, "Fan target=%.1f%% (inv=%.1f%%) type=%s gpio=%d",
              (double)target_percent,
+             (double)inv_percent,
              control_type == PARAM_FAN_CONTROL_PWM ? "PWM" : "DC",
              gpio);
 }
 
 static void fan_control_set_state(fan_state_t next, int64_t now_us) {
-    portENTER_CRITICAL(&g_fan_mux);
     g_state = next;
     g_state_enter_us = now_us;
     if (next == FAN_STATE_RUNNING) {
         g_last_rpm_ok_us = now_us;
     }
-    portEXIT_CRITICAL(&g_fan_mux);
+    fan_status_cache_write(next, fan_control_current_operation());
 }
 
 static fan_state_t fan_control_get_state(void) {
-    fan_state_t state;
-    portENTER_CRITICAL(&g_fan_mux);
-    state = g_state;
-    portEXIT_CRITICAL(&g_fan_mux);
-    return state;
+    return g_state;
 }
 
 bool fan_control_override_set(uint8_t op_type, float target_rpm) {
-    bool ok = false;
-    portENTER_CRITICAL(&g_fan_mux);
-    if (!g_override_active) {
+    if (!g_override_active || g_override_op == (operation_type_t)op_type) {
         g_override_active = true;
         g_override_op = (operation_type_t)op_type;
         g_override_rpm = target_rpm;
-        ok = true;
+        return true;
     }
-    portEXIT_CRITICAL(&g_fan_mux);
-    return ok;
+    return false;
 }
 
 void fan_control_override_clear(uint8_t op_type) {
-    portENTER_CRITICAL(&g_fan_mux);
     if (g_override_active && g_override_op == (operation_type_t)op_type) {
         g_override_active = false;
         g_override_op = OP_TYPE_NONE;
         g_override_rpm = 0.0f;
     }
-    portEXIT_CRITICAL(&g_fan_mux);
 }
 
 static operation_type_t fan_control_current_operation(void) {
@@ -152,14 +176,11 @@ static operation_type_t fan_control_current_operation(void) {
 }
 
 static bool fan_control_override_get(operation_type_t *op_type, float *rpm) {
-    bool active = false;
-    portENTER_CRITICAL(&g_fan_mux);
-    active = g_override_active;
+    bool active = g_override_active;
     if (active) {
         if (op_type) *op_type = g_override_op;
         if (rpm) *rpm = g_override_rpm;
     }
-    portEXIT_CRITICAL(&g_fan_mux);
     return active;
 }
 
@@ -170,6 +191,7 @@ static void fan_control_notify_state(fan_state_t state) {
     }
     g_last_reported = state;
     g_last_reported_op = op;
+    fan_status_cache_write(state, op);
     uint8_t payload[FAN_STATUS_PAYLOAD_LEN] = {
         FAN_STATUS_VERSION,
         (uint8_t)state,
@@ -181,15 +203,14 @@ static void fan_control_notify_state(fan_state_t state) {
 
 void fan_control_get_status_payload(uint8_t *out, size_t len) {
     if (!out || len < FAN_STATUS_PAYLOAD_LEN) return;
-    fan_state_t state = fan_control_get_state();
-    operation_type_t op = fan_control_current_operation();
+    fan_status_cache_t snap;
+    fan_status_cache_read(&snap);
     out[0] = FAN_STATUS_VERSION;
-    out[1] = (uint8_t)state;
-    out[2] = (uint8_t)op;
+    out[1] = (uint8_t)snap.state;
+    out[2] = (uint8_t)snap.op;
 }
 
 void fan_control_init(void) {
-    portENTER_CRITICAL(&g_fan_mux);
     g_state = FAN_STATE_IDLE;
     g_state_enter_us = esp_timer_get_time();
     g_last_rpm_ok_us = 0;
@@ -198,7 +219,7 @@ void fan_control_init(void) {
     g_override_active = false;
     g_override_op = OP_TYPE_NONE;
     g_override_rpm = 0.0f;
-    portEXIT_CRITICAL(&g_fan_mux);
+    fan_status_cache_write(FAN_STATE_IDLE, OP_TYPE_NONE);
 }
 
 void fan_control_task(void *param) {
@@ -265,9 +286,7 @@ void fan_control_task(void *param) {
         }
 
         if (rpm_ok) {
-            portENTER_CRITICAL(&g_fan_mux);
             g_last_rpm_ok_us = now;
-            portEXIT_CRITICAL(&g_fan_mux);
         }
 
         switch (state) {

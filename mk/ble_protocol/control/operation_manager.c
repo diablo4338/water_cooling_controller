@@ -4,7 +4,7 @@
 
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
-#include "freertos/portmacro.h"
+#include "freertos/queue.h"
 
 #include "esp_timer.h"
 
@@ -157,11 +157,58 @@ static const op_def_t g_op_defs[] = {
     },
 };
 
-static portMUX_TYPE g_op_mux = portMUX_INITIALIZER_UNLOCKED;
 static operation_state_t g_state = OP_STATE_IDLE;
 static operation_type_t g_active = OP_TYPE_NONE;
 static char g_error_text[OP_ERROR_TEXT_MAX + 1];
 static uint8_t g_error_len = 0;
+static QueueHandle_t g_op_cmd_q = NULL;
+static uint32_t g_status_seq = 0;
+typedef struct {
+    operation_state_t state;
+    operation_type_t type;
+    uint8_t err_len;
+    char err_text[OP_ERROR_TEXT_MAX];
+} op_status_cache_t;
+static op_status_cache_t g_status_cache = {0};
+
+typedef struct {
+    operation_type_t type;
+} op_cmd_t;
+
+static void operation_manager_cache_write(operation_type_t type,
+                                          operation_state_t state,
+                                          const char *err_text) {
+    op_status_cache_t snap = {
+        .state = state,
+        .type = type,
+        .err_len = 0,
+        .err_text = {0},
+    };
+    if (state == OP_STATE_ERROR && err_text) {
+        size_t len = strnlen(err_text, OP_ERROR_TEXT_MAX);
+        memcpy(snap.err_text, err_text, len);
+        snap.err_len = (uint8_t)len;
+    }
+    __atomic_fetch_add(&g_status_seq, 1U, __ATOMIC_ACQ_REL);
+    g_status_cache = snap;
+    __atomic_fetch_add(&g_status_seq, 1U, __ATOMIC_ACQ_REL);
+}
+
+static void operation_manager_cache_read(op_status_cache_t *out) {
+    if (!out) return;
+    while (1) {
+        uint32_t seq1 = __atomic_load_n(&g_status_seq, __ATOMIC_ACQUIRE);
+        if (seq1 & 1U) {
+            continue;
+        }
+        op_status_cache_t snap = g_status_cache;
+        uint32_t seq2 = __atomic_load_n(&g_status_seq, __ATOMIC_ACQUIRE);
+        if (seq1 == seq2) {
+            *out = snap;
+            return;
+        }
+    }
+}
 
 static const op_def_t *operation_manager_get_def(operation_type_t type) {
     for (size_t i = 0; i < sizeof(g_op_defs) / sizeof(g_op_defs[0]); i++) {
@@ -208,6 +255,7 @@ static void operation_manager_notify_custom(operation_type_t type,
         memcpy(payload + 4, err_text, err_len);
     }
 
+    operation_manager_cache_write(type, state, err_text);
     uint16_t conn = fsm_get_conn_handle();
     operation_status_notify(conn, payload, sizeof(payload));
 }
@@ -216,7 +264,6 @@ static void operation_manager_notify_state(operation_state_t state_override) {
     operation_type_t type;
     char err_buf[OP_ERROR_TEXT_MAX + 1];
 
-    portENTER_CRITICAL(&g_op_mux);
     type = g_active;
     if (state_override == OP_STATE_ERROR && g_error_len > 0) {
         memcpy(err_buf, g_error_text, g_error_len);
@@ -224,8 +271,6 @@ static void operation_manager_notify_state(operation_state_t state_override) {
     } else {
         err_buf[0] = '\0';
     }
-    portEXIT_CRITICAL(&g_op_mux);
-
     operation_manager_notify_custom(type, state_override, err_buf[0] ? err_buf : NULL);
 }
 
@@ -235,60 +280,45 @@ static bool operation_manager_needs_override(operation_type_t type) {
 }
 
 void operation_manager_init(void) {
-    portENTER_CRITICAL(&g_op_mux);
     g_state = OP_STATE_IDLE;
     g_active = OP_TYPE_NONE;
     operation_manager_clear_error_locked();
-    portEXIT_CRITICAL(&g_op_mux);
+    if (!g_op_cmd_q) {
+        g_op_cmd_q = xQueueCreate(4, sizeof(op_cmd_t));
+    }
+    operation_manager_cache_write(OP_TYPE_NONE, OP_STATE_IDLE, NULL);
 }
 
 operation_state_t operation_manager_get_state(void) {
-    operation_state_t state;
-    portENTER_CRITICAL(&g_op_mux);
-    state = g_state;
-    portEXIT_CRITICAL(&g_op_mux);
-    return state;
+    op_status_cache_t snap;
+    operation_manager_cache_read(&snap);
+    return snap.state;
 }
 
 operation_type_t operation_manager_get_active_type(void) {
-    operation_type_t type;
-    portENTER_CRITICAL(&g_op_mux);
-    type = g_active;
-    portEXIT_CRITICAL(&g_op_mux);
-    return type;
+    op_status_cache_t snap;
+    operation_manager_cache_read(&snap);
+    return snap.type;
 }
 
 bool operation_manager_is_active(void) {
-    bool active;
-    portENTER_CRITICAL(&g_op_mux);
-    active = (g_state == OP_STATE_IN_SERVICE);
-    portEXIT_CRITICAL(&g_op_mux);
-    return active;
+    op_status_cache_t snap;
+    operation_manager_cache_read(&snap);
+    return snap.state == OP_STATE_IN_SERVICE;
 }
 
 void operation_manager_get_status_payload(uint8_t *out, size_t len) {
     if (!out || len < OP_STATUS_PAYLOAD_LEN) return;
-    operation_state_t state;
-    operation_type_t type;
-    uint8_t err_len = 0;
-    char err_buf[OP_ERROR_TEXT_MAX];
-
-    portENTER_CRITICAL(&g_op_mux);
-    state = g_state;
-    type = g_active;
-    if (state == OP_STATE_ERROR && g_error_len > 0) {
-        err_len = g_error_len;
-        memcpy(err_buf, g_error_text, g_error_len);
-    }
-    portEXIT_CRITICAL(&g_op_mux);
+    op_status_cache_t snap;
+    operation_manager_cache_read(&snap);
 
     out[0] = OP_STATUS_VERSION;
-    out[1] = (uint8_t)type;
-    out[2] = (uint8_t)state;
-    out[3] = err_len;
+    out[1] = (uint8_t)snap.type;
+    out[2] = (uint8_t)snap.state;
+    out[3] = snap.err_len;
     memset(out + 4, 0, OP_ERROR_TEXT_MAX);
-    if (err_len > 0) {
-        memcpy(out + 4, err_buf, err_len);
+    if (snap.err_len > 0) {
+        memcpy(out + 4, snap.err_text, snap.err_len);
     }
 }
 
@@ -319,25 +349,20 @@ operation_start_result_t operation_manager_start(operation_type_t type) {
         operation_manager_notify_custom(type, OP_STATE_ERROR, "invalid op");
         return OP_START_INVALID;
     }
-
-    portENTER_CRITICAL(&g_op_mux);
-    if (g_state == OP_STATE_IN_SERVICE) {
-        portEXIT_CRITICAL(&g_op_mux);
+    if (g_op_cmd_q == NULL) {
+        operation_manager_notify_custom(type, OP_STATE_ERROR, "queue");
+        return OP_START_FAILED;
+    }
+    op_status_cache_t snap;
+    operation_manager_cache_read(&snap);
+    if (snap.state == OP_STATE_IN_SERVICE) {
         operation_manager_notify_custom(type, OP_STATE_ERROR, "busy");
         return OP_START_BUSY;
     }
-    g_state = OP_STATE_IN_SERVICE;
-    g_active = type;
-    operation_manager_clear_error_locked();
-    portEXIT_CRITICAL(&g_op_mux);
-
-    operation_manager_notify_state(OP_STATE_IN_SERVICE);
-
-    const char *err_text = NULL;
-    bool started = operation_manager_start_impl(type, &err_text);
-    if (!started) {
-        operation_manager_finish_error(type, err_text ? err_text : "start failed");
-        return OP_START_FAILED;
+    op_cmd_t cmd = {.type = type};
+    if (xQueueSend(g_op_cmd_q, &cmd, 0) != pdTRUE) {
+        operation_manager_notify_custom(type, OP_STATE_ERROR, "busy");
+        return OP_START_BUSY;
     }
     return OP_START_OK;
 }
@@ -346,7 +371,6 @@ void operation_manager_finish_success(operation_type_t type) {
     bool should_notify = false;
     bool clear_override = false;
     bool call_finish = false;
-    portENTER_CRITICAL(&g_op_mux);
     if (g_active == type && g_state == OP_STATE_IN_SERVICE) {
         g_state = OP_STATE_DONE;
         operation_manager_clear_error_locked();
@@ -354,7 +378,6 @@ void operation_manager_finish_success(operation_type_t type) {
         call_finish = true;
         should_notify = true;
     }
-    portEXIT_CRITICAL(&g_op_mux);
     if (call_finish) {
         const op_def_t *def = operation_manager_get_def(type);
         if (def && def->finish) {
@@ -373,7 +396,6 @@ void operation_manager_finish_error(operation_type_t type, const char *err_text)
     bool should_notify = false;
     bool clear_override = false;
     bool call_finish = false;
-    portENTER_CRITICAL(&g_op_mux);
     if (g_active == type && g_state == OP_STATE_IN_SERVICE) {
         g_state = OP_STATE_ERROR;
         operation_manager_set_error_locked(err_text);
@@ -381,7 +403,6 @@ void operation_manager_finish_error(operation_type_t type, const char *err_text)
         call_finish = true;
         should_notify = true;
     }
-    portEXIT_CRITICAL(&g_op_mux);
     if (call_finish) {
         const op_def_t *def = operation_manager_get_def(type);
         if (def && def->finish) {
@@ -398,19 +419,34 @@ void operation_manager_finish_error(operation_type_t type, const char *err_text)
 
 void operation_manager_tick(int64_t now_us) {
     (void)now_us;
-    operation_type_t type = OP_TYPE_NONE;
-    const op_def_t *def = NULL;
-    portENTER_CRITICAL(&g_op_mux);
-    if (g_state == OP_STATE_IN_SERVICE) {
-        type = g_active;
-        def = operation_manager_get_def(type);
-    }
-    portEXIT_CRITICAL(&g_op_mux);
+    if (g_state != OP_STATE_IN_SERVICE) {
+        op_cmd_t cmd;
+        if (g_op_cmd_q && xQueueReceive(g_op_cmd_q, &cmd, 0) == pdTRUE) {
+            const op_def_t *def = operation_manager_get_def(cmd.type);
+            if (!def) {
+                operation_manager_notify_custom(cmd.type, OP_STATE_ERROR, "invalid op");
+                return;
+            }
+            g_state = OP_STATE_IN_SERVICE;
+            g_active = cmd.type;
+            operation_manager_clear_error_locked();
+            operation_manager_notify_state(OP_STATE_IN_SERVICE);
 
-    if (!def) {
-        if (type != OP_TYPE_NONE) {
-            operation_manager_finish_error(type, "op missing");
+            const char *err_text = NULL;
+            bool started = operation_manager_start_impl(cmd.type, &err_text);
+            if (!started) {
+                operation_manager_finish_error(cmd.type, err_text ? err_text : "start failed");
+                return;
+            }
+        } else {
+            return;
         }
+    }
+
+    operation_type_t type = g_active;
+    const op_def_t *def = operation_manager_get_def(type);
+    if (!def) {
+        operation_manager_finish_error(type, "op missing");
         return;
     }
 
