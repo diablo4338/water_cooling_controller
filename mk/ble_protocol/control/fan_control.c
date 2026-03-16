@@ -25,7 +25,8 @@
 #define FAN_PWM_RES_BITS LEDC_TIMER_10_BIT
 #define FAN_PWM_MAX_DUTY ((1U << 10) - 1U)
 static const ledc_mode_t FAN_PWM_MODE = LEDC_LOW_SPEED_MODE;
-static const ledc_channel_t FAN_PWM_CHANNEL = LEDC_CHANNEL_0;
+static const ledc_channel_t FAN_PWM_CHANNEL_ACTIVE = LEDC_CHANNEL_0;
+static const ledc_channel_t FAN_PWM_CHANNEL_OTHER = LEDC_CHANNEL_1;
 static const ledc_timer_t FAN_PWM_TIMER = LEDC_TIMER_0;
 static operation_type_t fan_control_current_operation(void);
 static fan_state_t g_state = FAN_STATE_IDLE;
@@ -69,6 +70,10 @@ static void fan_status_cache_read(fan_status_cache_t *out) {
     }
 }
 
+static bool fan_control_inverted(uint8_t control_type) {
+    return control_type == PARAM_FAN_CONTROL_PWM;
+}
+
 static float fan_control_regulate(const params_t *params, float temp_c, float rpm) {
     (void)rpm;
     if (!params) return 0.0f;
@@ -85,12 +90,15 @@ static void fan_control_apply_output(uint8_t control_type, float target_percent)
     static float last_target = -1.0f;
     static uint8_t last_type = 0xFF;
     static int last_gpio = -1;
+    static int last_other_gpio = -1;
     static bool pwm_ready = false;
 
     if (target_percent < 0.0f) target_percent = 0.0f;
     if (target_percent > 100.0f) target_percent = 100.0f;
 
     int gpio = (control_type == PARAM_FAN_CONTROL_PWM) ? FAN_PWM_GPIO_PWM : FAN_PWM_GPIO_DC;
+    int other_gpio = (control_type == PARAM_FAN_CONTROL_PWM) ? FAN_PWM_GPIO_DC : FAN_PWM_GPIO_PWM;
+    uint8_t other_type = (control_type == PARAM_FAN_CONTROL_PWM) ? PARAM_FAN_CONTROL_DC : PARAM_FAN_CONTROL_PWM;
     if (!pwm_ready) {
         ledc_timer_config_t timer = {
             .speed_mode = FAN_PWM_MODE,
@@ -108,31 +116,46 @@ static void fan_control_apply_output(uint8_t control_type, float target_percent)
         return;
     }
 
-    if (pwm_ready && (last_gpio != gpio || last_type != control_type)) {
+    if (pwm_ready && (last_gpio != gpio || last_other_gpio != other_gpio || last_type != control_type)) {
         ledc_channel_config_t ch = {
             .gpio_num = gpio,
             .speed_mode = FAN_PWM_MODE,
-            .channel = FAN_PWM_CHANNEL,
+            .channel = FAN_PWM_CHANNEL_ACTIVE,
             .timer_sel = FAN_PWM_TIMER,
             .duty = 0,
             .hpoint = 0,
         };
         ledc_channel_config(&ch);
+        ledc_channel_config_t ch_other = {
+            .gpio_num = other_gpio,
+            .speed_mode = FAN_PWM_MODE,
+            .channel = FAN_PWM_CHANNEL_OTHER,
+            .timer_sel = FAN_PWM_TIMER,
+            .duty = 0,
+            .hpoint = 0,
+        };
+        ledc_channel_config(&ch_other);
     }
 
-    float inv_percent = 100.0f - target_percent;
-    uint32_t duty = (uint32_t)lroundf((inv_percent / 100.0f) * (float)FAN_PWM_MAX_DUTY);
+    float effective_percent = fan_control_inverted(control_type) ? (100.0f - target_percent) : target_percent;
+    uint32_t duty = (uint32_t)lroundf((effective_percent / 100.0f) * (float)FAN_PWM_MAX_DUTY);
     if (pwm_ready) {
-        ledc_set_duty(FAN_PWM_MODE, FAN_PWM_CHANNEL, duty);
-        ledc_update_duty(FAN_PWM_MODE, FAN_PWM_CHANNEL);
+        ledc_set_duty(FAN_PWM_MODE, FAN_PWM_CHANNEL_ACTIVE, duty);
+        ledc_update_duty(FAN_PWM_MODE, FAN_PWM_CHANNEL_ACTIVE);
+        float other_percent = 100.0f;
+        float other_effective = fan_control_inverted(other_type) ? (100.0f - other_percent) : other_percent;
+        uint32_t other_duty = (uint32_t)lroundf((other_effective / 100.0f) * (float)FAN_PWM_MAX_DUTY);
+        ledc_set_duty(FAN_PWM_MODE, FAN_PWM_CHANNEL_OTHER, other_duty);
+        ledc_update_duty(FAN_PWM_MODE, FAN_PWM_CHANNEL_OTHER);
     }
 
     last_target = target_percent;
     last_type = control_type;
     last_gpio = gpio;
-    ESP_LOGI(FAN_TAG, "Fan target=%.1f%% (inv=%.1f%%) type=%s gpio=%d",
+    last_other_gpio = other_gpio;
+    ESP_LOGI(FAN_TAG, "Fan target=%.1f%% (eff=%.1f%%) type=%s gpio=%d",
              (double)target_percent,
-             (double)inv_percent,
+             (double)effective_percent,
              control_type == PARAM_FAN_CONTROL_PWM ? "PWM" : "DC",
              gpio);
 }

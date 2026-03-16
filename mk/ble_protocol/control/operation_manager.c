@@ -18,9 +18,6 @@
 #include "state.h"
 
 #define OP_CALIB_GPIO 1
-#define OP_DETECT_GPIO 0
-#define OP_DETECT_TARGET_TEMP_C 85.0f
-#define OP_OPERATION_SLEEP_US (3 * 1000000LL)
 #define OP_CALIB_BASELINE_WAIT_US (4 * 1000000LL)
 #define OP_CALIB_STEP_WAIT_US (2 * 1000000LL)
 #define OP_CALIB_STEP_DELTA 5
@@ -94,7 +91,6 @@ static void op_gpio_set_input(uint8_t gpio_num) {
 }
 
 static int64_t g_calibration_sleep_until_us = 0;
-static int64_t g_detect_sleep_until_us = 0;
 static calib_phase_t g_calib_phase = CALIB_PHASE_IDLE;
 static int64_t g_calib_next_check_us = 0;
 static float g_calib_baseline_rpm = 0.0f;
@@ -209,42 +205,6 @@ static void op_calibration_finish(void) {
     g_calib_target = 0;
 }
 
-static bool op_detect_start(const char **err_text) {
-    if (!op_gpio_set_output(OP_DETECT_GPIO, 1, err_text)) {
-        return false;
-    }
-
-    params_t current;
-    if (!params_read(&current)) {
-        if (err_text) *err_text = "params read";
-        return false;
-    }
-    current.target_temp_c = OP_DETECT_TARGET_TEMP_C;
-    if (!params_write(&current, PARAM_MASK_TARGET_TEMP)) {
-        if (err_text) *err_text = "params write";
-        return false;
-    }
-    if (params_apply(NULL) != PARAM_STATUS_OK) {
-        if (err_text) *err_text = "params apply";
-        return false;
-    }
-    g_detect_sleep_until_us = esp_timer_get_time() + OP_OPERATION_SLEEP_US;
-    return true;
-}
-
-static op_step_result_t op_detect_step(int64_t now_us, const char **err_text) {
-    (void)err_text;
-    if (now_us < g_detect_sleep_until_us) {
-        return OP_STEP_CONTINUE;
-    }
-    return OP_STEP_DONE;
-}
-
-static void op_detect_finish(void) {
-    op_gpio_set_input(OP_DETECT_GPIO);
-    g_detect_sleep_until_us = 0;
-}
-
 static const op_def_t g_op_defs[] = {
     {
         .type = OP_TYPE_FAN_CALIBRATION,
@@ -255,16 +215,6 @@ static const op_def_t g_op_defs[] = {
         .start = op_calibration_start,
         .step = op_calibration_step,
         .finish = op_calibration_finish,
-    },
-    {
-        .type = OP_TYPE_FAN_CONTROL_DETECT,
-        .guard = {
-            .uses_override = true,
-            .override_rpm = 0.0f,
-        },
-        .start = op_detect_start,
-        .step = op_detect_step,
-        .finish = op_detect_finish,
     },
 };
 

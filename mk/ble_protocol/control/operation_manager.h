@@ -17,7 +17,6 @@ extern "C" {
 typedef enum {
     OP_TYPE_NONE = 0,
     OP_TYPE_FAN_CALIBRATION = 1,
-    OP_TYPE_FAN_CONTROL_DETECT = 2,
 } operation_type_t;
 
 typedef enum {

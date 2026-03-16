@@ -45,7 +45,6 @@ from .core import (
     OP_STATE_NAMES,
     OP_TYPE_NONE,
     OP_TYPE_FAN_CALIBRATION,
-    OP_TYPE_FAN_CONTROL_DETECT,
     OP_TYPE_NAMES,
     PARAM_STATUS_BUSY,
     UUID_CONFIG_STATUS,
@@ -463,17 +462,6 @@ class BleWorker(QThread):
         except Exception as exc:
             self.log.emit(f"Ошибка калибровки вентилятора: {exc}")
 
-    async def start_fan_control_detect(self) -> None:
-        try:
-            await self._with_timeout(
-                self.core.start_fan_control_detect(timeout=self.config.metrics_timeout_s),
-                "fan_control_detect",
-                timeout=self.config.metrics_timeout_s,
-            )
-            self.log.emit("Запрос определения управления вентилятором отправлен")
-        except Exception as exc:
-            self.log.emit(f"Ошибка определения управления вентилятором: {exc}")
-
     async def read_operation_status(self) -> None:
         try:
             status = await self._with_timeout(
@@ -542,7 +530,6 @@ class MainWindow(QMainWindow):
         self.apply_button = QPushButton("Apply")
         self.discard_button = QPushButton("Discard")
         self.calibrate_button = QPushButton("Калибровка вентилятора")
-        self.detect_button = QPushButton("Определить управление вентилятором")
         self._action_timers: dict[Action, QTimer] = {}
         self._action_futures: dict[Action, Future] = {}
 
@@ -553,7 +540,6 @@ class MainWindow(QMainWindow):
         self.apply_button.setProperty("actionId", Action.APPLY.name)
         self.discard_button.setProperty("actionId", Action.DISCARD.name)
         self.calibrate_button.setProperty("actionId", Action.CALIBRATE.name)
-        self.detect_button.setProperty("actionId", Action.DETECT_FAN_CONTROL.name)
         self.delete_button.setProperty("actionId", Action.DELETE_PAIRED.name)
         self.auto_checkbox.setProperty("actionId", Action.AUTO_CONNECT.name)
 
@@ -613,7 +599,6 @@ class MainWindow(QMainWindow):
         self.apply_button.clicked.connect(self.on_apply)
         self.discard_button.clicked.connect(self.on_discard)
         self.calibrate_button.clicked.connect(self.on_calibrate)
-        self.detect_button.clicked.connect(self.on_detect_fan_control)
 
         self.worker.log.connect(self.on_log)
         self.worker.scan_results.connect(self.on_scan_results)
@@ -752,7 +737,6 @@ class MainWindow(QMainWindow):
         grid.addWidget(status_field, 1, 1)
         self.fan_status_field = status_field
         grid.addWidget(self.calibrate_button, 2, 0, 1, 2)
-        grid.addWidget(self.detect_button, 3, 0, 1, 2)
         self._fan_is_nc = None
         return grid
 
@@ -855,7 +839,6 @@ class MainWindow(QMainWindow):
         self.apply_button.setEnabled(Action.APPLY in ui.enabled_actions)
         self.discard_button.setEnabled(Action.DISCARD in ui.enabled_actions)
         self.calibrate_button.setEnabled(Action.CALIBRATE in ui.enabled_actions)
-        self.detect_button.setEnabled(Action.DETECT_FAN_CONTROL in ui.enabled_actions)
         self.delete_button.setEnabled(Action.DELETE_PAIRED in ui.enabled_actions)
         self.auto_checkbox.setEnabled(Action.AUTO_CONNECT in ui.enabled_actions)
         params_enabled = self.model.state.conn == ConnState.CONNECTED and not self.model.state.busy
@@ -863,7 +846,6 @@ class MainWindow(QMainWindow):
             self.apply_button.setEnabled(False)
             self.discard_button.setEnabled(False)
             self.calibrate_button.setEnabled(False)
-            self.detect_button.setEnabled(False)
             params_enabled = False
         for item in self.param_fields:
             item["widget"].setEnabled(params_enabled)
@@ -1010,7 +992,7 @@ class MainWindow(QMainWindow):
         fut = self._action_futures.get(action)
         if fut and not fut.done():
             fut.cancel()
-        if action in {Action.CALIBRATE, Action.DETECT_FAN_CONTROL}:
+        if action == Action.CALIBRATE:
             status_fut = self.worker.submit(self.worker.read_operation_status())
             if status_fut is None:
                 self.on_log("Не удалось запросить OP статус (worker не готов).")
@@ -1060,12 +1042,6 @@ class MainWindow(QMainWindow):
                 self.worker.start_fan_calibration(),
                 timeout_override=10.0,
             )
-        elif command.action == Action.DETECT_FAN_CONTROL:
-            self._start_action(
-                Action.DETECT_FAN_CONTROL,
-                self.worker.start_fan_control_detect(),
-                timeout_override=10.0,
-            )
         elif command.action == Action.DELETE_PAIRED:
             self._delete_selected_paired()
 
@@ -1090,10 +1066,6 @@ class MainWindow(QMainWindow):
     def on_calibrate(self) -> None:
         self._clear_op_log()
         self._dispatch_action(Action.CALIBRATE)
-
-    def on_detect_fan_control(self) -> None:
-        self._clear_op_log()
-        self._dispatch_action(Action.DETECT_FAN_CONTROL)
 
     def on_delete_paired_clicked(self) -> None:
         self._dispatch_action(Action.DELETE_PAIRED)
@@ -1250,8 +1222,6 @@ class MainWindow(QMainWindow):
         op_action = None
         if status.op_type == OP_TYPE_FAN_CALIBRATION:
             op_action = Action.CALIBRATE
-        elif status.op_type == OP_TYPE_FAN_CONTROL_DETECT:
-            op_action = Action.DETECT_FAN_CONTROL
         if status.state == OP_STATE_IN_SERVICE:
             self.on_log(f"Операция запущена: {op_label}")
             self._operation_active = True

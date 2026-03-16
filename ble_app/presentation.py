@@ -15,7 +15,6 @@ class Action(Enum):
     APPLY = auto()
     DISCARD = auto()
     CALIBRATE = auto()
-    DETECT_FAN_CONTROL = auto()
     DELETE_PAIRED = auto()
     AUTO_CONNECT = auto()
 
@@ -63,7 +62,6 @@ ASYNC_ACTIONS = {
     Action.APPLY,
     Action.DISCARD,
     Action.CALIBRATE,
-    Action.DETECT_FAN_CONTROL,
     Action.AUTO_CONNECT,
 }
 
@@ -84,7 +82,6 @@ def derive_ui(state: AppState) -> UiModel:
             Action.APPLY,
             Action.DISCARD,
             Action.CALIBRATE,
-            Action.DETECT_FAN_CONTROL,
         }
     elif state.selected_device is not None and state.selected_source == SelectionSource.PAIRED:
         enabled = {Action.SCAN, Action.CONNECT, Action.DELETE_PAIRED, Action.AUTO_CONNECT}

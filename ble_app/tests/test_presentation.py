@@ -26,7 +26,6 @@ def test_derive_ui_basics() -> None:
         Action.APPLY,
         Action.DISCARD,
         Action.CALIBRATE,
-        Action.DETECT_FAN_CONTROL,
     }
     assert ui.paired_highlight is None
 

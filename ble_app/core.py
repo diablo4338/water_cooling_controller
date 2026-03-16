@@ -70,7 +70,6 @@ __all__ = [
     "OP_ERROR_TEXT_MAX",
     "OP_TYPE_NONE",
     "OP_TYPE_FAN_CALIBRATION",
-    "OP_TYPE_FAN_CONTROL_DETECT",
     "OP_TYPE_NAMES",
     "OP_STATE_IDLE",
     "OP_STATE_IN_SERVICE",
@@ -179,11 +178,9 @@ OP_CONTROL_VERSION = 1
 OP_ERROR_TEXT_MAX = 20
 OP_TYPE_NONE = 0
 OP_TYPE_FAN_CALIBRATION = 1
-OP_TYPE_FAN_CONTROL_DETECT = 2
 OP_TYPE_NAMES = {
     OP_TYPE_NONE: "NONE",
     OP_TYPE_FAN_CALIBRATION: "FAN_CALIBRATION",
-    OP_TYPE_FAN_CONTROL_DETECT: "FAN_CONTROL_DETECT",
 }
 OP_STATE_IDLE = 0
 OP_STATE_IN_SERVICE = 1
@@ -795,9 +792,6 @@ class BleAppCore:
 
     async def start_fan_calibration(self, timeout: Optional[float] = None) -> None:
         await self.start_operation(OP_TYPE_FAN_CALIBRATION, timeout=timeout)
-
-    async def start_fan_control_detect(self, timeout: Optional[float] = None) -> None:
-        await self.start_operation(OP_TYPE_FAN_CONTROL_DETECT, timeout=timeout)
 
     async def _reconnect_for_metrics(self, timeout: float) -> None:
         try:
