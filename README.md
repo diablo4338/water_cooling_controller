@@ -1,84 +1,73 @@
-# BLE Pairing GUI
+# PC Water Cooling Controller
 
-## Конечная задача
-Нужно написать GUI приложение, которое:
-- умеет париться с BLE устройством;
-- по кнопке показывает список всех спаренных устройств;
-- отображает данные в реальном времени в приложении, которые приходят с выбранного устройства.
+This repository contains a GUI application and firmware for a BLE-based controller that manages a PC water-cooling loop. The app can pair with the device, connect to it, stream temperature metrics in real time, and apply cooling parameters.
 
-## Реализация
-Приложение написано на `PySide6`, BLE слой — `bleak`. Спаривание и авторизация реализованы на уровне приложения, через GATT‑протокол ниже. Это не системное OS‑bonding, а прикладное спаривание по собственному протоколу.
-Список спаренных устройств и ключей хранится локально в `paired_devices.json`. Постоянный ключ хоста хранится в `host_key.pem`.
+The GUI is built with `PySide6`, the BLE layer uses `bleak`. Pairing and authorization are implemented at the application level over GATT. This is not OS-level bonding.
 
-## Структура репозитория
-- `ble_app/` — GUI приложение + общий BLE слой, используемый и GUI, и тестами.
-- `mk/` — прошивка ESP‑IDF (NimBLE) с реализацией протокола и метрик.
-- `raspberry/` — HTTP‑сервис для кнопки (GPIO), используется интеграционными тестами.
-- `paired_devices.json` — база доверенных устройств (address, name, k_hex, last_connected).
-- `host_key.pem` — приватный ключ хоста (P‑256), используется при pairing.
+Local data:
+- `paired_devices.json` - trusted devices database (address, name, k_hex, last_connected).
+- `host_key.pem` - host private key (P-256) used for pairing.
 
-## Архитектура приложения
-- `ble_app/config.py` — параметры таймаутов и ретраев, читаются из переменных окружения.
-- `ble_app/core.py` — публичный BLE API и бизнес‑логика протокола (pair/auth/metrics).
-- `ble_app/presentation.py` — слой UI‑состояния (Actions, AppState, derive_ui). Чистая логика без Qt.
-- `ble_app/gui.py` — UI и потоковый worker, связаны с `AppModel` через Actions.
-- `ble_app/main.py` — entrypoint для запуска GUI.
+## Quick start
+1. Install GUI dependencies from `ble_app/requirements.txt`.
+2. Run the app: `python -m ble_app.main` or `make run-app`.
 
-Сканирование показывает только устройства, которые рекламируют сервис `PAIR_SVC` — это считается признаком готовности к сопряжению.
+Buttons service (for integration tests):
+- `make run-buttons` or `uvicorn raspberry.app:app --host 0.0.0.0 --port 8001`.
 
-Контракт UI:
-- Все интерактивные элементы имеют `actionId = Action.name`.
-- GUI не содержит бизнес‑логики, только биндинг `AppModel` ↔ виджеты.
-- Поведение UI фиксируется unit‑тестами `ble_app/tests/test_presentation.py`.
+Firmware (ESP-IDF):
+- `make fw` - build/flash.
+- `make fw-tests` - build/flash with `PAIR_RUN_TESTS=1`.
 
-UI поведение (derive_ui):
-- Включено автоподключение или активен `AUTO_CONNECT` — доступна только эта кнопка/галка.
-- Идет асинхронное действие (`SCAN/PAIR/CONNECT/DISCONNECT`) — кнопки недоступны.
-- Устройство подключено — доступна только кнопка Отключить.
-- Выбрано сохраненное устройство — доступны Сканировать, Подключить, Автоподключение.
-- Выбрано найденное устройство — доступны Сканировать, Спарить, Автоподключение.
-- По умолчанию — доступны Сканировать и Автоподключение.
+## Directory structure
+- `ble_app/` - GUI app and the shared BLE layer used by the GUI and tests.
+- `mk/` - ESP-IDF firmware (NimBLE) with protocol implementation and metrics.
+- `raspberry/` - HTTP service for the GPIO button, used by integration tests.
+- `paired_devices.json` - trusted devices database.
+- `host_key.pem` - host private key.
+- `ARCHITECTURE.md` - architecture details and module relationships.
 
-## GATT протокол (актуальная прошивка)
-### Advertising
-- В pairing‑mode устройство рекламирует `PAIR_SVC` и имя `sensor-pair`.
-- В обычном режиме — `MAIN_SVC` и имя `sensor`.
+## Pairing protocol
+Scanning only shows devices that advertise `PAIR_SVC`. This indicates readiness to pair. In pairing mode the device advertises the name `sensor-pair`; in normal mode it advertises `sensor`.
 
 ### Pairing service `PAIR_SVC`
-Характеристики:
-- `PAIR_DEV_NONCE` (read): `nonce_d` (16 байт)
-- `PAIR_DEV_PUB` (read): `d_pub` (65 байт, P‑256 uncompressed)
-- `PAIR_HOST_PUB` (write): `h_pub` (65 байт, P‑256 uncompressed)
+Characteristics:
+- `PAIR_DEV_NONCE` (read): `nonce_d` (16 bytes)
+- `PAIR_DEV_PUB` (read): `d_pub` (65 bytes, P-256 uncompressed)
+- `PAIR_HOST_PUB` (write): `h_pub` (65 bytes, P-256 uncompressed)
 - `PAIR_CONFIRM` (write): `HMAC(K, b"confirm"+nonce_d)`
-- `PAIR_FINISH` (write): `0x01` — завершить pairing и сохранить доверенного
+- `PAIR_FINISH` (write): `0x01` - finish pairing and store trust
 
-Алгоритм:
-1. Хост подключается к устройству в pairing‑mode.
-2. Читает `PAIR_DEV_NONCE` и `PAIR_DEV_PUB`.
-3. Вычисляет ECDH `shared`, затем `K = HKDF(shared, salt=nonce_d, info="PAIRv1", len=32)`.
-4. Пишет `PAIR_HOST_PUB`, затем `PAIR_CONFIRM`, затем `PAIR_FINISH`.
-5. Устройство сохраняет identity хоста (hash `h_pub`) и выходит из pairing‑mode.
+Algorithm:
+1. The host connects to the device in pairing mode.
+2. Reads `PAIR_DEV_NONCE` and `PAIR_DEV_PUB`.
+3. Computes ECDH `shared`, then `K = HKDF(shared, salt=nonce_d, info="PAIRv1", len=32)`.
+4. Writes `PAIR_HOST_PUB`, then `PAIR_CONFIRM`, then `PAIR_FINISH`.
+5. The device stores the host identity (hash of `h_pub`) and exits pairing mode.
+
+## Other services (brief)
+After pairing, the device operates in normal mode. Authorization and access to metrics use `MAIN_SVC`, cooling parameters use `CONFIG_SVC`, maintenance operations use `OPERATIONS_SVC`, and metrics use `METRICS_SVC`.
 
 ### Main service `MAIN_SVC`
-Характеристики:
-- `AUTH_NONCE` (read): 16 байт
+Characteristics:
+- `AUTH_NONCE` (read): 16 bytes
 - `AUTH_PROOF` (write): `HMAC(K, b"auth"+nonce)`
 
-Алгоритм AUTH:
-1. Хост подключается к устройству (обычный режим).
-2. Читает `AUTH_NONCE`.
-3. Пишет `AUTH_PROOF`.
-4. После успешного AUTH устройство разрешает чтение/notify метрик.
+AUTH algorithm:
+1. The host connects to the device (normal mode).
+2. Reads `AUTH_NONCE`.
+3. Writes `AUTH_PROOF`.
+4. After successful auth, the device allows reading/notify of metrics.
 
 ### Config service `CONFIG_SVC`
-Характеристики:
-- `CONFIG_PARAMS` (read/write): пакет параметров (версия, маска, 3 float32 LE)
-- `CONFIG_STATUS` (read/notify/write): статус применения; запись `0x01` — Apply
-- `CONFIG_FAN_STATUS` (read/notify): статус вентилятора (`IDLE/STARTING/RUNNING/STALL/IN_SERVICE`)
+Characteristics:
+- `CONFIG_PARAMS` (read/write): parameter payload (version, mask, 3 float32 LE)
+- `CONFIG_STATUS` (read/notify/write): apply status; write `0x01` to apply
+- `CONFIG_FAN_STATUS` (read/notify): fan status (`IDLE/STARTING/RUNNING/STALL/IN_SERVICE`)
 
 Payload `CONFIG_PARAMS`:
 - `version` (uint8) = `1`
-- `mask` (uint8): бит0=target_temp_c, бит1=fan_min_rpm, бит2=alarm_delta_c
+- `mask` (uint8): bit0=target_temp_c, bit1=fan_min_rpm, bit2=alarm_delta_c
 - `target_temp_c` (float32 LE)
 - `fan_min_rpm` (float32 LE)
 - `alarm_delta_c` (float32 LE)
@@ -86,41 +75,41 @@ Payload `CONFIG_PARAMS`:
 Payload `CONFIG_STATUS`:
 - `version` (uint8) = `1`
 - `status` (uint8): `0=OK`, `1=INVALID`, `2=BUSY`
-- `field` (uint8): `0..2` или `0xFF`, если без ошибки
+- `field` (uint8): `0..2` or `0xFF` for generic error
 
 Payload `CONFIG_FAN_STATUS`:
 - `version` (uint8) = `1`
 - `state` (uint8): `0=IDLE`, `1=STARTING`, `2=RUNNING`, `3=STALL`, `4=IN_SERVICE`
-- `op_type` (uint8): `0=NONE`, `1=FAN_CALIBRATION` (заполняется когда `state=IN_SERVICE`)
+- `op_type` (uint8): `0=NONE`, `1=FAN_CALIBRATION` (set when `state=IN_SERVICE`)
 
-Параметры кешируются в RAM и сохраняются в NVS; при старте прошивки загружаются из NVS.
+Parameters are cached in RAM and persisted to NVS; firmware loads them from NVS on boot.
 
 ### Operations service `OPERATIONS_SVC`
-Характеристики:
-- `OP_CONTROL` (write): запуск операции (`version/op_type/action`)
-- `OP_STATUS` (read/notify): состояние операции
+Characteristics:
+- `OP_CONTROL` (write): start operation (`version/op_type/action`)
+- `OP_STATUS` (read/notify): operation state
 
 Payload `OP_CONTROL`:
 - `version` (uint8) = `1`
 - `op_type` (uint8): `1=FAN_CALIBRATION`
 - `action` (uint8): `1=start`
 
-Payload `OP_STATUS` (фикс. длина 24 байта):
+Payload `OP_STATUS` (fixed length 24 bytes):
 - `version` (uint8) = `1`
 - `op_type` (uint8): `1=FAN_CALIBRATION`
 - `state` (uint8): `0=IDLE`, `1=IN_SERVICE`, `2=DONE`, `3=ERROR`
 - `err_len` (uint8): `0..20`
-- `err_text` (char[20], ASCII/UTF-8), заполнен только при `state=ERROR`
-При старте при активной операции устройство отвечает `state=ERROR` и `err_text="busy"`.
+- `err_text` (char[20], ASCII/UTF-8), only set when `state=ERROR`
+If an operation is already active at startup, the device responds with `state=ERROR` and `err_text="busy"`.
 
 ### Metrics service `METRICS_SVC`
-Характеристики:
+Characteristics:
 - `TEMP0_VALUE` (read/notify): float32 LE
 - `TEMP1_VALUE` (read/notify): float32 LE
 - `TEMP2_VALUE` (read/notify): float32 LE
 - `TEMP3_VALUE` (read/notify): float32 LE
 
-## UUID (должны совпасть с прошивкой)
+## UUID (must match firmware)
 PAIR_SVC: `8fdd08d6-2a9e-4d5a-9f44-9f58b3a9d3c1`
 MAIN_SVC: `3d1a4b35-9707-43e6-bf3e-2e2f7b561d82`
 METRICS_SVC: `f3a0c1d2-5b6a-4d2e-9b43-1c2d3e4f5061`
@@ -147,50 +136,38 @@ TEMP1_VALUE: `a1b2c3d4-0b1c-4a2b-9c3d-4e5f60718292`
 TEMP2_VALUE: `a1b2c3d4-0b1c-4a2b-9c3d-4e5f60718293`
 TEMP3_VALUE: `a1b2c3d4-0b1c-4a2b-9c3d-4e5f60718294`
 
-## Запуск
-1. Установить зависимости GUI: `ble_app/requirements.txt`.
-2. Запустить `python -m ble_app.main` или `make run-app`.
+## Tests
+Integration tests use only the public API from `ble_app`. Unit tests for UI logic live in `ble_app/tests/test_presentation.py` and do not require PySide6.
 
-Кнопки (для интеграционных тестов):
-- `make run-buttons` или `uvicorn raspberry.app:app --host 0.0.0.0 --port 8001`.
+Test dependencies: `ble_app/tests/requirements.txt`.
 
-Прошивка (ESP‑IDF):
-- `make fw` — build/flash.
-- `make fw-tests` — build/flash с `PAIR_RUN_TESTS=1`.
-
-## Тесты
-Интеграционные тесты используют только публичный API из пакета `ble_app`.
-Юнит‑тесты для UI‑логики живут в `ble_app/tests/test_presentation.py` и не требуют PySide6.
-
-Зависимости для тестов: `ble_app/tests/requirements.txt`.
-
-Запуск:
+Run:
 ```bash
 pytest -c ble_app/pytest.ini -q -m integration
 ```
 
-## Переменные окружения
-Приложение (GUI/ble_app):
-- `BLE_SCAN_TIMEOUT_S` — таймаут сканирования.
-- `BLE_RESOLVE_TIMEOUT_S` — таймаут поиска по адресу.
-- `BLE_CONNECT_TIMEOUT_S` — таймаут подключения.
-- `BLE_PAIR_TIMEOUT_S` — таймаут pairing.
-- `BLE_AUTH_TIMEOUT_S` — таймаут AUTH.
-- `BLE_METRICS_TIMEOUT_S` — таймаут чтения метрик.
-- `BLE_METRICS_RETRIES` — количество ретраев чтения метрик.
-- `BLE_METRICS_RECONNECT_DELAY_S` — пауза перед переподключением при чтении метрик.
-- `GUI_ACTION_DEFAULT_TIMEOUT_S` — дефолтный таймаут UI действий.
-- `GUI_ACTION_SCAN_TIMEOUT_S` — таймаут UI сканирования.
-- `GUI_ACTION_PAIR_TIMEOUT_S` — таймаут UI pairing.
-- `GUI_ACTION_CONNECT_TIMEOUT_S` — таймаут UI подключения.
-- `GUI_ACTION_DISCONNECT_TIMEOUT_S` — таймаут UI отключения.
+## Environment variables
+Application (GUI/ble_app):
+- `BLE_SCAN_TIMEOUT_S` - scan timeout.
+- `BLE_RESOLVE_TIMEOUT_S` - address resolve timeout.
+- `BLE_CONNECT_TIMEOUT_S` - connect timeout.
+- `BLE_PAIR_TIMEOUT_S` - pairing timeout.
+- `BLE_AUTH_TIMEOUT_S` - auth timeout.
+- `BLE_METRICS_TIMEOUT_S` - metrics read timeout.
+- `BLE_METRICS_RETRIES` - metrics read retries.
+- `BLE_METRICS_RECONNECT_DELAY_S` - reconnect delay between metrics reads.
+- `GUI_ACTION_DEFAULT_TIMEOUT_S` - default UI action timeout.
+- `GUI_ACTION_SCAN_TIMEOUT_S` - UI scan timeout.
+- `GUI_ACTION_PAIR_TIMEOUT_S` - UI pairing timeout.
+- `GUI_ACTION_CONNECT_TIMEOUT_S` - UI connect timeout.
+- `GUI_ACTION_DISCONNECT_TIMEOUT_S` - UI disconnect timeout.
 
-Интеграционные тесты:
-- `BLE_ADDRESS` — адрес устройства, чтобы не делать скан.
-- `BLE_ADAPTER` — BLE адаптер (например, `hci0`).
-- `SCAN_TIMEOUT_S` — таймаут сканирования (для тестов).
-- `CONNECT_TIMEOUT_S` — таймаут подключения (для тестов).
-- `PRESS_BASE_URL` — базовый URL для кнопок.
-- `PRESS_TIMEOUT_S` — таймаут HTTP нажатия.
-- `PRESS_RETRIES` — количество ретраев.
-- `PRESS_NO_RESPONSE` — не ждать ответ от HTTP сервиса (1/0).
+Integration tests:
+- `BLE_ADDRESS` - device address to skip scanning.
+- `BLE_ADAPTER` - BLE adapter (for example, `hci0`).
+- `SCAN_TIMEOUT_S` - scan timeout (tests).
+- `CONNECT_TIMEOUT_S` - connect timeout (tests).
+- `PRESS_BASE_URL` - base URL for the button service.
+- `PRESS_TIMEOUT_S` - HTTP press timeout.
+- `PRESS_RETRIES` - number of retries.
+- `PRESS_NO_RESPONSE` - do not wait for HTTP response (1/0).

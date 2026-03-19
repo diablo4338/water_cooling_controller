@@ -60,7 +60,7 @@ from .core import (
 )
 from .presentation import Action, AppModel, ConnState, SelectionSource
 
-APP_TITLE = "BLE Pairing GUI"
+APP_TITLE = "BLE Cooling Controller"
 USER_ROLE = Qt.ItemDataRole.UserRole
 PAIRED_HIGHLIGHT_BRUSH = QBrush(QColor(220, 245, 220))
 FAN_CONTROL_CHOICES = [
@@ -68,12 +68,12 @@ FAN_CONTROL_CHOICES = [
     (FAN_CONTROL_PWM, FAN_CONTROL_TYPE_NAMES[FAN_CONTROL_PWM]),
 ]
 PARAM_FIELDS = [
-    {"key": "target_temp_c", "label": "Целевая температура, °C", "kind": "float"},
-    {"key": "fan_min_rpm", "label": "Мин. обороты вентилятора, об/мин", "kind": "float"},
-    {"key": "alarm_delta_c", "label": "Аварийная дельта, °C", "kind": "float"},
+    {"key": "target_temp_c", "label": "Target temperature, °C", "kind": "float"},
+    {"key": "fan_min_rpm", "label": "Min fan RPM", "kind": "float"},
+    {"key": "alarm_delta_c", "label": "Alarm delta, °C", "kind": "float"},
     {
         "key": "fan_min_speed",
-        "label": "Мин. скорость вентилятора, %",
+        "label": "Min fan speed, %",
         "kind": "int",
         "min": 0,
         "max": 120,
@@ -81,7 +81,7 @@ PARAM_FIELDS = [
     },
     {
         "key": "fan_control_type",
-        "label": "Тип управления",
+        "label": "Control type",
         "kind": "enum",
         "choices": FAN_CONTROL_CHOICES,
     },
@@ -157,7 +157,7 @@ class BleWorker(QThread):
             self._monitor_stop_evt.set()
         if self._manual_disconnect:
             return
-        self.log.emit("Соединение разорвано устройством.")
+        self.log.emit("Connection dropped by device.")
         self.connection_state.emit(False, None)
 
     def _start_monitor(self) -> None:
@@ -195,20 +195,20 @@ class BleWorker(QThread):
             self._monitor_stop_evt = None
 
     async def scan(self) -> None:
-        self.log.emit("Поиск устройств в режиме сопряжения...")
+        self.log.emit("Scanning for devices in pairing mode...")
         try:
             devices = await self.core.scan_pairing(timeout=self.config.scan_timeout_s)
         except Exception as exc:
-            self.log.emit(f"Ошибка сканирования: {exc}")
+            self.log.emit(f"Scan error: {exc}")
             self.scan_results.emit([])
             return
 
         self.scan_results.emit(devices)
-        self.log.emit(f"Найдено устройств готовых к сопряжению: {len(devices)}")
+        self.log.emit(f"Pairing-ready devices found: {len(devices)}")
 
     async def auto_connect_saved(self) -> None:
         if self._auto_running:
-            self.log.emit("Автоподключение уже запущено.")
+            self.log.emit("Auto-connect is already running.")
             return
         self._auto_running = True
         self._auto_stop_evt = asyncio.Event()
@@ -216,7 +216,7 @@ class BleWorker(QThread):
             while not self._auto_stop_evt.is_set():
                 saved = self._load_saved_devices()
                 if not saved:
-                    self.log.emit("Нет сохраненных устройств.")
+                    self.log.emit("No saved devices.")
                     try:
                         await asyncio.wait_for(self._auto_stop_evt.wait(), timeout=2.0)
                     except asyncio.TimeoutError:
@@ -262,7 +262,7 @@ class BleWorker(QThread):
 
     async def connect_device(self, device: DeviceInfo) -> None:
         await self.disconnect()
-        self.log.emit(f"Подключение к {device.name} ({device.address})...")
+        self.log.emit(f"Connecting to {device.name} ({device.address})...")
         last_exc: Optional[Exception] = None
         self._disconnect_evt = asyncio.Event()
         for attempt in range(1, 2):
@@ -316,7 +316,7 @@ class BleWorker(QThread):
                     )
                     self.log.emit("Notify METRICS started.")
                 except Exception as exc:
-                    self.log.emit(f"Notify METRICS недоступен: {exc}")
+                    self.log.emit(f"METRICS notify unavailable: {exc}")
                 try:
                     await self._with_timeout(
                         self.core.start_params_notify(self._on_params_status),
@@ -325,7 +325,7 @@ class BleWorker(QThread):
                     )
                     self.log.emit("Notify PARAMS status started.")
                 except Exception as exc:
-                    self.log.emit(f"Notify PARAMS status недоступен: {exc}")
+                    self.log.emit(f"PARAMS status notify unavailable: {exc}")
                 try:
                     await self._with_timeout(
                         self.core.start_fan_status_notify(self._on_fan_status),
@@ -334,7 +334,7 @@ class BleWorker(QThread):
                     )
                     self.log.emit("Notify FAN status started.")
                 except Exception as exc:
-                    self.log.emit(f"Notify FAN status недоступен: {exc}")
+                    self.log.emit(f"FAN status notify unavailable: {exc}")
                 try:
                     await self._with_timeout(
                         self.core.start_operation_status_notify(self._on_operation_status),
@@ -343,7 +343,7 @@ class BleWorker(QThread):
                     )
                     self.log.emit("Notify OP status started.")
                 except Exception as exc:
-                    self.log.emit(f"Notify OP status недоступен: {exc}")
+                    self.log.emit(f"OP status notify unavailable: {exc}")
                 self._start_monitor()
                 self.device = device
                 self.connection_state.emit(True, device)
@@ -357,7 +357,7 @@ class BleWorker(QThread):
                 except Exception:
                     pass
                 await asyncio.sleep(0.4 * attempt)
-        self.log.emit(f"Ошибка подключения: {last_exc}")
+        self.log.emit(f"Connection error: {last_exc}")
         if self._disconnect_evt is None or not self._disconnect_evt.is_set():
             self.connection_state.emit(False, None)
 
@@ -368,7 +368,7 @@ class BleWorker(QThread):
             if self.core.client:
                 log_enabled = not already_disconnected
                 if log_enabled:
-                    self.log.emit("Отключение...")
+                    self.log.emit("Disconnecting...")
                 if self._monitor_stop_evt is not None:
                     self._monitor_stop_evt.set()
                 # noinspection PyBroadException
@@ -422,9 +422,9 @@ class BleWorker(QThread):
     async def pair(self, device: DeviceInfo) -> None:
         result = await self.core.pair(device)
         if result.ok:
-            self.pairing_result.emit(True, "Устройство спарено", device, result.k_hex)
+            self.pairing_result.emit(True, "Device paired", device, result.k_hex)
             return
-        self.pairing_result.emit(False, f"Ошибка спаривания: {result.message}", device, None)
+        self.pairing_result.emit(False, f"Pairing error: {result.message}", device, None)
 
     async def _do_auth(self) -> None:
         await self.core.auth(timeout=self.config.auth_timeout_s)
@@ -437,7 +437,7 @@ class BleWorker(QThread):
                 timeout=self.config.metrics_timeout_s,
             )
         except Exception as exc:
-            self.log.emit(f"Ошибка отправки параметров: {exc}")
+            self.log.emit(f"Failed to send parameters: {exc}")
 
     async def apply_params(self) -> None:
         try:
@@ -447,7 +447,7 @@ class BleWorker(QThread):
                 timeout=self.config.metrics_timeout_s,
             )
         except Exception as exc:
-            self.log.emit(f"Ошибка Apply: {exc}")
+            self.log.emit(f"Apply failed: {exc}")
         finally:
             self.apply_done.emit()
 
@@ -458,9 +458,9 @@ class BleWorker(QThread):
                 "fan_calibration",
                 timeout=self.config.metrics_timeout_s,
             )
-            self.log.emit("Запрос калибровки отправлен")
+            self.log.emit("Calibration request sent")
         except Exception as exc:
-            self.log.emit(f"Ошибка калибровки вентилятора: {exc}")
+            self.log.emit(f"Fan calibration error: {exc}")
 
     async def read_operation_status(self) -> None:
         try:
@@ -470,9 +470,9 @@ class BleWorker(QThread):
                 timeout=self.config.metrics_timeout_s,
             )
             self.operation_status_received.emit(status)
-            self.log.emit("OP статус обновлен.")
+            self.log.emit("OP status updated.")
         except Exception as exc:
-            self.log.emit(f"Ошибка чтения OP статуса: {exc}")
+            self.log.emit(f"Failed to read OP status: {exc}")
 
     async def read_params_snapshot(self) -> None:
         try:
@@ -482,9 +482,9 @@ class BleWorker(QThread):
                 timeout=self.config.metrics_timeout_s,
             )
             self.params_received.emit(params)
-            self.log.emit("Параметры обновлены после операции.")
+            self.log.emit("Parameters refreshed after operation.")
         except Exception as exc:
-            self.log.emit(f"Ошибка чтения параметров после операции: {exc}")
+            self.log.emit(f"Failed to read parameters after operation: {exc}")
 
     def _on_temp(self, channel: int, value: float) -> None:
         self.temp_received.emit(channel, value)
@@ -511,7 +511,7 @@ class MainWindow(QMainWindow):
         self.worker = BleWorker()
         self.worker.start()
         self.model = AppModel()
-        self.model.set_status("Готово")
+        self.model.set_status("Ready")
         self._lock_selection_active = False
         self.action_timeouts = {
             Action.SCAN: self.worker.config.gui_action_scan_timeout_s,
@@ -521,15 +521,15 @@ class MainWindow(QMainWindow):
         }
         self.default_action_timeout = self.worker.config.gui_action_default_timeout_s
 
-        self.scan_button = QPushButton("Сканировать")
-        self.pair_button = QPushButton("Спарить")
-        self.connect_button = QPushButton("Подключить")
-        self.disconnect_button = QPushButton("Отключить")
-        self.delete_button = QPushButton("Удалить сохраненное")
-        self.auto_checkbox = QCheckBox("Автоподключение (сохраненные)")
+        self.scan_button = QPushButton("Scan")
+        self.pair_button = QPushButton("Pair")
+        self.connect_button = QPushButton("Connect")
+        self.disconnect_button = QPushButton("Disconnect")
+        self.delete_button = QPushButton("Delete saved")
+        self.auto_checkbox = QCheckBox("Auto-connect (saved)")
         self.apply_button = QPushButton("Apply")
         self.discard_button = QPushButton("Discard")
-        self.calibrate_button = QPushButton("Калибровка вентилятора")
+        self.calibrate_button = QPushButton("Fan calibration")
         self._action_timers: dict[Action, QTimer] = {}
         self._action_futures: dict[Action, Future] = {}
 
@@ -568,21 +568,21 @@ class MainWindow(QMainWindow):
         buttons.addWidget(self.auto_checkbox)
 
         lists_layout = QHBoxLayout()
-        lists_layout.addWidget(self._wrap_list("Устройства для сопряжения", self.found_list))
-        lists_layout.addWidget(self._wrap_list("Спаренные устройства", self.paired_list))
+        lists_layout.addWidget(self._wrap_list("Devices for pairing", self.found_list))
+        lists_layout.addWidget(self._wrap_list("Paired devices", self.paired_list))
 
         layout = QVBoxLayout()
         layout.addLayout(buttons)
         layout.addLayout(lists_layout)
-        layout.addWidget(QLabel("Параметры устройства"))
+        layout.addWidget(QLabel("Device parameters"))
         layout.addWidget(self._build_params_layout())
-        layout.addWidget(QLabel("Температуры"))
+        layout.addWidget(QLabel("Temperatures"))
         layout.addLayout(self._build_temp_layout())
-        layout.addWidget(QLabel("Скорость вентилятора"))
+        layout.addWidget(QLabel("Fan speed"))
         layout.addLayout(self._build_fan_layout())
-        layout.addWidget(QLabel("Операции (лог)"))
+        layout.addWidget(QLabel("Operations (log)"))
         layout.addWidget(self.op_log_view)
-        layout.addWidget(QLabel("Данные в реальном времени"))
+        layout.addWidget(QLabel("Real-time data"))
         layout.addWidget(self.data_view)
         layout.addWidget(self.status_label)
 
@@ -699,7 +699,7 @@ class MainWindow(QMainWindow):
         self.temp_fields.clear()
         self._temp_is_nc = [None] * 4
         for idx in range(4):
-            label = QLabel(f"Темп. {idx + 1}")
+            label = QLabel(f"Temp {idx + 1}")
             field = QLineEdit("—")
             field.setReadOnly(True)
             field.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -715,7 +715,7 @@ class MainWindow(QMainWindow):
 
     def _build_fan_layout(self) -> QGridLayout:
         grid = QGridLayout()
-        rpm_label = QLabel("Вентилятор (об/мин)")
+        rpm_label = QLabel("Fan (RPM)")
         rpm_field = QLineEdit("—")
         rpm_field.setReadOnly(True)
         rpm_field.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -726,7 +726,7 @@ class MainWindow(QMainWindow):
         grid.addWidget(rpm_field, 0, 1)
         self.fan_field = rpm_field
 
-        status_label = QLabel("Статус вентилятора")
+        status_label = QLabel("Fan status")
         status_field = QLineEdit("—")
         status_field.setReadOnly(True)
         status_field.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -823,7 +823,7 @@ class MainWindow(QMainWindow):
         save_device_params(device.address, params)
         fut = self.worker.submit(self.worker.write_params(params))
         if fut is None:
-            self.on_log("Не удалось отправить параметры (worker не готов).")
+            self.on_log("Failed to send parameters (worker not ready).")
 
     def _apply_ui(self) -> None:
         ui = self.model.ui
@@ -995,10 +995,10 @@ class MainWindow(QMainWindow):
         if action == Action.CALIBRATE:
             status_fut = self.worker.submit(self.worker.read_operation_status())
             if status_fut is None:
-                self.on_log("Не удалось запросить OP статус (worker не готов).")
+                self.on_log("Failed to request OP status (worker not ready).")
             else:
-                self.on_log("Запрошен OP статус по таймауту отправки.")
-        self.on_log(f"Операция '{action.name}' превышает таймаут отправки.")
+                self.on_log("OP status requested after send timeout.")
+        self.on_log(f"Operation '{action.name}' exceeded send timeout.")
         self._finish_action(action)
 
     def _finish_action(self, action: Action) -> None:
@@ -1101,14 +1101,14 @@ class MainWindow(QMainWindow):
     def _delete_selected_paired(self) -> None:
         item = self.paired_list.currentItem()
         if item is None:
-            self.on_log("Сначала выберите устройство")
+            self.on_log("Select a device first")
             return
         device = item.data(USER_ROLE)
         if device and self._remove_paired(device.address):
             self._refresh_paired_list()
-            self.on_log(f"Удалено: {device.name}")
+            self.on_log(f"Removed: {device.name}")
         else:
-            self.on_log("Не удалось удалить запись.")
+            self.on_log("Failed to delete entry.")
 
     @Slot(list)
     def on_scan_results(self, devices: list) -> None:
@@ -1137,16 +1137,16 @@ class MainWindow(QMainWindow):
             prev_nc = self._temp_is_nc[channel]
             if prev_nc is not None and prev_nc != is_nc:
                 if is_nc:
-                    self.on_log(f"Канал {channel + 1}: NC (нет датчика)")
+                    self.on_log(f"Channel {channel + 1}: NC (no sensor)")
                 else:
-                    self.on_log(f"Канал {channel + 1}: онлайн")
+                    self.on_log(f"Channel {channel + 1}: online")
             self._temp_is_nc[channel] = is_nc
             if not is_nc:
                 text = f"{value:.2f}"
             else:
                 text = "NC"
             self.temp_fields[channel].setText(text)
-            self.data_view.append(f"Темп. {channel + 1}: {text}")
+            self.data_view.append(f"Temp {channel + 1}: {text}")
 
     @Slot(float)
     def on_fan_received(self, value: float) -> None:
@@ -1155,16 +1155,16 @@ class MainWindow(QMainWindow):
         is_nc = (not math.isfinite(value)) or value <= 0.0
         if self._fan_is_nc is not None and self._fan_is_nc != is_nc:
             if is_nc:
-                self.on_log("Вентилятор: NC (остановлен)")
+                self.on_log("Fan: NC (stopped)")
             else:
-                self.on_log("Вентилятор: онлайн")
+                self.on_log("Fan: online")
         self._fan_is_nc = is_nc
         if is_nc:
             text = "NC"
         else:
             text = f"{value:.0f}"
         self.fan_field.setText(text)
-        self.data_view.append(f"Вентилятор: {text}")
+        self.data_view.append(f"Fan: {text}")
 
     @Slot(object)
     def on_params_received(self, params: DeviceParams) -> None:
@@ -1177,17 +1177,17 @@ class MainWindow(QMainWindow):
         if self.model.state.active_action == Action.APPLY:
             QTimer.singleShot(1000, lambda: self._finish_action(Action.APPLY))
         if status.ok:
-            self.on_log("Параметры применены")
+            self.on_log("Parameters applied")
             return
         if status.status == PARAM_STATUS_BUSY:
-            self.on_log("Параметры не применены: устройство занято")
+            self.on_log("Parameters not applied: device busy")
             return
         field_label = (
-            PARAM_LABELS_BY_ID.get(status.field_id, "неизвестное поле")
+            PARAM_LABELS_BY_ID.get(status.field_id, "unknown field")
             if status.field_id is not None
-            else "неизвестное поле"
+            else "unknown field"
         )
-        self.on_log(f"Ошибка параметров: {field_label}")
+        self.on_log(f"Parameter error: {field_label}")
 
     @Slot(object)
     def on_fan_status(self, status: FanStatus) -> None:
@@ -1223,21 +1223,21 @@ class MainWindow(QMainWindow):
         if status.op_type == OP_TYPE_FAN_CALIBRATION:
             op_action = Action.CALIBRATE
         if status.state == OP_STATE_IN_SERVICE:
-            self.on_log(f"Операция запущена: {op_label}")
+            self.on_log(f"Operation started: {op_label}")
             self._operation_active = True
         elif status.state == OP_STATE_DONE:
-            self.on_log(f"Операция завершена: {op_label}")
+            self.on_log(f"Operation completed: {op_label}")
             self._operation_active = False
             if op_action:
                 self._finish_action(op_action)
                 self.worker.submit(self.worker.read_params_snapshot())
         elif status.state == OP_STATE_ERROR:
-            err_text = status.error or "неизвестная ошибка"
+            err_text = status.error or "unknown error"
             if err_text.strip().lower() == "busy":
-                self.on_log(f"Операция занята: {op_label}")
+                self.on_log(f"Operation busy: {op_label}")
                 self._operation_active = True
             else:
-                self.on_log(f"Ошибка операции {op_label}: {err_text}")
+                self.on_log(f"Operation error {op_label}: {err_text}")
                 self._operation_active = False
                 if op_action:
                     self._finish_action(op_action)
@@ -1246,7 +1246,7 @@ class MainWindow(QMainWindow):
             if op_action:
                 self._finish_action(op_action)
         else:
-            self.on_log(f"Операция {op_label}: {state_label}")
+            self.on_log(f"Operation {op_label}: {state_label}")
         self._apply_ui()
 
     @Slot()
@@ -1273,7 +1273,7 @@ class MainWindow(QMainWindow):
             self._lock_selection_to_connected()
             if self.model.state.active_action == Action.CONNECT:
                 self._finish_action(Action.CONNECT)
-            self.on_log(f"Подключено к {device.name}")
+            self.on_log(f"Connected to {device.name}")
         elif not connected:
             already_disconnected = self.model.state.conn == ConnState.DISCONNECTED
             self.model.set_connected(False, None)
@@ -1285,7 +1285,7 @@ class MainWindow(QMainWindow):
             elif self.model.state.active_action == Action.CONNECT:
                 self._finish_action(Action.CONNECT)
             if not already_disconnected:
-                self.on_log("Отключено")
+                self.on_log("Disconnected")
 
     def _reset_temp_fields(self) -> None:
         for field in self.temp_fields:
