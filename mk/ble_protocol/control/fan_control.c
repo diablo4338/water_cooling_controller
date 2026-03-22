@@ -22,12 +22,17 @@
 #define FAN_PWM_GPIO_DC 5
 #define FAN_PWM_GPIO_PWM 4
 #define FAN_PWM_FREQ_HZ 25000
+#define FAN_DC_FREQ_HZ 1000
 #define FAN_PWM_RES_BITS LEDC_TIMER_10_BIT
-#define FAN_PWM_MAX_DUTY ((1U << 10) - 1U)
+#define FAN_DC_RES_BITS LEDC_TIMER_10_BIT
 static const ledc_mode_t FAN_PWM_MODE = LEDC_LOW_SPEED_MODE;
 static const ledc_channel_t FAN_PWM_CHANNEL_ACTIVE = LEDC_CHANNEL_0;
 static const ledc_channel_t FAN_PWM_CHANNEL_OTHER = LEDC_CHANNEL_1;
 static const ledc_timer_t FAN_PWM_TIMER = LEDC_TIMER_0;
+
+static uint32_t fan_control_max_duty(ledc_timer_bit_t res_bits) {
+    return (1U << (uint32_t)res_bits) - 1U;
+}
 static operation_type_t fan_control_current_operation(void);
 static fan_state_t g_state = FAN_STATE_IDLE;
 static int64_t g_state_enter_us = 0;
@@ -92,6 +97,8 @@ static void fan_control_apply_output(uint8_t control_type, float target_percent)
     static int last_gpio = -1;
     static int last_other_gpio = -1;
     static bool pwm_ready = false;
+    static uint32_t last_freq_hz = 0;
+    static ledc_timer_bit_t last_res_bits = LEDC_TIMER_10_BIT;
 
     if (target_percent < 0.0f) target_percent = 0.0f;
     if (target_percent > 100.0f) target_percent = 100.0f;
@@ -99,16 +106,22 @@ static void fan_control_apply_output(uint8_t control_type, float target_percent)
     int gpio = (control_type == PARAM_FAN_CONTROL_PWM) ? FAN_PWM_GPIO_PWM : FAN_PWM_GPIO_DC;
     int other_gpio = (control_type == PARAM_FAN_CONTROL_PWM) ? FAN_PWM_GPIO_DC : FAN_PWM_GPIO_PWM;
     uint8_t other_type = (control_type == PARAM_FAN_CONTROL_PWM) ? PARAM_FAN_CONTROL_DC : PARAM_FAN_CONTROL_PWM;
-    if (!pwm_ready) {
+    uint32_t desired_freq_hz = (control_type == PARAM_FAN_CONTROL_PWM) ? FAN_PWM_FREQ_HZ : FAN_DC_FREQ_HZ;
+    ledc_timer_bit_t desired_res_bits = (control_type == PARAM_FAN_CONTROL_PWM) ? FAN_PWM_RES_BITS : FAN_DC_RES_BITS;
+    if (!pwm_ready || last_freq_hz != desired_freq_hz || last_res_bits != desired_res_bits) {
         ledc_timer_config_t timer = {
             .speed_mode = FAN_PWM_MODE,
-            .duty_resolution = FAN_PWM_RES_BITS,
+            .duty_resolution = desired_res_bits,
             .timer_num = FAN_PWM_TIMER,
-            .freq_hz = FAN_PWM_FREQ_HZ,
+            .freq_hz = desired_freq_hz,
             .clk_cfg = LEDC_AUTO_CLK,
         };
         if (ledc_timer_config(&timer) == ESP_OK) {
             pwm_ready = true;
+            last_freq_hz = desired_freq_hz;
+            last_res_bits = desired_res_bits;
+        } else {
+            pwm_ready = false;
         }
     }
 
@@ -138,13 +151,14 @@ static void fan_control_apply_output(uint8_t control_type, float target_percent)
     }
 
     float effective_percent = fan_control_inverted(control_type) ? (100.0f - target_percent) : target_percent;
-    uint32_t duty = (uint32_t)lroundf((effective_percent / 100.0f) * (float)FAN_PWM_MAX_DUTY);
+    uint32_t max_duty = fan_control_max_duty(last_res_bits);
+    uint32_t duty = (uint32_t)lroundf((effective_percent / 100.0f) * (float)max_duty);
     if (pwm_ready) {
         ledc_set_duty(FAN_PWM_MODE, FAN_PWM_CHANNEL_ACTIVE, duty);
         ledc_update_duty(FAN_PWM_MODE, FAN_PWM_CHANNEL_ACTIVE);
         float other_percent = 100.0f;
         float other_effective = fan_control_inverted(other_type) ? (100.0f - other_percent) : other_percent;
-        uint32_t other_duty = (uint32_t)lroundf((other_effective / 100.0f) * (float)FAN_PWM_MAX_DUTY);
+        uint32_t other_duty = (uint32_t)lroundf((other_effective / 100.0f) * (float)max_duty);
         ledc_set_duty(FAN_PWM_MODE, FAN_PWM_CHANNEL_OTHER, other_duty);
         ledc_update_duty(FAN_PWM_MODE, FAN_PWM_CHANNEL_OTHER);
     }
