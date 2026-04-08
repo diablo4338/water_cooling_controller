@@ -106,6 +106,16 @@ def pwm_set_percent(pi, percent):
     pi.set_PWM_dutycycle(PWM_GPIO, int(percent))
 
 
+def _print_cycle_average(pwm_percent, samples):
+    valid_samples = samples[3:]
+    if valid_samples:
+        avg_rpm = sum(valid_samples) / len(valid_samples)
+        print(f"{pwm_percent}% - {avg_rpm:.1f}")
+        return
+
+    print(f"{pwm_percent}% - nan")
+
+
 def main():
     pi = pigpio.pi()
     if not pi.connected:
@@ -121,7 +131,7 @@ def main():
 
     GPIO.add_event_detect(TACH_GPIO, GPIO.FALLING, callback=_tach_irq)
 
-    step_seconds = 2.0
+    step_seconds = 5.0
     step_sequence = [(pwm, GPIO.HIGH) for pwm in range(0, 101, 10)]
     step_sequence.append((100, GPIO.LOW))
     step_index = 0
@@ -131,12 +141,15 @@ def main():
 
     next_step = time.monotonic() + step_seconds
     next_print = time.monotonic() + 0.5
+    step_samples = []
 
     try:
         while True:
             now = time.monotonic()
 
             if now >= next_step:
+                _print_cycle_average(pwm_percent, step_samples)
+                step_samples = []
                 step_index = (step_index + 1) % len(step_sequence)
                 pwm_percent, aux_state = step_sequence[step_index]
                 GPIO.output(AUX_GPIO, aux_state)
@@ -145,18 +158,8 @@ def main():
 
             if now >= next_print:
                 rpm = tach_get_rpm()
-                aux_label = "HIGH" if aux_state == GPIO.HIGH else "LOW"
-                phase = "hold_low" if aux_state == GPIO.LOW else "normal"
                 if math.isfinite(rpm):
-                    print(
-                        "tach=%.1f rpm, pwm=%d%%, aux=%s, phase=%s"
-                        % (rpm, pwm_percent, aux_label, phase)
-                    )
-                else:
-                    print(
-                        "tach=nan, pwm=%d%%, aux=%s, phase=%s"
-                        % (pwm_percent, aux_label, phase)
-                    )
+                    step_samples.append(rpm)
                 next_print += 0.5
 
             time.sleep(0.005)
@@ -169,3 +172,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
