@@ -84,10 +84,6 @@ static float fan_control_regulate(const params_t *params, float temp_c, float rp
     (void)rpm;
     static bool temp_mode_running = false;
     if (!params) return 0.0f;
-    if (!params->fan_active) {
-        temp_mode_running = false;
-        return 0.0f;
-    }
 
     if (params->fan_mode == PARAM_FAN_MODE_CONTINUOUS) {
         temp_mode_running = false;
@@ -205,11 +201,16 @@ static void fan_control_apply_output(uint8_t control_type, float target_percent)
             .intr_type = GPIO_INTR_DISABLE,
         };
         if (gpio_config(&other_io) == ESP_OK) {
-            gpio_set_level(other_gpio, 1);
+            gpio_set_level(other_gpio, 0);
         }
     }
 
-    float effective_percent = fan_control_inverted(control_type) ? (100.0f - target_percent) : target_percent;
+    float effective_percent = target_percent;
+    if (control_type == PARAM_FAN_CONTROL_DC) {
+        effective_percent = 100.0f - target_percent;
+    } else if (control_type == PARAM_FAN_CONTROL_PWM && fan_control_inverted(control_type)) {
+        effective_percent = 100.0f - target_percent;
+    }
     uint32_t max_duty = fan_control_max_duty(last_res_bits);
     uint32_t duty = (uint32_t)lroundf((effective_percent / 100.0f) * (float)max_duty);
     if (pwm_ready) {
@@ -363,13 +364,27 @@ void fan_control_task(void *param) {
         float temp = metrics_get_temp(3);
         float target_percent = fan_control_regulate(&params, temp, rpm);
         bool command_on = target_percent > 0.0f;
-        bool fan_required = params.fan_active && command_on;
+        bool fan_required = command_on;
         bool rpm_ok = isfinite(rpm) && rpm >= FAN_RPM_THRESHOLD;
 
         fan_control_apply_output(params.fan_control_type, target_percent);
 
         if (!fan_required) {
             if (state != FAN_STATE_IDLE) {
+                fan_control_set_state(FAN_STATE_IDLE, now);
+                fan_control_notify_state(FAN_STATE_IDLE);
+            }
+            vTaskDelay(delay);
+            continue;
+        }
+
+        if (!params.fan_monitoring_enabled) {
+            if (rpm_ok) {
+                if (state != FAN_STATE_RUNNING) {
+                    fan_control_set_state(FAN_STATE_RUNNING, now);
+                }
+                fan_control_notify_state(FAN_STATE_RUNNING);
+            } else if (state != FAN_STATE_IDLE) {
                 fan_control_set_state(FAN_STATE_IDLE, now);
                 fan_control_notify_state(FAN_STATE_IDLE);
             }

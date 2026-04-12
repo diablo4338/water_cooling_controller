@@ -116,8 +116,8 @@ PARAM_FIELDS = [
         "choices": FAN_MODE_CHOICES,
     },
     {
-        "key": "fan_active",
-        "label": "Active",
+        "key": "fan_monitoring_enabled",
+        "label": "Monitor fan faults",
         "kind": "bool",
     },
 ]
@@ -129,7 +129,7 @@ PARAM_ERROR_MESSAGES = {
     3: "Shutdown delta must be in range 0..150 and less than start temperature",
     4: "Start temperature must be in range 0..150",
     5: "Mode must be Always on or By temperature sensor",
-    6: "Active must be on or off",
+    6: "Monitor fan faults must be on or off",
 }
 
 
@@ -838,7 +838,7 @@ class MainWindow(QMainWindow):
                 fan_off_delta=2,
                 fan_start_temp=35,
                 fan_mode=FAN_MODE_CONTINUOUS,
-                fan_active=True,
+                fan_monitoring_enabled=True,
             )
         values: dict[str, object] = {}
         for item in self.param_fields:
@@ -862,7 +862,7 @@ class MainWindow(QMainWindow):
             fan_off_delta=int(values["fan_off_delta"]),
             fan_start_temp=int(values["fan_start_temp"]),
             fan_mode=int(values["fan_mode"]),
-            fan_active=bool(values["fan_active"]),
+            fan_monitoring_enabled=bool(values["fan_monitoring_enabled"]),
         )
 
     def _on_params_changed(self, _) -> None:

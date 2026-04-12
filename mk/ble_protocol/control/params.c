@@ -23,7 +23,7 @@ static params_t g_current = {
     .fan_off_delta = 2,
     .fan_start_temp = 35,
     .fan_mode = PARAM_FAN_MODE_CONTINUOUS,
-    .fan_active = 1,
+    .fan_monitoring_enabled = 1,
 };
 static params_t g_pending;
 static uint8_t g_pending_mask = 0;
@@ -93,7 +93,7 @@ static bool params_decode_payload(const uint8_t *data, size_t len, params_t *out
     memcpy(&out->fan_off_delta, data + 11, 4);
     memcpy(&out->fan_start_temp, data + 15, 4);
     out->fan_mode = data[19];
-    out->fan_active = data[20];
+    out->fan_monitoring_enabled = data[20];
     return true;
 }
 
@@ -106,7 +106,7 @@ static void params_encode_payload(const params_t *params, uint8_t mask, uint8_t 
     memcpy(out + 11, &params->fan_off_delta, 4);
     memcpy(out + 15, &params->fan_start_temp, 4);
     out[19] = params->fan_mode;
-    out[20] = params->fan_active;
+    out[20] = params->fan_monitoring_enabled;
 }
 
 static void set_last_status_locked(uint8_t status, uint8_t field) {
@@ -127,7 +127,7 @@ void params_init(void) {
         g_current.fan_off_delta = 2;
         g_current.fan_start_temp = 35;
         g_current.fan_mode = PARAM_FAN_MODE_CONTINUOUS;
-        g_current.fan_active = 1;
+        g_current.fan_monitoring_enabled = 1;
     }
     g_pending_valid = false;
     g_pending_mask = 0;
@@ -238,8 +238,8 @@ static bool params_validate(const params_t *params, uint8_t *field) {
         if (field) *field = PARAM_FIELD_FAN_MODE;
         return false;
     }
-    if (params->fan_active > 1) {
-        if (field) *field = PARAM_FIELD_FAN_ACTIVE;
+    if (params->fan_monitoring_enabled > 1) {
+        if (field) *field = PARAM_FIELD_FAN_MONITORING_ENABLED;
         return false;
     }
     return true;
@@ -266,7 +266,7 @@ uint8_t params_apply(uint8_t *field_id) {
         if (mask & PARAM_MASK_FAN_OFF_DELTA) candidate.fan_off_delta = pending.fan_off_delta;
         if (mask & PARAM_MASK_FAN_START_TEMP) candidate.fan_start_temp = pending.fan_start_temp;
         if (mask & PARAM_MASK_FAN_MODE) candidate.fan_mode = pending.fan_mode;
-        if (mask & PARAM_MASK_FAN_ACTIVE) candidate.fan_active = pending.fan_active;
+        if (mask & PARAM_MASK_FAN_MONITORING_ENABLED) candidate.fan_monitoring_enabled = pending.fan_monitoring_enabled;
     }
 
     uint8_t field = PARAM_FIELD_NONE;

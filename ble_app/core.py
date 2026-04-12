@@ -156,7 +156,7 @@ PARAM_FIELD_NAMES = {
     3: "fan_off_delta",
     4: "fan_start_temp",
     5: "fan_mode",
-    6: "fan_active",
+    6: "fan_monitoring_enabled",
 }
 FAN_CONTROL_DC = 0
 FAN_CONTROL_PWM = 1
@@ -323,7 +323,7 @@ class DeviceParams:
     fan_off_delta: int
     fan_start_temp: int
     fan_mode: int
-    fan_active: bool
+    fan_monitoring_enabled: bool
 
 
 @dataclass(frozen=True)
@@ -355,7 +355,7 @@ DEFAULT_PARAMS = DeviceParams(
     fan_off_delta=2,
     fan_start_temp=35,
     fan_mode=FAN_MODE_CONTINUOUS,
-    fan_active=True,
+    fan_monitoring_enabled=True,
 )
 
 
@@ -368,7 +368,9 @@ def _params_from_dict(raw: dict) -> Optional[DeviceParams]:
             fan_off_delta=int(raw.get("fan_off_delta", DEFAULT_PARAMS.fan_off_delta)),
             fan_start_temp=int(raw.get("fan_start_temp", DEFAULT_PARAMS.fan_start_temp)),
             fan_mode=int(raw.get("fan_mode", DEFAULT_PARAMS.fan_mode)),
-            fan_active=bool(raw.get("fan_active", DEFAULT_PARAMS.fan_active)),
+            fan_monitoring_enabled=bool(
+                raw.get("fan_monitoring_enabled", DEFAULT_PARAMS.fan_monitoring_enabled)
+            ),
         )
     except (TypeError, ValueError):
         return None
@@ -383,7 +385,7 @@ def _params_to_dict(params: DeviceParams) -> dict:
         "fan_off_delta": params.fan_off_delta,
         "fan_start_temp": params.fan_start_temp,
         "fan_mode": params.fan_mode,
-        "fan_active": params.fan_active,
+        "fan_monitoring_enabled": params.fan_monitoring_enabled,
     }
 
 
@@ -457,14 +459,14 @@ def encode_params(params: DeviceParams, mask: int = 0x7F) -> bytes:
         params.fan_off_delta,
         params.fan_start_temp,
         params.fan_mode,
-        1 if params.fan_active else 0,
+        1 if params.fan_monitoring_enabled else 0,
     )
 
 
 def decode_params(data: bytes) -> DeviceParams:
     if len(data) != 21:
         raise RuntimeError(f"Bad params len={len(data)}")
-    version, mask, fan_min_speed, fan_control_type, fan_max_temp, fan_off_delta, fan_start_temp, fan_mode, fan_active = struct.unpack(
+    version, mask, fan_min_speed, fan_control_type, fan_max_temp, fan_off_delta, fan_start_temp, fan_mode, fan_monitoring_enabled = struct.unpack(
         "<BBiBiiiBB", data
     )
     if version != PARAMS_VERSION:
@@ -477,7 +479,7 @@ def decode_params(data: bytes) -> DeviceParams:
         fan_off_delta=int(fan_off_delta),
         fan_start_temp=int(fan_start_temp),
         fan_mode=int(fan_mode),
-        fan_active=bool(fan_active),
+        fan_monitoring_enabled=bool(fan_monitoring_enabled),
     )
 
 

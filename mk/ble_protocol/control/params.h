@@ -23,7 +23,7 @@ extern "C" {
 #define PARAM_FIELD_FAN_OFF_DELTA 3
 #define PARAM_FIELD_FAN_START_TEMP 4
 #define PARAM_FIELD_FAN_MODE 5
-#define PARAM_FIELD_FAN_ACTIVE 6
+#define PARAM_FIELD_FAN_MONITORING_ENABLED 6
 #define PARAM_FIELD_NONE 0xFF
 
 #define PARAM_MASK_FAN_MIN_SPEED (1u << 0)
@@ -32,10 +32,10 @@ extern "C" {
 #define PARAM_MASK_FAN_OFF_DELTA (1u << 3)
 #define PARAM_MASK_FAN_START_TEMP (1u << 4)
 #define PARAM_MASK_FAN_MODE (1u << 5)
-#define PARAM_MASK_FAN_ACTIVE (1u << 6)
+#define PARAM_MASK_FAN_MONITORING_ENABLED (1u << 6)
 #define PARAM_MASK_ALL (PARAM_MASK_FAN_MIN_SPEED | PARAM_MASK_FAN_CONTROL_TYPE | PARAM_MASK_FAN_MAX_TEMP | \
                         PARAM_MASK_FAN_OFF_DELTA | PARAM_MASK_FAN_START_TEMP | PARAM_MASK_FAN_MODE | \
-                        PARAM_MASK_FAN_ACTIVE)
+                        PARAM_MASK_FAN_MONITORING_ENABLED)
 
 #define PARAM_FAN_CONTROL_DC 0
 #define PARAM_FAN_CONTROL_PWM 1
@@ -49,7 +49,7 @@ typedef struct {
     int32_t fan_off_delta;
     int32_t fan_start_temp;
     uint8_t fan_mode;
-    uint8_t fan_active;
+    uint8_t fan_monitoring_enabled;
 } params_t;
 
 void params_init(void);
