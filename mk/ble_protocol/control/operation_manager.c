@@ -17,14 +17,16 @@
 #include "state.h"
 
 #define OP_CALIB_BASELINE_WAIT_US (4 * 1000000LL)
+#define OP_CALIB_STOP_WAIT_US (6 * 1000000LL)
 #define OP_CALIB_STEP_WAIT_US (2 * 1000000LL)
 #define OP_CALIB_STEP_DELTA 5
 #define OP_CALIB_RPM_DELTA 50.0f
-#define OP_CALIB_MIN_SPEED 30
+#define OP_CALIB_START_SPEED 10
 #define OP_CALIB_MAX_SPEED 70
 
 typedef enum {
     CALIB_PHASE_IDLE = 0,
+    CALIB_PHASE_STOP_WAIT,
     CALIB_PHASE_WAIT_BASELINE,
     CALIB_PHASE_RAMP,
 } calib_phase_t;
@@ -69,8 +71,8 @@ static float op_calib_read_rpm(void) {
 }
 
 static bool op_calib_apply_target(uint8_t target, const char **err_text) {
-    if (target < OP_CALIB_MIN_SPEED) {
-        target = OP_CALIB_MIN_SPEED;
+    if (target < OP_CALIB_START_SPEED) {
+        target = OP_CALIB_START_SPEED;
     }
     if (target > OP_CALIB_MAX_SPEED) {
         target = OP_CALIB_MAX_SPEED;
@@ -85,16 +87,30 @@ static bool op_calib_apply_target(uint8_t target, const char **err_text) {
 }
 
 static bool op_calibration_start(const char **err_text) {
-    if (!op_calib_apply_target(OP_CALIB_MIN_SPEED, err_text)) {
+    if (!fan_control_override_set(OP_TYPE_FAN_CALIBRATION, 0.0f)) {
+        if (err_text) *err_text = "fan busy";
         return false;
     }
-    g_calib_phase = CALIB_PHASE_WAIT_BASELINE;
+    g_calib_target = 0;
+    g_calib_phase = CALIB_PHASE_STOP_WAIT;
     g_calib_baseline_rpm = 0.0f;
-    g_calib_next_check_us = esp_timer_get_time() + OP_CALIB_BASELINE_WAIT_US;
+    g_calib_next_check_us = esp_timer_get_time() + OP_CALIB_STOP_WAIT_US;
     return true;
 }
 
 static op_step_result_t op_calibration_step(int64_t now_us, const char **err_text) {
+    if (g_calib_phase == CALIB_PHASE_STOP_WAIT) {
+        if (now_us < g_calib_next_check_us) {
+            return OP_STEP_CONTINUE;
+        }
+        if (!op_calib_apply_target(OP_CALIB_START_SPEED, err_text)) {
+            return OP_STEP_ERROR;
+        }
+        g_calib_phase = CALIB_PHASE_WAIT_BASELINE;
+        g_calib_baseline_rpm = 0.0f;
+        g_calib_next_check_us = esp_timer_get_time() + OP_CALIB_BASELINE_WAIT_US;
+        return OP_STEP_CONTINUE;
+    }
     if (g_calib_phase == CALIB_PHASE_WAIT_BASELINE) {
         if (now_us < g_calib_next_check_us) {
             return OP_STEP_CONTINUE;

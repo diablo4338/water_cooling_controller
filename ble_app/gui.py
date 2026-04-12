@@ -11,6 +11,8 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
+    QFrame,
+    QGroupBox,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -81,12 +83,14 @@ PARAM_FIELDS = [
         "kind": "int",
         "min": -1000000,
         "max": 1000000,
+        "group": "fan",
     },
     {
         "key": "fan_control_type",
         "label": "Control type",
         "kind": "enum",
         "choices": FAN_CONTROL_CHOICES,
+        "group": "fan",
     },
     {
         "key": "fan_max_temp",
@@ -94,6 +98,7 @@ PARAM_FIELDS = [
         "kind": "int",
         "min": -1000000,
         "max": 1000000,
+        "group": "control",
     },
     {
         "key": "fan_off_delta",
@@ -101,6 +106,7 @@ PARAM_FIELDS = [
         "kind": "int",
         "min": -1000000,
         "max": 1000000,
+        "group": "control",
     },
     {
         "key": "fan_start_temp",
@@ -108,17 +114,20 @@ PARAM_FIELDS = [
         "kind": "int",
         "min": -1000000,
         "max": 1000000,
+        "group": "control",
     },
     {
         "key": "fan_mode",
         "label": "Mode",
         "kind": "enum",
         "choices": FAN_MODE_CHOICES,
+        "group": "control",
     },
     {
         "key": "fan_monitoring_enabled",
         "label": "Monitor fan faults",
         "kind": "bool",
+        "group": "fan",
     },
 ]
 PARAM_LABELS_BY_ID = {idx: spec["label"] for idx, spec in enumerate(PARAM_FIELDS)}
@@ -599,6 +608,7 @@ class MainWindow(QMainWindow):
         self.fan_field: Optional[QLineEdit] = None
         self._fan_is_nc: Optional[bool] = None
         self.fan_status_field: Optional[QLineEdit] = None
+        self.fan_status_indicator: Optional[QFrame] = None
         self._operation_active = False
         self.param_fields: list[dict] = []
         self._params_update_lock = False
@@ -687,46 +697,58 @@ class MainWindow(QMainWindow):
     def _build_params_layout(self) -> QWidget:
         wrapper = QWidget()
         layout = QVBoxLayout()
-        grid = QGridLayout()
         self.param_fields.clear()
+        groups = [
+            ("control", "Control"),
+            ("fan", "Fan"),
+        ]
 
-        for idx, spec in enumerate(PARAM_FIELDS):
-            grid.addWidget(QLabel(spec["label"]), idx, 0)
-            kind = spec["kind"]
-            if kind == "float":
-                field = QDoubleSpinBox()
-                field.setRange(-1_000_000.0, 1_000_000.0)
-                field.setDecimals(2)
-                field.setSingleStep(0.5)
-                field.setAlignment(Qt.AlignmentFlag.AlignRight)
-                field.setKeyboardTracking(False)
-                field.valueChanged.connect(self._on_params_changed)
-                field.setValue(spec.get("min", 0.0))
-            elif kind == "int":
-                field = QSpinBox()
-                min_val = spec.get("min", -1_000_000)
-                max_val = spec.get("max", 1_000_000)
-                field.setRange(min_val, max_val)
-                field.setSingleStep(1)
-                field.setAlignment(Qt.AlignmentFlag.AlignRight)
-                field.setKeyboardTracking(False)
-                field.valueChanged.connect(self._on_params_changed)
-                field.setValue(min_val)
-            elif kind == "enum":
-                field = QComboBox()
-                for value, label in spec.get("choices", []):
-                    field.addItem(label, value)
-                field.currentIndexChanged.connect(self._on_params_changed)
-                field.setCurrentIndex(0)
-            elif kind == "bool":
-                field = QCheckBox()
-                field.stateChanged.connect(self._on_params_changed)
-                field.setChecked(False)
-            else:
-                continue
-            field.setEnabled(False)
-            grid.addWidget(field, idx, 1)
-            self.param_fields.append({"spec": spec, "widget": field})
+        for group_key, group_title in groups:
+            box = QGroupBox(group_title)
+            grid = QGridLayout()
+            row = 0
+            for spec in PARAM_FIELDS:
+                if spec.get("group") != group_key:
+                    continue
+                grid.addWidget(QLabel(spec["label"]), row, 0)
+                kind = spec["kind"]
+                if kind == "float":
+                    field = QDoubleSpinBox()
+                    field.setRange(-1_000_000.0, 1_000_000.0)
+                    field.setDecimals(2)
+                    field.setSingleStep(0.5)
+                    field.setAlignment(Qt.AlignmentFlag.AlignRight)
+                    field.setKeyboardTracking(False)
+                    field.valueChanged.connect(self._on_params_changed)
+                    field.setValue(spec.get("min", 0.0))
+                elif kind == "int":
+                    field = QSpinBox()
+                    min_val = spec.get("min", -1_000_000)
+                    max_val = spec.get("max", 1_000_000)
+                    field.setRange(min_val, max_val)
+                    field.setSingleStep(1)
+                    field.setAlignment(Qt.AlignmentFlag.AlignRight)
+                    field.setKeyboardTracking(False)
+                    field.valueChanged.connect(self._on_params_changed)
+                    field.setValue(min_val)
+                elif kind == "enum":
+                    field = QComboBox()
+                    for value, label in spec.get("choices", []):
+                        field.addItem(label, value)
+                    field.currentIndexChanged.connect(self._on_params_changed)
+                    field.setCurrentIndex(0)
+                elif kind == "bool":
+                    field = QCheckBox()
+                    field.stateChanged.connect(self._on_params_changed)
+                    field.setChecked(False)
+                else:
+                    continue
+                field.setEnabled(False)
+                grid.addWidget(field, row, 1)
+                self.param_fields.append({"spec": spec, "widget": field})
+                row += 1
+            box.setLayout(grid)
+            layout.addWidget(box)
 
         button_row = QHBoxLayout()
         button_row.addStretch(1)
@@ -780,9 +802,21 @@ class MainWindow(QMainWindow):
         grid.addWidget(status_label, 1, 0)
         grid.addWidget(status_field, 1, 1)
         self.fan_status_field = status_field
-        grid.addWidget(self.calibrate_button, 2, 0, 1, 2)
+        indicator = QFrame()
+        indicator.setFixedSize(16, 16)
+        indicator.setStyleSheet("background:#6b7280; border:1px solid #111827;")
+        grid.addWidget(indicator, 1, 2)
+        self.fan_status_indicator = indicator
+        grid.addWidget(self.calibrate_button, 2, 0, 1, 3)
         self._fan_is_nc = None
         return grid
+
+    def _set_fan_status_indicator(self, color: str) -> None:
+        if self.fan_status_indicator is None:
+            return
+        self.fan_status_indicator.setStyleSheet(
+            f"background:{color}; border:1px solid #111827;"
+        )
 
     def _reset_params_fields(self) -> None:
         if not self.param_fields:
@@ -1238,26 +1272,32 @@ class MainWindow(QMainWindow):
             return
         if status.state == FAN_STATE_IDLE:
             self.fan_status_field.setText("IDLE")
+            self._set_fan_status_indicator("#22c55e")
         elif status.state == FAN_STATE_STARTING:
             self.fan_status_field.setText("STARTING")
+            self._set_fan_status_indicator("#eab308")
         elif status.state == FAN_STATE_RUNNING:
             self.fan_status_field.setText("RUNNING")
+            self._set_fan_status_indicator("#eab308")
         elif status.state == FAN_STATE_STALL:
             self.fan_status_field.setText("STALL")
+            self._set_fan_status_indicator("#ef4444")
         elif status.state == FAN_STATE_IN_SERVICE:
             if status.op_type != OP_TYPE_NONE:
                 self.fan_status_field.setText(f"IN_SERVICE ({status.op_label})")
             else:
                 self.fan_status_field.setText("IN_SERVICE")
+            self._set_fan_status_indicator("#3b82f6")
         self._apply_ui()
 
     @Slot(object)
     def on_operation_status(self, status: OperationStatus) -> None:
         op_label = OP_TYPE_NAMES.get(status.op_type, f"OP{status.op_type}")
         state_label = OP_STATE_NAMES.get(status.state, "UNKNOWN")
+        is_noop_idle = status.op_type == OP_TYPE_NONE and status.state == OP_STATE_IDLE
         if status.state == OP_STATE_IN_SERVICE and not self._operation_active:
             self._clear_op_log()
-        if self.op_log_view is not None:
+        if self.op_log_view is not None and not is_noop_idle:
             if status.error:
                 self.op_log_view.append(f"{op_label}: {status.error}")
             else:
@@ -1340,6 +1380,7 @@ class MainWindow(QMainWindow):
         self._fan_is_nc = None
         if self.fan_status_field is not None:
             self.fan_status_field.setText("—")
+        self._set_fan_status_indicator("#6b7280")
         self._operation_active = False
 
     def _select_paired_device(self, device: DeviceInfo) -> None:
