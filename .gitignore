@@ -7,3 +7,6 @@ mk/cmake-build-debug
 host_key.pem
 paired_devices.json
 params.json
+build
+dist
+MyApp.spec

@@ -755,7 +755,6 @@ class MainWindow(QMainWindow):
         button_row.addWidget(self.apply_button)
         button_row.addWidget(self.discard_button)
 
-        layout.addLayout(grid)
         layout.addLayout(button_row)
         wrapper.setLayout(layout)
         return wrapper

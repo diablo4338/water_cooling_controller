@@ -18,6 +18,7 @@ from cryptography.hazmat.primitives.serialization import (
     PublicFormat,
     load_pem_private_key,
 )
+from platformdirs import user_config_dir
 
 from .config import BleConfig, DEFAULT_CONFIG
 
@@ -140,9 +141,19 @@ UUID_OP_STATUS = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e22"
 
 TEMP_CHAR_UUIDS = [UUID_TEMP0_VALUE, UUID_TEMP1_VALUE, UUID_TEMP2_VALUE, UUID_TEMP3_VALUE]
 
-PAIRED_DB = "paired_devices.json"
-HOST_KEY_PATH = "host_key.pem"
-PARAMS_DB = "params.json"
+APP_NAME = "BLECoolingController"
+
+
+def _ensure_app_config_dir() -> str:
+    path = user_config_dir(APP_NAME, ensure_exists=True)
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+APP_CONFIG_DIR = _ensure_app_config_dir()
+PAIRED_DB = os.path.join(APP_CONFIG_DIR, "paired_devices.json")
+HOST_KEY_PATH = os.path.join(APP_CONFIG_DIR, "host_key.pem")
+PARAMS_DB = os.path.join(APP_CONFIG_DIR, "params.json")
 
 PARAMS_VERSION = 4
 PARAM_STATUS_OK = 0
