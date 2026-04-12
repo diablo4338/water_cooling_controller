@@ -50,7 +50,10 @@ from .core import (
     UUID_CONFIG_STATUS,
     FAN_CONTROL_DC,
     FAN_CONTROL_PWM,
+    FAN_MODE_CONTINUOUS,
+    FAN_MODE_TEMP_SENSOR,
     FAN_CONTROL_TYPE_NAMES,
+    FAN_MODE_NAMES,
     add_or_update_paired,
     load_paired_records,
     load_device_params,
@@ -67,17 +70,17 @@ FAN_CONTROL_CHOICES = [
     (FAN_CONTROL_DC, FAN_CONTROL_TYPE_NAMES[FAN_CONTROL_DC]),
     (FAN_CONTROL_PWM, FAN_CONTROL_TYPE_NAMES[FAN_CONTROL_PWM]),
 ]
+FAN_MODE_CHOICES = [
+    (FAN_MODE_CONTINUOUS, FAN_MODE_NAMES[FAN_MODE_CONTINUOUS]),
+    (FAN_MODE_TEMP_SENSOR, FAN_MODE_NAMES[FAN_MODE_TEMP_SENSOR]),
+]
 PARAM_FIELDS = [
-    {"key": "target_temp_c", "label": "Target temperature, °C", "kind": "float"},
-    {"key": "fan_min_rpm", "label": "Min fan RPM", "kind": "float"},
-    {"key": "alarm_delta_c", "label": "Alarm delta, °C", "kind": "float"},
     {
         "key": "fan_min_speed",
         "label": "Min fan speed, %",
         "kind": "int",
-        "min": 0,
-        "max": 120,
-        "unset": -1,
+        "min": -1000000,
+        "max": 1000000,
     },
     {
         "key": "fan_control_type",
@@ -85,8 +88,49 @@ PARAM_FIELDS = [
         "kind": "enum",
         "choices": FAN_CONTROL_CHOICES,
     },
+    {
+        "key": "fan_max_temp",
+        "label": "Max temperature, °C",
+        "kind": "int",
+        "min": -1000000,
+        "max": 1000000,
+    },
+    {
+        "key": "fan_off_delta",
+        "label": "Shutdown delta, °C",
+        "kind": "int",
+        "min": -1000000,
+        "max": 1000000,
+    },
+    {
+        "key": "fan_start_temp",
+        "label": "Start temperature, °C",
+        "kind": "int",
+        "min": -1000000,
+        "max": 1000000,
+    },
+    {
+        "key": "fan_mode",
+        "label": "Mode",
+        "kind": "enum",
+        "choices": FAN_MODE_CHOICES,
+    },
+    {
+        "key": "fan_active",
+        "label": "Active",
+        "kind": "bool",
+    },
 ]
 PARAM_LABELS_BY_ID = {idx: spec["label"] for idx, spec in enumerate(PARAM_FIELDS)}
+PARAM_ERROR_MESSAGES = {
+    0: "Min fan speed must be between 10 and 100",
+    1: "Control type must be DC or PWM",
+    2: "Max temperature must be in range 0..150 and greater than start temperature",
+    3: "Shutdown delta must be in range 0..150 and less than start temperature",
+    4: "Start temperature must be in range 0..150",
+    5: "Mode must be Always on or By temperature sensor",
+    6: "Active must be on or off",
+}
 
 
 class BleWorker(QThread):
@@ -652,32 +696,32 @@ class MainWindow(QMainWindow):
             if kind == "float":
                 field = QDoubleSpinBox()
                 field.setRange(-1_000_000.0, 1_000_000.0)
-                field.setSpecialValueText("—")
                 field.setDecimals(2)
                 field.setSingleStep(0.5)
                 field.setAlignment(Qt.AlignmentFlag.AlignRight)
                 field.setKeyboardTracking(False)
                 field.valueChanged.connect(self._on_params_changed)
-                field.setValue(field.minimum())
+                field.setValue(spec.get("min", 0.0))
             elif kind == "int":
                 field = QSpinBox()
                 min_val = spec.get("min", -1_000_000)
                 max_val = spec.get("max", 1_000_000)
-                unset_val = spec.get("unset", min_val)
-                field.setRange(unset_val, max_val)
+                field.setRange(min_val, max_val)
                 field.setSingleStep(1)
-                field.setSpecialValueText("—")
                 field.setAlignment(Qt.AlignmentFlag.AlignRight)
                 field.setKeyboardTracking(False)
                 field.valueChanged.connect(self._on_params_changed)
-                field.setValue(unset_val)
+                field.setValue(min_val)
             elif kind == "enum":
                 field = QComboBox()
-                field.addItem("—", None)
                 for value, label in spec.get("choices", []):
                     field.addItem(label, value)
                 field.currentIndexChanged.connect(self._on_params_changed)
                 field.setCurrentIndex(0)
+            elif kind == "bool":
+                field = QCheckBox()
+                field.stateChanged.connect(self._on_params_changed)
+                field.setChecked(False)
             else:
                 continue
             field.setEnabled(False)
@@ -750,6 +794,8 @@ class MainWindow(QMainWindow):
                 widget = item["widget"]
                 if spec["kind"] == "enum":
                     widget.setCurrentIndex(0)
+                elif spec["kind"] == "bool":
+                    widget.setChecked(False)
                 else:
                     widget.setValue(widget.minimum())
                 widget.setEnabled(False)
@@ -768,6 +814,8 @@ class MainWindow(QMainWindow):
                 if spec["kind"] == "enum":
                     idx = widget.findData(int(value))
                     widget.setCurrentIndex(idx if idx >= 0 else 0)
+                elif spec["kind"] == "bool":
+                    widget.setChecked(bool(value))
                 else:
                     widget.setValue(value)
                 widget.setEnabled(True)
@@ -784,11 +832,13 @@ class MainWindow(QMainWindow):
             if device:
                 return load_device_params(device.address)
             return DeviceParams(
-                target_temp_c=0.0,
-                fan_min_rpm=0.0,
-                alarm_delta_c=0.0,
-                fan_min_speed=0,
+                fan_min_speed=10,
                 fan_control_type=FAN_CONTROL_DC,
+                fan_max_temp=45,
+                fan_off_delta=2,
+                fan_start_temp=35,
+                fan_mode=FAN_MODE_CONTINUOUS,
+                fan_active=True,
             )
         values: dict[str, object] = {}
         for item in self.param_fields:
@@ -797,20 +847,22 @@ class MainWindow(QMainWindow):
             kind = spec["kind"]
             if kind == "enum":
                 data = widget.currentData()
-                value = int(data) if data is not None else FAN_CONTROL_DC
+                value = int(data)
+            elif kind == "bool":
+                value = widget.isChecked()
             else:
                 value = widget.value()
                 if kind == "int":
                     value = int(value)
-                    if value < 0:
-                        value = 0
             values[spec["key"]] = value
         return DeviceParams(
-            target_temp_c=float(values["target_temp_c"]),
-            fan_min_rpm=float(values["fan_min_rpm"]),
-            alarm_delta_c=float(values["alarm_delta_c"]),
             fan_min_speed=int(values["fan_min_speed"]),
             fan_control_type=int(values["fan_control_type"]),
+            fan_max_temp=int(values["fan_max_temp"]),
+            fan_off_delta=int(values["fan_off_delta"]),
+            fan_start_temp=int(values["fan_start_temp"]),
+            fan_mode=int(values["fan_mode"]),
+            fan_active=bool(values["fan_active"]),
         )
 
     def _on_params_changed(self, _) -> None:
@@ -992,12 +1044,6 @@ class MainWindow(QMainWindow):
         fut = self._action_futures.get(action)
         if fut and not fut.done():
             fut.cancel()
-        if action == Action.CALIBRATE:
-            status_fut = self.worker.submit(self.worker.read_operation_status())
-            if status_fut is None:
-                self.on_log("Failed to request OP status (worker not ready).")
-            else:
-                self.on_log("OP status requested after send timeout.")
         self.on_log(f"Operation '{action.name}' exceeded send timeout.")
         self._finish_action(action)
 
@@ -1040,7 +1086,7 @@ class MainWindow(QMainWindow):
             self._start_action(
                 Action.CALIBRATE,
                 self.worker.start_fan_calibration(),
-                timeout_override=10.0,
+                use_timeout=False,
             )
         elif command.action == Action.DELETE_PAIRED:
             self._delete_selected_paired()
@@ -1182,12 +1228,9 @@ class MainWindow(QMainWindow):
         if status.status == PARAM_STATUS_BUSY:
             self.on_log("Parameters not applied: device busy")
             return
-        field_label = (
-            PARAM_LABELS_BY_ID.get(status.field_id, "unknown field")
-            if status.field_id is not None
-            else "unknown field"
-        )
-        self.on_log(f"Parameter error: {field_label}")
+        field_label = PARAM_LABELS_BY_ID.get(status.field_id, "unknown field") if status.field_id is not None else "unknown field"
+        detail = PARAM_ERROR_MESSAGES.get(status.field_id, field_label)
+        self.on_log(f"Parameter error: {detail}")
 
     @Slot(object)
     def on_fan_status(self, status: FanStatus) -> None:
@@ -1223,7 +1266,8 @@ class MainWindow(QMainWindow):
         if status.op_type == OP_TYPE_FAN_CALIBRATION:
             op_action = Action.CALIBRATE
         if status.state == OP_STATE_IN_SERVICE:
-            self.on_log(f"Operation started: {op_label}")
+            if not self._operation_active:
+                self.on_log(f"Operation started: {op_label}")
             self._operation_active = True
         elif status.state == OP_STATE_DONE:
             self.on_log(f"Operation completed: {op_label}")

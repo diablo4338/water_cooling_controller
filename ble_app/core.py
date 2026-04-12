@@ -57,7 +57,10 @@ __all__ = [
     "PARAM_FIELD_NAMES",
     "FAN_CONTROL_DC",
     "FAN_CONTROL_PWM",
+    "FAN_MODE_CONTINUOUS",
+    "FAN_MODE_TEMP_SENSOR",
     "FAN_CONTROL_TYPE_NAMES",
+    "FAN_MODE_NAMES",
     "FAN_STATUS_VERSION",
     "FAN_STATE_IDLE",
     "FAN_STATE_STARTING",
@@ -141,23 +144,31 @@ PAIRED_DB = "paired_devices.json"
 HOST_KEY_PATH = "host_key.pem"
 PARAMS_DB = "params.json"
 
-PARAMS_VERSION = 2
+PARAMS_VERSION = 4
 PARAM_STATUS_OK = 0
 PARAM_STATUS_INVALID = 1
 PARAM_STATUS_BUSY = 2
 PARAM_FIELD_NONE = 0xFF
 PARAM_FIELD_NAMES = {
-    0: "target_temp_c",
-    1: "fan_min_rpm",
-    2: "alarm_delta_c",
-    3: "fan_min_speed",
-    4: "fan_control_type",
+    0: "fan_min_speed",
+    1: "fan_control_type",
+    2: "fan_max_temp",
+    3: "fan_off_delta",
+    4: "fan_start_temp",
+    5: "fan_mode",
+    6: "fan_active",
 }
 FAN_CONTROL_DC = 0
 FAN_CONTROL_PWM = 1
+FAN_MODE_CONTINUOUS = 0
+FAN_MODE_TEMP_SENSOR = 1
 FAN_CONTROL_TYPE_NAMES = {
     FAN_CONTROL_DC: "DC",
     FAN_CONTROL_PWM: "PWM",
+}
+FAN_MODE_NAMES = {
+    FAN_MODE_CONTINUOUS: "Always on",
+    FAN_MODE_TEMP_SENSOR: "By temperature sensor",
 }
 FAN_STATUS_VERSION = 1
 FAN_STATE_IDLE = 0
@@ -306,11 +317,13 @@ def add_or_update_paired(device: "DeviceInfo", k_hex: str) -> None:
 
 @dataclass(frozen=True)
 class DeviceParams:
-    target_temp_c: float
-    fan_min_rpm: float
-    alarm_delta_c: float
     fan_min_speed: int
     fan_control_type: int
+    fan_max_temp: int
+    fan_off_delta: int
+    fan_start_temp: int
+    fan_mode: int
+    fan_active: bool
 
 
 @dataclass(frozen=True)
@@ -336,22 +349,26 @@ class OperationStatus:
 
 
 DEFAULT_PARAMS = DeviceParams(
-    target_temp_c=25.0,
-    fan_min_rpm=1200.0,
-    alarm_delta_c=5.0,
-    fan_min_speed=0,
+    fan_min_speed=10,
     fan_control_type=FAN_CONTROL_DC,
+    fan_max_temp=45,
+    fan_off_delta=2,
+    fan_start_temp=35,
+    fan_mode=FAN_MODE_CONTINUOUS,
+    fan_active=True,
 )
 
 
 def _params_from_dict(raw: dict) -> Optional[DeviceParams]:
     try:
         return DeviceParams(
-            target_temp_c=float(raw.get("target_temp_c", DEFAULT_PARAMS.target_temp_c)),
-            fan_min_rpm=float(raw.get("fan_min_rpm", DEFAULT_PARAMS.fan_min_rpm)),
-            alarm_delta_c=float(raw.get("alarm_delta_c", DEFAULT_PARAMS.alarm_delta_c)),
             fan_min_speed=int(raw.get("fan_min_speed", DEFAULT_PARAMS.fan_min_speed)),
             fan_control_type=int(raw.get("fan_control_type", DEFAULT_PARAMS.fan_control_type)),
+            fan_max_temp=int(raw.get("fan_max_temp", DEFAULT_PARAMS.fan_max_temp)),
+            fan_off_delta=int(raw.get("fan_off_delta", DEFAULT_PARAMS.fan_off_delta)),
+            fan_start_temp=int(raw.get("fan_start_temp", DEFAULT_PARAMS.fan_start_temp)),
+            fan_mode=int(raw.get("fan_mode", DEFAULT_PARAMS.fan_mode)),
+            fan_active=bool(raw.get("fan_active", DEFAULT_PARAMS.fan_active)),
         )
     except (TypeError, ValueError):
         return None
@@ -360,11 +377,13 @@ def _params_from_dict(raw: dict) -> Optional[DeviceParams]:
 def _params_to_dict(params: DeviceParams) -> dict:
     return {
         "version": PARAMS_VERSION,
-        "target_temp_c": params.target_temp_c,
-        "fan_min_rpm": params.fan_min_rpm,
-        "alarm_delta_c": params.alarm_delta_c,
         "fan_min_speed": params.fan_min_speed,
         "fan_control_type": params.fan_control_type,
+        "fan_max_temp": params.fan_max_temp,
+        "fan_off_delta": params.fan_off_delta,
+        "fan_start_temp": params.fan_start_temp,
+        "fan_mode": params.fan_mode,
+        "fan_active": params.fan_active,
     }
 
 
@@ -427,34 +446,38 @@ def save_params(params: DeviceParams) -> None:
     _save_params_db(raw)
 
 
-def encode_params(params: DeviceParams, mask: int = 0x1F) -> bytes:
+def encode_params(params: DeviceParams, mask: int = 0x7F) -> bytes:
     return struct.pack(
-        "<BBfffIB",
+        "<BBiBiiiBB",
         PARAMS_VERSION,
-        mask & 0x1F,
-        params.target_temp_c,
-        params.fan_min_rpm,
-        params.alarm_delta_c,
+        mask & 0x7F,
         params.fan_min_speed,
         params.fan_control_type,
+        params.fan_max_temp,
+        params.fan_off_delta,
+        params.fan_start_temp,
+        params.fan_mode,
+        1 if params.fan_active else 0,
     )
 
 
 def decode_params(data: bytes) -> DeviceParams:
-    if len(data) != 19:
+    if len(data) != 21:
         raise RuntimeError(f"Bad params len={len(data)}")
-    version, mask, t_c, fan_rpm, alarm_delta, fan_min_speed, fan_control_type = struct.unpack(
-        "<BBfffIB", data
+    version, mask, fan_min_speed, fan_control_type, fan_max_temp, fan_off_delta, fan_start_temp, fan_mode, fan_active = struct.unpack(
+        "<BBiBiiiBB", data
     )
     if version != PARAMS_VERSION:
         raise RuntimeError(f"Unsupported params version={version}")
     _ = mask
     return DeviceParams(
-        target_temp_c=t_c,
-        fan_min_rpm=fan_rpm,
-        alarm_delta_c=alarm_delta,
         fan_min_speed=int(fan_min_speed),
         fan_control_type=int(fan_control_type),
+        fan_max_temp=int(fan_max_temp),
+        fan_off_delta=int(fan_off_delta),
+        fan_start_temp=int(fan_start_temp),
+        fan_mode=int(fan_mode),
+        fan_active=bool(fan_active),
     )
 
 
@@ -757,7 +780,7 @@ class BleAppCore:
         return decode_operation_status(bytes(data))
 
     async def write_params(
-        self, params: DeviceParams, timeout: Optional[float] = None, mask: int = 0x1F
+        self, params: DeviceParams, timeout: Optional[float] = None, mask: int = 0x7F
     ) -> None:
         if not self.client:
             raise RuntimeError("Not connected")

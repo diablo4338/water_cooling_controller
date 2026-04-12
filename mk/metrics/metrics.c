@@ -18,7 +18,7 @@ static float g_temp_values[METRICS_TEMP_CHANNELS] = {NAN, NAN, NAN, NAN};
 static bool g_temp_valid[METRICS_TEMP_CHANNELS] = {false};
 static uint8_t g_temp_failures[METRICS_TEMP_CHANNELS] = {0};
 
-#define FAN_TACH_GPIO 3
+#define FAN_TACH_GPIO 18
 #define FAN_TACH_PULSES_PER_REV 2
 #define FAN_TACH_GLITCH_US 200
 #define FAN_TACH_MIN_SAMPLES 4
@@ -38,7 +38,7 @@ static uint32_t g_snapshot_seq = 0;
 static metrics_snapshot_t g_snapshot = {0};
 
 static void fan_pcnt_init(void);
-static void IRAM_ATTR fan_tach_isr(void *arg);
+static void fan_tach_isr(void *arg);
 static void metrics_snapshot_write_from_state(void);
 static bool metrics_snapshot_read(metrics_snapshot_t *out);
 

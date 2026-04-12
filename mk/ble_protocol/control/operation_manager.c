@@ -10,14 +10,12 @@
 
 #include "esp_timer.h"
 
-#include "driver/gpio.h"
 #include "fan_control.h"
 #include "metrics.h"
 #include "operation_status_ble.h"
 #include "params.h"
 #include "state.h"
 
-#define OP_CALIB_GPIO 1
 #define OP_CALIB_BASELINE_WAIT_US (4 * 1000000LL)
 #define OP_CALIB_STEP_WAIT_US (2 * 1000000LL)
 #define OP_CALIB_STEP_DELTA 5
@@ -58,38 +56,6 @@ static void operation_manager_notify_custom(operation_type_t type,
                                             operation_state_t state,
                                             const char *err_text);
 
-static bool op_gpio_set_output(uint8_t gpio_num, int level, const char **err_text) {
-    gpio_config_t io = {
-        .pin_bit_mask = 1ULL << gpio_num,
-        .mode = GPIO_MODE_OUTPUT,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE
-    };
-    esp_err_t rc = gpio_config(&io);
-    if (rc != ESP_OK) {
-        if (err_text) *err_text = "gpio cfg";
-        return false;
-    }
-    rc = gpio_set_level(gpio_num, level);
-    if (rc != ESP_OK) {
-        if (err_text) *err_text = "gpio set";
-        return false;
-    }
-    return true;
-}
-
-static void op_gpio_set_input(uint8_t gpio_num) {
-    gpio_config_t io = {
-        .pin_bit_mask = 1ULL << gpio_num,
-        .mode = GPIO_MODE_INPUT,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE
-    };
-    gpio_config(&io);
-}
-
 static int64_t g_calibration_sleep_until_us = 0;
 static calib_phase_t g_calib_phase = CALIB_PHASE_IDLE;
 static int64_t g_calib_next_check_us = 0;
@@ -119,9 +85,6 @@ static bool op_calib_apply_target(uint8_t target, const char **err_text) {
 }
 
 static bool op_calibration_start(const char **err_text) {
-    if (!op_gpio_set_output(OP_CALIB_GPIO, 0, err_text)) {
-        return false;
-    }
     if (!op_calib_apply_target(OP_CALIB_MIN_SPEED, err_text)) {
         return false;
     }
@@ -197,7 +160,6 @@ static op_step_result_t op_calibration_step(int64_t now_us, const char **err_tex
 }
 
 static void op_calibration_finish(void) {
-    op_gpio_set_input(OP_CALIB_GPIO);
     g_calibration_sleep_until_us = 0;
     g_calib_phase = CALIB_PHASE_IDLE;
     g_calib_next_check_us = 0;
