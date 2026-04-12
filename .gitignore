@@ -9,4 +9,4 @@ paired_devices.json
 params.json
 build
 dist
-MyApp.spec
+*.spec
