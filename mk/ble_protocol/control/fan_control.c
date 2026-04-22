@@ -85,9 +85,19 @@ static float fan_control_regulate(const params_t *params, float temp_c, float rp
     static bool temp_mode_running = false;
     if (!params) return 0.0f;
 
+    if (params->fan_mode == PARAM_FAN_MODE_INACTIVE) {
+        temp_mode_running = false;
+        return 0.0f;
+    }
+
     if (params->fan_mode == PARAM_FAN_MODE_CONTINUOUS) {
         temp_mode_running = false;
         return (float)params->fan_min_speed;
+    }
+
+    if (params->fan_mode != PARAM_FAN_MODE_TEMP_SENSOR) {
+        temp_mode_running = false;
+        return 0.0f;
     }
 
     if (!isfinite(temp_c)) {

@@ -59,6 +59,7 @@ from .core import (
     FAN_CONTROL_PWM,
     FAN_MODE_CONTINUOUS,
     FAN_MODE_TEMP_SENSOR,
+    FAN_MODE_INACTIVE,
     FAN_CONTROL_TYPE_NAMES,
     FAN_MODE_NAMES,
     add_or_update_paired,
@@ -80,6 +81,7 @@ FAN_CONTROL_CHOICES = [
 FAN_MODE_CHOICES = [
     (FAN_MODE_CONTINUOUS, FAN_MODE_NAMES[FAN_MODE_CONTINUOUS]),
     (FAN_MODE_TEMP_SENSOR, FAN_MODE_NAMES[FAN_MODE_TEMP_SENSOR]),
+    (FAN_MODE_INACTIVE, FAN_MODE_NAMES[FAN_MODE_INACTIVE]),
 ]
 PARAM_FIELDS = [
     {
@@ -142,7 +144,7 @@ PARAM_ERROR_MESSAGES = {
     2: "Max temperature must be in range 0..150 and greater than start temperature",
     3: "Shutdown delta must be in range 0..150 and less than start temperature",
     4: "Start temperature must be in range 0..150",
-    5: "Mode must be Always on or By temperature sensor",
+    5: "Mode must be Always on, By temperature sensor, or Inactive (fans off)",
     6: "Monitor fan faults must be on or off",
 }
 

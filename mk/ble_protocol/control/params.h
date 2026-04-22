@@ -41,6 +41,7 @@ extern "C" {
 #define PARAM_FAN_CONTROL_PWM 1
 #define PARAM_FAN_MODE_CONTINUOUS 0
 #define PARAM_FAN_MODE_TEMP_SENSOR 1
+#define PARAM_FAN_MODE_INACTIVE 2
 
 typedef struct {
     int32_t fan_min_speed;

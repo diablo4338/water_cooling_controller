@@ -234,7 +234,8 @@ static bool params_validate(const params_t *params, uint8_t *field) {
         return false;
     }
     if (params->fan_mode != PARAM_FAN_MODE_CONTINUOUS &&
-        params->fan_mode != PARAM_FAN_MODE_TEMP_SENSOR) {
+        params->fan_mode != PARAM_FAN_MODE_TEMP_SENSOR &&
+        params->fan_mode != PARAM_FAN_MODE_INACTIVE) {
         if (field) *field = PARAM_FIELD_FAN_MODE;
         return false;
     }
