@@ -16,8 +16,9 @@
 #define ADS1115_INTER_CH_DELAY_MS 5
 #define ADS1115_FS_V              4.096f
 
-void ads1115_init(void);
+bool ads1115_init(void);
 bool ads1115_read_raw(uint8_t channel, int16_t *out_raw);
+bool ads1115_has_error(void);
 float ads1115_raw_to_v(int16_t raw);
 float ads1115_raw_to_temp(int16_t raw);
 

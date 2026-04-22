@@ -19,5 +19,6 @@ uint8_t metrics_sample_all(void);
 float metrics_get_temp(uint8_t channel);
 float metrics_get_fan_speed_rpm(void);
 void metrics_get_snapshot(metrics_snapshot_t *out);
+bool metrics_has_error(void);
 
 #endif

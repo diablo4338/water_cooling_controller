@@ -23,6 +23,8 @@
 #include "uuid.h"
 #include "metrics.h"
 #include "metrics_ble.h"
+#include "device_status.h"
+#include "device_status_ble.h"
 #include "params.h"
 #include "fan_control.h"
 #include "fan_status_ble.h"
@@ -54,7 +56,9 @@ void app_main(void) {
     pair_mode_init_from_nvs();
     metrics_init();
     metrics_ble_init();
+    device_status_ble_init();
     params_init();
+    device_status_init();
     fan_status_ble_init();
     operation_status_ble_init();
     operation_manager_init();

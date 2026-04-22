@@ -32,9 +32,14 @@ from .core import (
     BleAppCore,
     DeviceParams,
     DeviceInfo,
+    DeviceStatus,
     FanStatus,
     OperationStatus,
     ParamsStatus,
+    DEVICE_STATE_OK,
+    DEVICE_STATE_ERROR,
+    DEVICE_ERROR_NONE,
+    DEVICE_ERROR_NAMES,
     FAN_STATE_IDLE,
     FAN_STATE_STARTING,
     FAN_STATE_RUNNING,
@@ -151,6 +156,7 @@ class BleWorker(QThread):
     params_status = Signal(object)
     apply_done = Signal()
     fan_status_received = Signal(object)
+    device_status_received = Signal(object)
     operation_status_received = Signal(object)
     pairing_result = Signal(bool, str, object, object)
     connection_state = Signal(bool, object)
@@ -340,6 +346,13 @@ class BleWorker(QThread):
                     self.log.emit("Initial FAN status read ok.")
                 except Exception as exc:
                     self.log.emit(f"Initial FAN status read failed: {exc}")
+                self.log.emit("AUTH ok, reading initial DEVICE status...")
+                try:
+                    status = await self.core.read_device_status(timeout=self.config.metrics_timeout_s)
+                    self.device_status_received.emit(status)
+                    self.log.emit("Initial DEVICE status read ok.")
+                except Exception as exc:
+                    self.log.emit(f"Initial DEVICE status read failed: {exc}")
                 self.log.emit("AUTH ok, reading initial OP status...")
                 try:
                     status = await self.core.read_operation_status(timeout=self.config.metrics_timeout_s)
@@ -388,6 +401,15 @@ class BleWorker(QThread):
                     self.log.emit("Notify FAN status started.")
                 except Exception as exc:
                     self.log.emit(f"FAN status notify unavailable: {exc}")
+                try:
+                    await self._with_timeout(
+                        self.core.start_device_status_notify(self._on_device_status),
+                        f"start_device_status_notify#{attempt}",
+                        timeout=3.0,
+                    )
+                    self.log.emit("Notify DEVICE status started.")
+                except Exception as exc:
+                    self.log.emit(f"DEVICE status notify unavailable: {exc}")
                 try:
                     await self._with_timeout(
                         self.core.start_operation_status_notify(self._on_operation_status),
@@ -444,6 +466,16 @@ class BleWorker(QThread):
                         self.log.emit("Stopping notify FAN status...")
                     await self._with_timeout(
                         self.core.stop_fan_status_notify(), "stop_fan_status_notify", timeout=3.0
+                    )
+                except Exception:
+                    pass
+                try:
+                    if log_enabled:
+                        self.log.emit("Stopping notify DEVICE status...")
+                    await self._with_timeout(
+                        self.core.stop_device_status_notify(),
+                        "stop_device_status_notify",
+                        timeout=3.0,
                     )
                 except Exception:
                     pass
@@ -551,6 +583,9 @@ class BleWorker(QThread):
     def _on_fan_status(self, status: FanStatus) -> None:
         self.fan_status_received.emit(status)
 
+    def _on_device_status(self, status: DeviceStatus) -> None:
+        self.device_status_received.emit(status)
+
     def _on_operation_status(self, status: OperationStatus) -> None:
         self.operation_status_received.emit(status)
 
@@ -609,6 +644,8 @@ class MainWindow(QMainWindow):
         self._fan_is_nc: Optional[bool] = None
         self.fan_status_field: Optional[QLineEdit] = None
         self.fan_status_indicator: Optional[QFrame] = None
+        self.device_status_field: Optional[QLineEdit] = None
+        self.device_status_indicator: Optional[QFrame] = None
         self._operation_active = False
         self.param_fields: list[dict] = []
         self._params_update_lock = False
@@ -662,6 +699,7 @@ class MainWindow(QMainWindow):
         self.worker.params_status.connect(self.on_params_status)
         self.worker.apply_done.connect(self.on_apply_done)
         self.worker.fan_status_received.connect(self.on_fan_status)
+        self.worker.device_status_received.connect(self.on_device_status)
         self.worker.operation_status_received.connect(self.on_operation_status)
         self.worker.pairing_result.connect(self.on_pairing_result)
         self.worker.connection_state.connect(self.on_connection_state)
@@ -806,7 +844,22 @@ class MainWindow(QMainWindow):
         indicator.setStyleSheet("background:#6b7280; border:1px solid #111827;")
         grid.addWidget(indicator, 1, 2)
         self.fan_status_indicator = indicator
-        grid.addWidget(self.calibrate_button, 2, 0, 1, 3)
+        device_status_label = QLabel("Device status")
+        device_status_field = QLineEdit("—")
+        device_status_field.setReadOnly(True)
+        device_status_field.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        device_status_field.setCursor(Qt.CursorShape.ArrowCursor)
+        device_status_field.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        device_status_field.setAlignment(Qt.AlignmentFlag.AlignRight)
+        grid.addWidget(device_status_label, 2, 0)
+        grid.addWidget(device_status_field, 2, 1)
+        self.device_status_field = device_status_field
+        device_indicator = QFrame()
+        device_indicator.setFixedSize(16, 16)
+        device_indicator.setStyleSheet("background:#6b7280; border:1px solid #111827;")
+        grid.addWidget(device_indicator, 2, 2)
+        self.device_status_indicator = device_indicator
+        grid.addWidget(self.calibrate_button, 3, 0, 1, 3)
         self._fan_is_nc = None
         return grid
 
@@ -814,6 +867,13 @@ class MainWindow(QMainWindow):
         if self.fan_status_indicator is None:
             return
         self.fan_status_indicator.setStyleSheet(
+            f"background:{color}; border:1px solid #111827;"
+        )
+
+    def _set_device_status_indicator(self, color: str) -> None:
+        if self.device_status_indicator is None:
+            return
+        self.device_status_indicator.setStyleSheet(
             f"background:{color}; border:1px solid #111827;"
         )
 
@@ -1290,6 +1350,25 @@ class MainWindow(QMainWindow):
         self._apply_ui()
 
     @Slot(object)
+    def on_device_status(self, status: DeviceStatus) -> None:
+        if self.device_status_field is None:
+            return
+        if status.state == DEVICE_STATE_OK:
+            self.device_status_field.setText("OK")
+            self._set_device_status_indicator("#22c55e")
+        elif status.state == DEVICE_STATE_ERROR:
+            error_label = DEVICE_ERROR_NAMES.get(status.error, status.error_label)
+            if status.error == DEVICE_ERROR_NONE:
+                self.device_status_field.setText("ERROR")
+            else:
+                self.device_status_field.setText(f"ERROR ({error_label})")
+            self._set_device_status_indicator("#ef4444")
+        else:
+            self.device_status_field.setText(status.label)
+            self._set_device_status_indicator("#6b7280")
+        self._apply_ui()
+
+    @Slot(object)
     def on_operation_status(self, status: OperationStatus) -> None:
         op_label = OP_TYPE_NAMES.get(status.op_type, f"OP{status.op_type}")
         state_label = OP_STATE_NAMES.get(status.state, "UNKNOWN")
@@ -1380,6 +1459,9 @@ class MainWindow(QMainWindow):
         if self.fan_status_field is not None:
             self.fan_status_field.setText("—")
         self._set_fan_status_indicator("#6b7280")
+        if self.device_status_field is not None:
+            self.device_status_field.setText("—")
+        self._set_device_status_indicator("#6b7280")
         self._operation_active = False
 
     def _select_paired_device(self, device: DeviceInfo) -> None:

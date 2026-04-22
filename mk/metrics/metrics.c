@@ -17,6 +17,7 @@ static const char *METRICS_TAG = "metrics";
 static float g_temp_values[METRICS_TEMP_CHANNELS] = {NAN, NAN, NAN, NAN};
 static bool g_temp_valid[METRICS_TEMP_CHANNELS] = {false};
 static uint8_t g_temp_failures[METRICS_TEMP_CHANNELS] = {0};
+static bool g_metrics_error = false;
 
 #define FAN_TACH_GPIO 18
 #define FAN_TACH_PULSES_PER_REV 2
@@ -59,7 +60,7 @@ void metrics_init(void) {
     for (int i = 0; i < FAN_TACH_AVG_SAMPLES; i++) {
         g_fan_dt_buf[i] = 0;
     }
-    ads1115_init();
+    g_metrics_error = !ads1115_init();
     fan_pcnt_init();
     metrics_snapshot_write_from_state();
 }
@@ -217,6 +218,7 @@ uint8_t metrics_sample_all(void) {
     for (uint8_t ch = 0; ch < METRICS_TEMP_CHANNELS; ch++) {
         int16_t raw = 0;
         if (ads1115_read_raw(ch, &raw)) {
+            g_metrics_error = false;
             if (raw < METRICS_RAW_NO_SENSOR_THRESHOLD) {
                 bool was_offline = g_temp_failures[ch] >= METRICS_FAIL_THRESHOLD;
                 g_temp_failures[ch] = METRICS_FAIL_THRESHOLD;
@@ -239,6 +241,15 @@ uint8_t metrics_sample_all(void) {
                 changed_mask |= (uint8_t)(1U << ch);
             }
         } else {
+            if (ads1115_has_error()) {
+                g_metrics_error = true;
+                for (uint8_t i = 0; i < METRICS_TEMP_CHANNELS; i++) {
+                    if (metrics_mark_invalid(i)) {
+                        changed_mask |= (uint8_t)(1U << i);
+                    }
+                }
+                break;
+            }
             if (g_temp_failures[ch] < 0xFF) {
                 g_temp_failures[ch]++;
             }
@@ -263,6 +274,10 @@ uint8_t metrics_sample_all(void) {
 
     metrics_snapshot_write_from_state();
     return changed_mask;
+}
+
+bool metrics_has_error(void) {
+    return g_metrics_error;
 }
 
 static void metrics_snapshot_write_from_state(void) {

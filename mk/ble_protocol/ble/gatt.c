@@ -18,6 +18,8 @@
 #include "uuid.h"
 #include "conn_guard.h"
 #include "host_verify.h"
+#include "device_status.h"
+#include "device_status_ble.h"
 #include "metrics.h"
 #include "metrics_ble.h"
 #include "fan_control.h"
@@ -381,6 +383,19 @@ static int gatt_read_fan_status(uint16_t conn_handle, uint16_t attr_handle,
     return 0;
 }
 
+static int gatt_read_device_status(uint16_t conn_handle, uint16_t attr_handle,
+                                   struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    (void)attr_handle;
+    (void)arg;
+    if (!can_access_data()) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    if (!auth_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+
+    uint8_t payload[DEVICE_STATUS_PAYLOAD_LEN];
+    device_status_get_payload(payload, sizeof(payload));
+    os_mbuf_append(ctxt->om, payload, sizeof(payload));
+    return 0;
+}
+
 // ====== Operations ======
 static int gatt_access_operation_control(uint16_t conn_handle, uint16_t attr_handle,
                                          struct ble_gatt_access_ctxt *ctxt, void *arg) {
@@ -462,6 +477,12 @@ static struct ble_gatt_chr_def config_chrs[] = {
         .access_cb = gatt_read_fan_status,
         .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
         .val_handle = &g_fan_status_attr_handle,
+    },
+    {
+        .uuid = NULL,
+        .access_cb = gatt_read_device_status,
+        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+        .val_handle = &g_device_status_attr_handle,
     },
     { 0 }
 };
@@ -557,6 +578,7 @@ void gatt_init_uuids_and_services(void) {
     parse_uuid_or_abort(UUID_CONFIG_PARAMS_STR, &UUID_CONFIG_PARAMS);
     parse_uuid_or_abort(UUID_CONFIG_STATUS_STR, &UUID_CONFIG_STATUS);
     parse_uuid_or_abort(UUID_CONFIG_FAN_STATUS_STR, &UUID_CONFIG_FAN_STATUS);
+    parse_uuid_or_abort(UUID_CONFIG_DEVICE_STATUS_STR, &UUID_CONFIG_DEVICE_STATUS);
     parse_uuid_or_abort(UUID_OP_CONTROL_STR, &UUID_OP_CONTROL);
     parse_uuid_or_abort(UUID_OP_STATUS_STR, &UUID_OP_STATUS);
     
@@ -584,6 +606,7 @@ void gatt_init_uuids_and_services(void) {
     config_chrs[0].uuid = &UUID_CONFIG_PARAMS.u;
     config_chrs[1].uuid = &UUID_CONFIG_STATUS.u;
     config_chrs[2].uuid = &UUID_CONFIG_FAN_STATUS.u;
+    config_chrs[3].uuid = &UUID_CONFIG_DEVICE_STATUS.u;
     operations_chrs[0].uuid = &UUID_OP_CONTROL.u;
     operations_chrs[1].uuid = &UUID_OP_STATUS.u;
 

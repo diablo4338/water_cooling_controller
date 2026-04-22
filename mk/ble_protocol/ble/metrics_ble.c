@@ -10,6 +10,7 @@
 #include "conn_guard.h"
 #include "state.h"
 
+#include "device_status.h"
 #include "metrics.h"
 
 static const char *METRICS_TAG = "metrics";
@@ -92,6 +93,7 @@ void metrics_task(void *param) {
         TickType_t start = xTaskGetTickCount();
 
         uint8_t changed = metrics_sample_all();
+        device_status_set_error(metrics_has_error() ? DEVICE_ERROR_ADC_OFFLINE : DEVICE_ERROR_NONE);
         if (changed != 0) {
             uint16_t conn = fsm_get_conn_handle();
             for (uint8_t ch = 0; ch < METRICS_TEMP_CHANNELS; ch++) {

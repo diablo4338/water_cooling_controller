@@ -43,6 +43,7 @@ __all__ = [
     "UUID_CONFIG_PARAMS",
     "UUID_CONFIG_STATUS",
     "UUID_CONFIG_FAN_STATUS",
+    "UUID_CONFIG_DEVICE_STATUS",
     "UUID_OPERATIONS_SVC",
     "UUID_OP_CONTROL",
     "UUID_OP_STATUS",
@@ -63,6 +64,13 @@ __all__ = [
     "FAN_CONTROL_TYPE_NAMES",
     "FAN_MODE_NAMES",
     "FAN_STATUS_VERSION",
+    "DEVICE_STATUS_VERSION",
+    "DEVICE_STATE_OK",
+    "DEVICE_STATE_ERROR",
+    "DEVICE_ERROR_NONE",
+    "DEVICE_ERROR_ADC_OFFLINE",
+    "DEVICE_STATE_NAMES",
+    "DEVICE_ERROR_NAMES",
     "FAN_STATE_IDLE",
     "FAN_STATE_STARTING",
     "FAN_STATE_RUNNING",
@@ -82,6 +90,7 @@ __all__ = [
     "OP_STATE_NAMES",
     "DeviceParams",
     "FanStatus",
+    "DeviceStatus",
     "OperationStatus",
     "ParamsStatus",
     "DeviceInfo",
@@ -97,6 +106,7 @@ __all__ = [
     "decode_params",
     "decode_params_status",
     "decode_fan_status",
+    "decode_device_status",
     "encode_operation_control",
     "decode_operation_status",
     "load_params",
@@ -135,6 +145,7 @@ UUID_CONFIG_SVC = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e10"
 UUID_CONFIG_PARAMS = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e11"
 UUID_CONFIG_STATUS = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e12"
 UUID_CONFIG_FAN_STATUS = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e13"
+UUID_CONFIG_DEVICE_STATUS = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e14"
 UUID_OPERATIONS_SVC = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e20"
 UUID_OP_CONTROL = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e21"
 UUID_OP_STATUS = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e22"
@@ -182,6 +193,19 @@ FAN_MODE_NAMES = {
     FAN_MODE_TEMP_SENSOR: "By temperature sensor",
 }
 FAN_STATUS_VERSION = 1
+DEVICE_STATUS_VERSION = 1
+DEVICE_STATE_OK = 0
+DEVICE_STATE_ERROR = 1
+DEVICE_ERROR_NONE = 0
+DEVICE_ERROR_ADC_OFFLINE = 1
+DEVICE_STATE_NAMES = {
+    DEVICE_STATE_OK: "OK",
+    DEVICE_STATE_ERROR: "ERROR",
+}
+DEVICE_ERROR_NAMES = {
+    DEVICE_ERROR_NONE: "NONE",
+    DEVICE_ERROR_ADC_OFFLINE: "ADC_OFFLINE",
+}
 FAN_STATE_IDLE = 0
 FAN_STATE_STARTING = 1
 FAN_STATE_RUNNING = 2
@@ -353,6 +377,14 @@ class FanStatus:
 
 
 @dataclass(frozen=True)
+class DeviceStatus:
+    state: int
+    label: str
+    error: int
+    error_label: str
+
+
+@dataclass(frozen=True)
 class OperationStatus:
     op_type: int
     state: int
@@ -516,6 +548,20 @@ def decode_fan_status(data: bytes) -> FanStatus:
     label = FAN_STATE_NAMES.get(state, "UNKNOWN")
     op_label = OP_TYPE_NAMES.get(op_type, "UNKNOWN")
     return FanStatus(state=int(state), label=label, op_type=int(op_type), op_label=op_label)
+
+
+def decode_device_status(data: bytes) -> DeviceStatus:
+    if len(data) != 3:
+        raise RuntimeError(f"Bad device status len={len(data)}")
+    version, state, error = struct.unpack("<BBB", data)
+    if version != DEVICE_STATUS_VERSION:
+        raise RuntimeError(f"Unsupported device status version={version}")
+    return DeviceStatus(
+        state=int(state),
+        label=DEVICE_STATE_NAMES.get(state, "UNKNOWN"),
+        error=int(error),
+        error_label=DEVICE_ERROR_NAMES.get(error, "UNKNOWN"),
+    )
 
 
 def encode_operation_control(op_type: int, action: int = 1) -> bytes:
@@ -782,6 +828,16 @@ class BleAppCore:
         )
         return decode_fan_status(bytes(data))
 
+    async def read_device_status(self, timeout: Optional[float] = None) -> DeviceStatus:
+        if not self.client:
+            raise RuntimeError("Not connected")
+        if timeout is None:
+            timeout = self._config.metrics_timeout_s
+        data = await asyncio.wait_for(
+            self.client.read_gatt_char(UUID_CONFIG_DEVICE_STATUS), timeout=timeout
+        )
+        return decode_device_status(bytes(data))
+
     async def read_operation_status(self, timeout: Optional[float] = None) -> OperationStatus:
         if not self.client:
             raise RuntimeError("Not connected")
@@ -864,6 +920,16 @@ class BleAppCore:
             lambda _, data: self._emit_fan_status(callback, data),
         )
 
+    async def start_device_status_notify(
+        self, callback: Callable[[DeviceStatus], None]
+    ) -> None:
+        if not self.client:
+            raise RuntimeError("Not connected")
+        await self.client.start_notify(
+            UUID_CONFIG_DEVICE_STATUS,
+            lambda _, data: self._emit_device_status(callback, data),
+        )
+
     async def start_operation_status_notify(
         self, callback: Callable[[OperationStatus], None]
     ) -> None:
@@ -879,6 +945,14 @@ class BleAppCore:
             raise RuntimeError("Not connected")
         try:
             await self.client.stop_notify(UUID_CONFIG_FAN_STATUS)
+        except Exception:
+            pass
+
+    async def stop_device_status_notify(self) -> None:
+        if not self.client:
+            raise RuntimeError("Not connected")
+        try:
+            await self.client.stop_notify(UUID_CONFIG_DEVICE_STATUS)
         except Exception:
             pass
 
@@ -947,6 +1021,14 @@ class BleAppCore:
     def _emit_fan_status(callback: Callable[[FanStatus], None], data: bytearray) -> None:
         try:
             status = decode_fan_status(bytes(data))
+        except Exception:
+            return
+        callback(status)
+
+    @staticmethod
+    def _emit_device_status(callback: Callable[[DeviceStatus], None], data: bytearray) -> None:
+        try:
+            status = decode_device_status(bytes(data))
         except Exception:
             return
         callback(status)

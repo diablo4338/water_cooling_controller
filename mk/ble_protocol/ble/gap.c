@@ -13,6 +13,7 @@
 #include "pair_state.h"
 #include "state.h"
 #include "uuid.h"
+#include "device_status_ble.h"
 #include "metrics_ble.h"
 #include "fan_status_ble.h"
 #include "operation_status_ble.h"
@@ -146,6 +147,7 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
             state_unlock();
             esp_timer_stop(g_term_timer);
             metrics_reset_notify();
+            device_status_reset_notify();
             operation_status_reset_notify();
             if (was_pairing) {
                 pair_state_full_reset();
@@ -162,6 +164,8 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
         case BLE_GAP_EVENT_SUBSCRIBE:
             metrics_set_notify(event->subscribe.attr_handle,
                                event->subscribe.cur_notify != 0);
+            device_status_set_notify(event->subscribe.attr_handle,
+                                     event->subscribe.cur_notify != 0);
             fan_status_set_notify(event->subscribe.attr_handle,
                                   event->subscribe.cur_notify != 0);
             operation_status_set_notify(event->subscribe.attr_handle,
