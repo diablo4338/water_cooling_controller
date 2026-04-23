@@ -27,6 +27,9 @@ const char *UUID_TEMP1_VALUE_STR      = "a1b2c3d4-0b1c-4a2b-9c3d-4e5f60718292";
 const char *UUID_TEMP2_VALUE_STR      = "a1b2c3d4-0b1c-4a2b-9c3d-4e5f60718293";
 const char *UUID_TEMP3_VALUE_STR      = "a1b2c3d4-0b1c-4a2b-9c3d-4e5f60718294";
 const char *UUID_FAN_SPEED_VALUE_STR  = "a1b2c3d4-0b1c-4a2b-9c3d-4e5f60718295";
+const char *UUID_FAN2_SPEED_VALUE_STR = "a1b2c3d4-0b1c-4a2b-9c3d-4e5f60718296";
+const char *UUID_FAN3_SPEED_VALUE_STR = "a1b2c3d4-0b1c-4a2b-9c3d-4e5f60718297";
+const char *UUID_FAN4_SPEED_VALUE_STR = "a1b2c3d4-0b1c-4a2b-9c3d-4e5f60718298";
 
 ble_uuid_any_t UUID_PAIR_SVC;
 ble_uuid_any_t UUID_MAIN_SVC;
@@ -54,3 +57,6 @@ ble_uuid_any_t UUID_TEMP1_VALUE;
 ble_uuid_any_t UUID_TEMP2_VALUE;
 ble_uuid_any_t UUID_TEMP3_VALUE;
 ble_uuid_any_t UUID_FAN_SPEED_VALUE;
+ble_uuid_any_t UUID_FAN2_SPEED_VALUE;
+ble_uuid_any_t UUID_FAN3_SPEED_VALUE;
+ble_uuid_any_t UUID_FAN4_SPEED_VALUE;

@@ -52,6 +52,7 @@ from .core import (
     OP_STATE_NAMES,
     OP_TYPE_NONE,
     OP_TYPE_FAN_CALIBRATION,
+    OP_TYPE_SETUP_FANS,
     OP_TYPE_NAMES,
     PARAM_STATUS_BUSY,
     UUID_CONFIG_STATUS,
@@ -130,14 +131,25 @@ PARAM_FIELDS = [
         "choices": FAN_MODE_CHOICES,
         "group": "control",
     },
-    {
-        "key": "fan_monitoring_enabled",
-        "label": "Monitor fan faults",
-        "kind": "bool",
-        "group": "fan",
-    },
 ]
-PARAM_LABELS_BY_ID = {idx: spec["label"] for idx, spec in enumerate(PARAM_FIELDS)}
+FAN_MONITORING_KEYS = [
+    "fan_monitoring_enabled",
+    "fan2_monitoring_enabled",
+    "fan3_monitoring_enabled",
+    "fan4_monitoring_enabled",
+]
+PARAM_LABELS_BY_ID = {
+    0: "Min fan speed, %",
+    1: "Control type",
+    2: "Max temperature, °C",
+    3: "Shutdown delta, °C",
+    4: "Start temperature, °C",
+    5: "Mode",
+    6: "Monitor fan 1 faults",
+    7: "Monitor fan 2 faults",
+    8: "Monitor fan 3 faults",
+    9: "Monitor fan 4 faults",
+}
 PARAM_ERROR_MESSAGES = {
     0: "Min fan speed must be between 10 and 100",
     1: "Control type must be DC or PWM",
@@ -145,7 +157,10 @@ PARAM_ERROR_MESSAGES = {
     3: "Shutdown delta must be in range 0..150 and less than start temperature",
     4: "Start temperature must be in range 0..150",
     5: "Mode must be Always on, By temperature sensor, or Inactive (fans off)",
-    6: "Monitor fan faults must be on or off",
+    6: "Monitor fan 1 faults must be on or off",
+    7: "Monitor fan 2 faults must be on or off",
+    8: "Monitor fan 3 faults must be on or off",
+    9: "Monitor fan 4 faults must be on or off",
 }
 
 
@@ -153,7 +168,7 @@ class BleWorker(QThread):
     log = Signal(str)
     scan_results = Signal(list)
     temp_received = Signal(int, float)
-    fan_received = Signal(float)
+    fan_received = Signal(int, float)
     params_received = Signal(object)
     params_status = Signal(object)
     apply_done = Signal()
@@ -358,7 +373,8 @@ class BleWorker(QThread):
                 self.log.emit("AUTH ok, reading initial OP status...")
                 try:
                     status = await self.core.read_operation_status(timeout=self.config.metrics_timeout_s)
-                    self.operation_status_received.emit(status)
+                    if status.state == OP_STATE_IN_SERVICE:
+                        self.operation_status_received.emit(status)
                     self.log.emit("Initial OP status read ok.")
                 except Exception as exc:
                     self.log.emit(f"Initial OP status read failed: {exc}")
@@ -371,11 +387,12 @@ class BleWorker(QThread):
                 except Exception as exc:
                     self.log.emit(f"Initial METRICS read failed: {exc}")
                 try:
-                    rpm = await self.core.read_fan_speed(timeout=self.config.metrics_timeout_s)
-                    self.fan_received.emit(rpm)
-                    self.log.emit("Initial FAN speed read ok.")
+                    rpms = await self.core.read_fan_speeds(timeout=self.config.metrics_timeout_s)
+                    for idx, rpm in enumerate(rpms):
+                        self.fan_received.emit(idx, rpm)
+                    self.log.emit("Initial FAN speeds read ok.")
                 except Exception as exc:
-                    self.log.emit(f"Initial FAN speed read failed: {exc}")
+                    self.log.emit(f"Initial FAN speeds read failed: {exc}")
                 self.log.emit("Starting notify...")
                 try:
                     await self._with_timeout(
@@ -549,6 +566,17 @@ class BleWorker(QThread):
         except Exception as exc:
             self.log.emit(f"Fan calibration error: {exc}")
 
+    async def start_setup_fans(self) -> None:
+        try:
+            await self._with_timeout(
+                self.core.start_setup_fans(timeout=self.config.metrics_timeout_s),
+                "setup_fans",
+                timeout=self.config.metrics_timeout_s,
+            )
+            self.log.emit("Setup fans request sent")
+        except Exception as exc:
+            self.log.emit(f"Setup fans error: {exc}")
+
     async def read_operation_status(self) -> None:
         try:
             status = await self._with_timeout(
@@ -576,8 +604,8 @@ class BleWorker(QThread):
     def _on_temp(self, channel: int, value: float) -> None:
         self.temp_received.emit(channel, value)
 
-    def _on_fan(self, value: float) -> None:
-        self.fan_received.emit(value)
+    def _on_fan(self, channel: int, value: float) -> None:
+        self.fan_received.emit(channel, value)
 
     def _on_params_status(self, status: ParamsStatus) -> None:
         self.params_status.emit(status)
@@ -593,8 +621,9 @@ class BleWorker(QThread):
 
 
 class MainWindow(QMainWindow):
-    def __init__(self) -> None:
+    def __init__(self, debug: bool = False) -> None:
         super().__init__()
+        self.debug_enabled = debug
         self.setWindowTitle(APP_TITLE)
         self.resize(900, 600)
 
@@ -620,6 +649,7 @@ class MainWindow(QMainWindow):
         self.apply_button = QPushButton("Apply")
         self.discard_button = QPushButton("Discard")
         self.calibrate_button = QPushButton("Fan calibration")
+        self.setup_fans_button = QPushButton("Setup fans")
         self._action_timers: dict[Action, QTimer] = {}
         self._action_futures: dict[Action, Future] = {}
 
@@ -630,6 +660,7 @@ class MainWindow(QMainWindow):
         self.apply_button.setProperty("actionId", Action.APPLY.name)
         self.discard_button.setProperty("actionId", Action.DISCARD.name)
         self.calibrate_button.setProperty("actionId", Action.CALIBRATE.name)
+        self.setup_fans_button.setProperty("actionId", Action.SETUP_FANS.name)
         self.delete_button.setProperty("actionId", Action.DELETE_PAIRED.name)
         self.auto_checkbox.setProperty("actionId", Action.AUTO_CONNECT.name)
 
@@ -641,11 +672,13 @@ class MainWindow(QMainWindow):
         self.op_log_view.setReadOnly(True)
         self.status_label = QLabel(self.model.state.status)
         self.temp_fields: list[QLineEdit] = []
+        self.temp_indicators: list[QFrame] = []
+        self.temp_values: list[Optional[float]] = [None] * 4
         self._temp_is_nc: list[Optional[bool]] = [None] * 4
-        self.fan_field: Optional[QLineEdit] = None
-        self._fan_is_nc: Optional[bool] = None
-        self.fan_status_field: Optional[QLineEdit] = None
-        self.fan_status_indicator: Optional[QFrame] = None
+        self.fan_fields: list[QLineEdit] = []
+        self._fan_is_nc: list[Optional[bool]] = [None] * 4
+        self.fan_status_indicators: list[QFrame] = []
+        self.fan_monitor_checkboxes: list[QCheckBox] = []
         self.device_status_field: Optional[QLineEdit] = None
         self.device_status_indicator: Optional[QFrame] = None
         self._operation_active = False
@@ -673,10 +706,11 @@ class MainWindow(QMainWindow):
         layout.addLayout(self._build_temp_layout())
         layout.addWidget(QLabel("Fan speed"))
         layout.addLayout(self._build_fan_layout())
-        layout.addWidget(QLabel("Operations (log)"))
-        layout.addWidget(self.op_log_view)
-        layout.addWidget(QLabel("Real-time data"))
-        layout.addWidget(self.data_view)
+        if self.debug_enabled:
+            layout.addWidget(QLabel("Operations (log)"))
+            layout.addWidget(self.op_log_view)
+            layout.addWidget(QLabel("Real-time data"))
+            layout.addWidget(self.data_view)
         layout.addWidget(self.status_label)
 
         container = QWidget()
@@ -692,6 +726,7 @@ class MainWindow(QMainWindow):
         self.apply_button.clicked.connect(self.on_apply)
         self.discard_button.clicked.connect(self.on_discard)
         self.calibrate_button.clicked.connect(self.on_calibrate)
+        self.setup_fans_button.clicked.connect(self.on_setup_fans)
 
         self.worker.log.connect(self.on_log)
         self.worker.scan_results.connect(self.on_scan_results)
@@ -802,6 +837,8 @@ class MainWindow(QMainWindow):
     def _build_temp_layout(self) -> QGridLayout:
         grid = QGridLayout()
         self.temp_fields.clear()
+        self.temp_indicators.clear()
+        self.temp_values = [None] * 4
         self._temp_is_nc = [None] * 4
         for idx in range(4):
             label = QLabel(f"Temp {idx + 1}")
@@ -811,41 +848,49 @@ class MainWindow(QMainWindow):
             field.setCursor(Qt.CursorShape.ArrowCursor)
             field.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
             field.setAlignment(Qt.AlignmentFlag.AlignRight)
+            indicator = QFrame()
+            indicator.setFixedSize(16, 16)
+            indicator.setStyleSheet("background:#6b7280; border:1px solid #111827;")
+            indicator.setToolTip("—")
             row = idx // 2
-            col = (idx % 2) * 2
+            col = (idx % 2) * 3
             grid.addWidget(label, row, col)
             grid.addWidget(field, row, col + 1)
+            grid.addWidget(indicator, row, col + 2)
             self.temp_fields.append(field)
+            self.temp_indicators.append(indicator)
         return grid
 
     def _build_fan_layout(self) -> QGridLayout:
         grid = QGridLayout()
-        rpm_label = QLabel("Fan (RPM)")
-        rpm_field = QLineEdit("—")
-        rpm_field.setReadOnly(True)
-        rpm_field.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        rpm_field.setCursor(Qt.CursorShape.ArrowCursor)
-        rpm_field.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        rpm_field.setAlignment(Qt.AlignmentFlag.AlignRight)
-        grid.addWidget(rpm_label, 0, 0)
-        grid.addWidget(rpm_field, 0, 1)
-        self.fan_field = rpm_field
-
-        status_label = QLabel("Fan status")
-        status_field = QLineEdit("—")
-        status_field.setReadOnly(True)
-        status_field.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        status_field.setCursor(Qt.CursorShape.ArrowCursor)
-        status_field.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        status_field.setAlignment(Qt.AlignmentFlag.AlignRight)
-        grid.addWidget(status_label, 1, 0)
-        grid.addWidget(status_field, 1, 1)
-        self.fan_status_field = status_field
-        indicator = QFrame()
-        indicator.setFixedSize(16, 16)
-        indicator.setStyleSheet("background:#6b7280; border:1px solid #111827;")
-        grid.addWidget(indicator, 1, 2)
-        self.fan_status_indicator = indicator
+        self.fan_fields = []
+        self.fan_status_indicators = []
+        self.fan_monitor_checkboxes = []
+        for idx in range(4):
+            row = idx
+            label = QLabel(f"Fan{idx + 1}")
+            rpm_field = QLineEdit("—")
+            rpm_field.setReadOnly(True)
+            rpm_field.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            rpm_field.setCursor(Qt.CursorShape.ArrowCursor)
+            rpm_field.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+            rpm_field.setAlignment(Qt.AlignmentFlag.AlignRight)
+            indicator = QFrame()
+            indicator.setFixedSize(16, 16)
+            indicator.setStyleSheet("background:#6b7280; border:1px solid #111827;")
+            indicator.setToolTip("—")
+            monitor = QCheckBox()
+            monitor.setToolTip("Monitor faults")
+            monitor.setEnabled(False)
+            if idx > 0:
+                monitor.stateChanged.connect(self._on_params_changed)
+            grid.addWidget(label, row, 0)
+            grid.addWidget(rpm_field, row, 1)
+            grid.addWidget(indicator, row, 2)
+            grid.addWidget(monitor, row, 3)
+            self.fan_fields.append(rpm_field)
+            self.fan_status_indicators.append(indicator)
+            self.fan_monitor_checkboxes.append(monitor)
         device_status_label = QLabel("Device status")
         device_status_field = QLineEdit("—")
         device_status_field.setReadOnly(True)
@@ -853,24 +898,32 @@ class MainWindow(QMainWindow):
         device_status_field.setCursor(Qt.CursorShape.ArrowCursor)
         device_status_field.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         device_status_field.setAlignment(Qt.AlignmentFlag.AlignRight)
-        grid.addWidget(device_status_label, 2, 0)
-        grid.addWidget(device_status_field, 2, 1)
+        grid.addWidget(device_status_label, 4, 0)
+        grid.addWidget(device_status_field, 4, 1, 1, 2)
         self.device_status_field = device_status_field
         device_indicator = QFrame()
         device_indicator.setFixedSize(16, 16)
         device_indicator.setStyleSheet("background:#6b7280; border:1px solid #111827;")
-        grid.addWidget(device_indicator, 2, 2)
+        grid.addWidget(device_indicator, 4, 3)
         self.device_status_indicator = device_indicator
-        grid.addWidget(self.calibrate_button, 3, 0, 1, 3)
-        self._fan_is_nc = None
+        setup_row = QHBoxLayout()
+        setup_row.addWidget(self.setup_fans_button)
+        setup_row.addWidget(self.calibrate_button)
+        grid.addLayout(setup_row, 5, 0, 1, 4)
+        self._fan_is_nc = [None] * 4
         return grid
 
-    def _set_fan_status_indicator(self, color: str) -> None:
-        if self.fan_status_indicator is None:
+    def _set_fan_status_indicator(self, channel: int, color: str) -> None:
+        if channel >= len(self.fan_status_indicators):
             return
-        self.fan_status_indicator.setStyleSheet(
+        self.fan_status_indicators[channel].setStyleSheet(
             f"background:{color}; border:1px solid #111827;"
         )
+
+    def _set_fan_status_tooltip(self, channel: int, text: str) -> None:
+        if channel >= len(self.fan_status_indicators):
+            return
+        self.fan_status_indicators[channel].setToolTip(text)
 
     def _set_device_status_indicator(self, color: str) -> None:
         if self.device_status_indicator is None:
@@ -879,9 +932,30 @@ class MainWindow(QMainWindow):
             f"background:{color}; border:1px solid #111827;"
         )
 
-    def _reset_params_fields(self) -> None:
-        if not self.param_fields:
+    def _set_temp_indicator(self, channel: int, color: str, text: str) -> None:
+        if channel >= len(self.temp_indicators):
             return
+        self.temp_indicators[channel].setStyleSheet(
+            f"background:{color}; border:1px solid #111827;"
+        )
+        self.temp_indicators[channel].setToolTip(text)
+
+    def _refresh_temp_indicators(self) -> None:
+        params = self._current_params()
+        max_temp = float(params.fan_max_temp)
+        for channel, value in enumerate(self.temp_values):
+            if value is None or not math.isfinite(value):
+                self._set_temp_indicator(channel, "#6b7280", "NC")
+                continue
+            delta = max_temp - value
+            if delta > 5.0:
+                self._set_temp_indicator(channel, "#22c55e", f"{delta:.2f}C below max")
+            elif value < max_temp:
+                self._set_temp_indicator(channel, "#eab308", f"{delta:.2f}C below max")
+            else:
+                self._set_temp_indicator(channel, "#ef4444", "At or above max")
+
+    def _reset_params_fields(self) -> None:
         self._params_update_lock = True
         try:
             for item in self.param_fields:
@@ -894,11 +968,14 @@ class MainWindow(QMainWindow):
                 else:
                     widget.setValue(widget.minimum())
                 widget.setEnabled(False)
+            for checkbox in self.fan_monitor_checkboxes:
+                checkbox.setChecked(False)
+                checkbox.setEnabled(False)
         finally:
             self._params_update_lock = False
 
     def _set_params_fields(self, params: DeviceParams, save: bool = True) -> None:
-        if len(self.param_fields) != len(PARAM_FIELDS):
+        if len(self.param_fields) != len(PARAM_FIELDS) or len(self.fan_monitor_checkboxes) != 4:
             return
         self._params_update_lock = True
         try:
@@ -914,15 +991,19 @@ class MainWindow(QMainWindow):
                 else:
                     widget.setValue(value)
                 widget.setEnabled(True)
+            for idx, key in enumerate(FAN_MONITORING_KEYS):
+                self.fan_monitor_checkboxes[idx].setChecked(bool(getattr(params, key)))
+                self.fan_monitor_checkboxes[idx].setEnabled(idx > 0)
         finally:
             self._params_update_lock = False
         if save:
             device = self.model.state.connected_device
             if device:
                 save_device_params(device.address, params)
+        self._refresh_temp_indicators()
 
     def _current_params(self) -> DeviceParams:
-        if len(self.param_fields) != len(PARAM_FIELDS):
+        if len(self.param_fields) != len(PARAM_FIELDS) or len(self.fan_monitor_checkboxes) != 4:
             device = self.model.state.connected_device
             if device:
                 return load_device_params(device.address)
@@ -934,6 +1015,9 @@ class MainWindow(QMainWindow):
                 fan_start_temp=35,
                 fan_mode=FAN_MODE_CONTINUOUS,
                 fan_monitoring_enabled=True,
+                fan2_monitoring_enabled=True,
+                fan3_monitoring_enabled=True,
+                fan4_monitoring_enabled=True,
             )
         values: dict[str, object] = {}
         for item in self.param_fields:
@@ -950,6 +1034,8 @@ class MainWindow(QMainWindow):
                 if kind == "int":
                     value = int(value)
             values[spec["key"]] = value
+        for idx, key in enumerate(FAN_MONITORING_KEYS):
+            values[key] = self.fan_monitor_checkboxes[idx].isChecked()
         return DeviceParams(
             fan_min_speed=int(values["fan_min_speed"]),
             fan_control_type=int(values["fan_control_type"]),
@@ -958,6 +1044,9 @@ class MainWindow(QMainWindow):
             fan_start_temp=int(values["fan_start_temp"]),
             fan_mode=int(values["fan_mode"]),
             fan_monitoring_enabled=bool(values["fan_monitoring_enabled"]),
+            fan2_monitoring_enabled=bool(values["fan2_monitoring_enabled"]),
+            fan3_monitoring_enabled=bool(values["fan3_monitoring_enabled"]),
+            fan4_monitoring_enabled=bool(values["fan4_monitoring_enabled"]),
         )
 
     def _on_params_changed(self, _) -> None:
@@ -971,6 +1060,7 @@ class MainWindow(QMainWindow):
         fut = self.worker.submit(self.worker.write_params(params))
         if fut is None:
             self.on_log("Failed to send parameters (worker not ready).")
+        self._refresh_temp_indicators()
 
     def _apply_ui(self) -> None:
         ui = self.model.ui
@@ -986,6 +1076,7 @@ class MainWindow(QMainWindow):
         self.apply_button.setEnabled(Action.APPLY in ui.enabled_actions)
         self.discard_button.setEnabled(Action.DISCARD in ui.enabled_actions)
         self.calibrate_button.setEnabled(Action.CALIBRATE in ui.enabled_actions)
+        self.setup_fans_button.setEnabled(Action.SETUP_FANS in ui.enabled_actions)
         self.delete_button.setEnabled(Action.DELETE_PAIRED in ui.enabled_actions)
         self.auto_checkbox.setEnabled(Action.AUTO_CONNECT in ui.enabled_actions)
         params_enabled = self.model.state.conn == ConnState.CONNECTED and not self.model.state.busy
@@ -993,9 +1084,12 @@ class MainWindow(QMainWindow):
             self.apply_button.setEnabled(False)
             self.discard_button.setEnabled(False)
             self.calibrate_button.setEnabled(False)
+            self.setup_fans_button.setEnabled(False)
             params_enabled = False
         for item in self.param_fields:
             item["widget"].setEnabled(params_enabled)
+        for idx, checkbox in enumerate(self.fan_monitor_checkboxes):
+            checkbox.setEnabled(params_enabled and idx > 0)
 
         self.auto_checkbox.blockSignals(True)
         self.auto_checkbox.setChecked(ui.auto_enabled)
@@ -1183,6 +1277,12 @@ class MainWindow(QMainWindow):
                 self.worker.start_fan_calibration(),
                 use_timeout=False,
             )
+        elif command.action == Action.SETUP_FANS:
+            self._start_action(
+                Action.SETUP_FANS,
+                self.worker.start_setup_fans(),
+                use_timeout=False,
+            )
         elif command.action == Action.DELETE_PAIRED:
             self._delete_selected_paired()
 
@@ -1207,6 +1307,10 @@ class MainWindow(QMainWindow):
     def on_calibrate(self) -> None:
         self._clear_op_log()
         self._dispatch_action(Action.CALIBRATE)
+
+    def on_setup_fans(self) -> None:
+        self._clear_op_log()
+        self._dispatch_action(Action.SETUP_FANS)
 
     def on_delete_paired_clicked(self) -> None:
         self._dispatch_action(Action.DELETE_PAIRED)
@@ -1275,6 +1379,7 @@ class MainWindow(QMainWindow):
     def on_temp_received(self, channel: int, value: float) -> None:
         if 0 <= channel < len(self.temp_fields):
             is_nc = not math.isfinite(value)
+            self.temp_values[channel] = None if is_nc else value
             prev_nc = self._temp_is_nc[channel]
             if prev_nc is not None and prev_nc != is_nc:
                 if is_nc:
@@ -1287,25 +1392,26 @@ class MainWindow(QMainWindow):
             else:
                 text = "NC"
             self.temp_fields[channel].setText(text)
+            self._refresh_temp_indicators()
             self.data_view.append(f"Temp {channel + 1}: {text}")
 
-    @Slot(float)
-    def on_fan_received(self, value: float) -> None:
-        if self.fan_field is None:
+    @Slot(int, float)
+    def on_fan_received(self, channel: int, value: float) -> None:
+        if channel >= len(self.fan_fields):
             return
         is_nc = (not math.isfinite(value)) or value <= 0.0
-        if self._fan_is_nc is not None and self._fan_is_nc != is_nc:
+        if self._fan_is_nc[channel] is not None and self._fan_is_nc[channel] != is_nc:
             if is_nc:
-                self.on_log("Fan: NC (stopped)")
+                self.on_log(f"Fan {channel + 1}: NC (stopped)")
             else:
-                self.on_log("Fan: online")
-        self._fan_is_nc = is_nc
+                self.on_log(f"Fan {channel + 1}: online")
+        self._fan_is_nc[channel] = is_nc
         if is_nc:
             text = "NC"
         else:
             text = f"{value:.0f}"
-        self.fan_field.setText(text)
-        self.data_view.append(f"Fan: {text}")
+        self.fan_fields[channel].setText(text)
+        self.data_view.append(f"Fan {channel + 1}: {text}")
 
     @Slot(object)
     def on_params_received(self, params: DeviceParams) -> None:
@@ -1329,26 +1435,27 @@ class MainWindow(QMainWindow):
 
     @Slot(object)
     def on_fan_status(self, status: FanStatus) -> None:
-        if self.fan_status_field is None:
-            return
-        if status.state == FAN_STATE_IDLE:
-            self.fan_status_field.setText("IDLE")
-            self._set_fan_status_indicator("#22c55e")
-        elif status.state == FAN_STATE_STARTING:
-            self.fan_status_field.setText("STARTING")
-            self._set_fan_status_indicator("#eab308")
-        elif status.state == FAN_STATE_RUNNING:
-            self.fan_status_field.setText("RUNNING")
-            self._set_fan_status_indicator("#eab308")
-        elif status.state == FAN_STATE_STALL:
-            self.fan_status_field.setText("STALL")
-            self._set_fan_status_indicator("#ef4444")
-        elif status.state == FAN_STATE_IN_SERVICE:
-            if status.op_type != OP_TYPE_NONE:
-                self.fan_status_field.setText(f"IN_SERVICE ({status.op_label})")
-            else:
-                self.fan_status_field.setText("IN_SERVICE")
-            self._set_fan_status_indicator("#3b82f6")
+        for channel, state in enumerate(status.states):
+            if channel >= len(self.fan_status_indicators):
+                continue
+            if state == FAN_STATE_IDLE:
+                self._set_fan_status_indicator(channel, "#22c55e")
+                self._set_fan_status_tooltip(channel, "IDLE")
+            elif state == FAN_STATE_STARTING:
+                self._set_fan_status_indicator(channel, "#eab308")
+                self._set_fan_status_tooltip(channel, "STARTING")
+            elif state == FAN_STATE_RUNNING:
+                self._set_fan_status_indicator(channel, "#eab308")
+                self._set_fan_status_tooltip(channel, "RUNNING")
+            elif state == FAN_STATE_STALL:
+                self._set_fan_status_indicator(channel, "#ef4444")
+                self._set_fan_status_tooltip(channel, "STALL")
+            elif state == FAN_STATE_IN_SERVICE:
+                if status.op_type != OP_TYPE_NONE:
+                    self._set_fan_status_tooltip(channel, f"IN_SERVICE ({status.op_label})")
+                else:
+                    self._set_fan_status_tooltip(channel, "IN_SERVICE")
+                self._set_fan_status_indicator(channel, "#3b82f6")
         self._apply_ui()
 
     @Slot(object)
@@ -1383,8 +1490,13 @@ class MainWindow(QMainWindow):
             else:
                 self.op_log_view.append(f"{op_label}: {state_label}")
         op_action = None
-        if status.op_type == OP_TYPE_FAN_CALIBRATION:
-            op_action = Action.CALIBRATE
+        if status.op_type == OP_TYPE_SETUP_FANS:
+            op_action = Action.SETUP_FANS
+        elif status.op_type == OP_TYPE_FAN_CALIBRATION:
+            if self.model.state.active_action == Action.SETUP_FANS:
+                op_action = Action.SETUP_FANS
+            else:
+                op_action = Action.CALIBRATE
         if status.state == OP_STATE_IN_SERVICE:
             if not self._operation_active:
                 self.on_log(f"Operation started: {op_label}")
@@ -1454,13 +1566,16 @@ class MainWindow(QMainWindow):
     def _reset_temp_fields(self) -> None:
         for field in self.temp_fields:
             field.setText("—")
+        self.temp_values = [None] * len(self.temp_fields)
+        for channel, _ in enumerate(self.temp_indicators):
+            self._set_temp_indicator(channel, "#6b7280", "—")
         self._temp_is_nc = [None] * len(self.temp_fields)
-        if self.fan_field is not None:
-            self.fan_field.setText("—")
-        self._fan_is_nc = None
-        if self.fan_status_field is not None:
-            self.fan_status_field.setText("—")
-        self._set_fan_status_indicator("#6b7280")
+        for field in self.fan_fields:
+            field.setText("—")
+        self._fan_is_nc = [None] * len(self.fan_fields)
+        for channel, _ in enumerate(self.fan_status_indicators):
+            self._set_fan_status_indicator(channel, "#6b7280")
+            self._set_fan_status_tooltip(channel, "—")
         if self.device_status_field is not None:
             self.device_status_field.setText("—")
         self._set_device_status_indicator("#6b7280")
@@ -1507,8 +1622,10 @@ class MainWindow(QMainWindow):
 
 
 def main() -> int:
-    app = QApplication(sys.argv)
-    window = MainWindow()
+    debug = "--debug" in sys.argv
+    argv = [arg for arg in sys.argv if arg != "--debug"]
+    app = QApplication(argv)
+    window = MainWindow(debug=debug)
     window.show()
     return app.exec()
 

@@ -18,18 +18,20 @@ static const char *METRICS_TAG = "metrics";
 #define METRICS_TASK_PERIOD_MS 250
 
 uint16_t g_temp_attr_handles[METRICS_TEMP_CHANNELS] = {0};
-uint16_t g_fan_attr_handle = 0;
+uint16_t g_fan_attr_handles[METRICS_FAN_CHANNELS] = {0};
 
 static bool g_temp_notify_enabled[METRICS_TEMP_CHANNELS] = {false};
-static bool g_fan_notify_enabled = false;
+static bool g_fan_notify_enabled[METRICS_FAN_CHANNELS] = {false};
 
 void metrics_ble_init(void) {
     for (int i = 0; i < METRICS_TEMP_CHANNELS; i++) {
         g_temp_attr_handles[i] = 0;
         g_temp_notify_enabled[i] = false;
     }
-    g_fan_attr_handle = 0;
-    g_fan_notify_enabled = false;
+    for (int i = 0; i < METRICS_FAN_CHANNELS; i++) {
+        g_fan_attr_handles[i] = 0;
+        g_fan_notify_enabled[i] = false;
+    }
 }
 
 void metrics_set_notify(uint16_t attr_handle, bool enabled) {
@@ -40,8 +42,11 @@ void metrics_set_notify(uint16_t attr_handle, bool enabled) {
             return;
         }
     }
-    if (attr_handle == g_fan_attr_handle) {
-        g_fan_notify_enabled = enabled;
+    for (int i = 0; i < METRICS_FAN_CHANNELS; i++) {
+        if (attr_handle == g_fan_attr_handles[i]) {
+            g_fan_notify_enabled[i] = enabled;
+            return;
+        }
     }
 }
 
@@ -49,7 +54,9 @@ void metrics_reset_notify(void) {
     for (int i = 0; i < METRICS_TEMP_CHANNELS; i++) {
         g_temp_notify_enabled[i] = false;
     }
-    g_fan_notify_enabled = false;
+    for (int i = 0; i < METRICS_FAN_CHANNELS; i++) {
+        g_fan_notify_enabled[i] = false;
+    }
 }
 
 static bool metrics_can_notify(uint16_t conn_handle) {
@@ -74,17 +81,18 @@ static void metrics_notify_channel(uint16_t conn_handle, uint8_t channel) {
     }
 }
 
-static void metrics_notify_fan(uint16_t conn_handle) {
-    if (!g_fan_notify_enabled) return;
+static void metrics_notify_fan(uint16_t conn_handle, uint8_t channel) {
+    if (channel >= METRICS_FAN_CHANNELS) return;
+    if (!g_fan_notify_enabled[channel]) return;
     if (!metrics_can_notify(conn_handle)) return;
-    if (g_fan_attr_handle == 0) return;
+    if (g_fan_attr_handles[channel] == 0) return;
 
-    float rpm = metrics_get_fan_speed_rpm();
+    float rpm = metrics_get_fan_speed_rpm_channel(channel);
     struct os_mbuf *om = ble_hs_mbuf_from_flat(&rpm, sizeof(rpm));
     if (!om) return;
-    int rc = ble_gatts_notify_custom(conn_handle, g_fan_attr_handle, om);
+    int rc = ble_gatts_notify_custom(conn_handle, g_fan_attr_handles[channel], om);
     if (rc != 0) {
-        ESP_LOGW(METRICS_TAG, "notify fan rc=%d", rc);
+        ESP_LOGW(METRICS_TAG, "notify fan[%u] rc=%d", (unsigned)channel, rc);
     }
 }
 
@@ -103,8 +111,10 @@ void metrics_task(void *param) {
                     metrics_notify_channel(conn, ch);
                 }
             }
-            if (changed & METRICS_FAN_CHANGED_BIT) {
-                metrics_notify_fan(conn);
+            for (uint8_t ch = 0; ch < METRICS_FAN_CHANNELS; ch++) {
+                if (changed & (uint8_t)METRICS_FAN_CHANGED_BIT(ch)) {
+                    metrics_notify_fan(conn, ch);
+                }
             }
         }
 

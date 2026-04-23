@@ -18,11 +18,15 @@
 
 #define OP_CALIB_BASELINE_WAIT_US (4 * 1000000LL)
 #define OP_CALIB_STOP_WAIT_US (6 * 1000000LL)
-#define OP_CALIB_STEP_WAIT_US (2 * 1000000LL)
+#define OP_CALIB_STEP_WAIT_US (4 * 1000000LL)
 #define OP_CALIB_STEP_DELTA 5
 #define OP_CALIB_RPM_DELTA 50.0f
 #define OP_CALIB_START_SPEED 10
 #define OP_CALIB_MAX_SPEED 70
+#define OP_SETUP_WAIT_US (6 * 1000000LL)
+#define OP_SETUP_DC_TARGET 100.0f
+#define OP_SETUP_PWM_TARGET 70.0f
+#define OP_SETUP_RPM_DROP 50.0f
 
 typedef enum {
     CALIB_PHASE_IDLE = 0,
@@ -30,6 +34,12 @@ typedef enum {
     CALIB_PHASE_WAIT_BASELINE,
     CALIB_PHASE_RAMP,
 } calib_phase_t;
+
+typedef enum {
+    SETUP_PHASE_IDLE = 0,
+    SETUP_PHASE_WAIT_DC,
+    SETUP_PHASE_WAIT_PWM,
+} setup_phase_t;
 
 typedef struct {
     bool uses_override;
@@ -57,17 +67,53 @@ typedef struct {
 static void operation_manager_notify_custom(operation_type_t type,
                                             operation_state_t state,
                                             const char *err_text);
+static void operation_manager_notify_state(operation_state_t state_override);
 
 static int64_t g_calibration_sleep_until_us = 0;
 static calib_phase_t g_calib_phase = CALIB_PHASE_IDLE;
 static int64_t g_calib_next_check_us = 0;
 static float g_calib_baseline_rpm = 0.0f;
 static uint8_t g_calib_target = 0;
+static setup_phase_t g_setup_phase = SETUP_PHASE_IDLE;
+static int64_t g_setup_next_check_us = 0;
+static float g_setup_dc_rpm[METRICS_FAN_CHANNELS] = {0};
+static bool g_setup_active[METRICS_FAN_CHANNELS] = {false};
+static operation_state_t g_state = OP_STATE_IDLE;
+static operation_type_t g_active = OP_TYPE_NONE;
 
 static float op_calib_read_rpm(void) {
-    float rpm = metrics_get_fan_speed_rpm();
+    float rpm = metrics_get_fan_speed_rpm_channel(0);
     if (!isfinite(rpm)) return 0.0f;
     return rpm;
+}
+
+static bool op_calib_fan_monitoring_enabled(const params_t *params, uint8_t channel) {
+    if (!params) return false;
+    switch (channel) {
+        case 0:
+            return true;
+        case 1:
+            return params->fan2_monitoring_enabled != 0;
+        case 2:
+            return params->fan3_monitoring_enabled != 0;
+        case 3:
+            return params->fan4_monitoring_enabled != 0;
+        default:
+            return false;
+    }
+}
+
+static bool op_calib_monitored_fans_spinning(const params_t *params) {
+    for (uint8_t ch = 0; ch < METRICS_FAN_CHANNELS; ch++) {
+        if (!op_calib_fan_monitoring_enabled(params, ch)) {
+            continue;
+        }
+        float rpm = metrics_get_fan_speed_rpm_channel(ch);
+        if (!isfinite(rpm) || rpm <= 0.0f) {
+            return false;
+        }
+    }
+    return true;
 }
 
 static bool op_calib_apply_target(uint8_t target, const char **err_text) {
@@ -141,12 +187,19 @@ static op_step_result_t op_calibration_step(int64_t now_us, const char **err_tex
             snprintf(msg, sizeof(msg), "calib S%03hu R%05hu", step_u, rpm_u);
             operation_manager_notify_custom(OP_TYPE_FAN_CALIBRATION, OP_STATE_IN_SERVICE, msg);
         }
-        if (rpm >= g_calib_baseline_rpm + OP_CALIB_RPM_DELTA) {
-            params_t current;
-            if (!params_cache_get(&current) && !params_read(&current)) {
+        bool fan1_gap_ok = rpm >= g_calib_baseline_rpm + OP_CALIB_RPM_DELTA;
+        bool monitored_fans_ok = false;
+        params_t current;
+        bool params_loaded = false;
+        if (fan1_gap_ok) {
+            params_loaded = params_cache_get(&current) || params_read(&current);
+            if (!params_loaded) {
                 if (err_text) *err_text = "params read";
                 return OP_STEP_ERROR;
             }
+            monitored_fans_ok = op_calib_monitored_fans_spinning(&current);
+        }
+        if (fan1_gap_ok && monitored_fans_ok) {
             current.fan_min_speed = (int32_t)g_calib_target;
             if (!params_write(&current, PARAM_MASK_FAN_MIN_SPEED)) {
                 if (err_text) *err_text = "params write";
@@ -159,7 +212,7 @@ static op_step_result_t op_calibration_step(int64_t now_us, const char **err_tex
             return OP_STEP_DONE;
         }
         if (g_calib_target >= OP_CALIB_MAX_SPEED) {
-            if (err_text) *err_text = "no rpm change";
+            if (err_text) *err_text = fan1_gap_ok ? "fan not spinning" : "no rpm change";
             return OP_STEP_ERROR;
         }
         uint8_t next = g_calib_target + OP_CALIB_STEP_DELTA;
@@ -183,7 +236,150 @@ static void op_calibration_finish(void) {
     g_calib_target = 0;
 }
 
+static void op_setup_reset(void) {
+    g_setup_phase = SETUP_PHASE_IDLE;
+    g_setup_next_check_us = 0;
+    for (uint8_t ch = 0; ch < METRICS_FAN_CHANNELS; ch++) {
+        g_setup_dc_rpm[ch] = 0.0f;
+        g_setup_active[ch] = false;
+    }
+}
+
+static bool op_setup_read_params(params_t *out, const char **err_text) {
+    if (params_cache_get(out) || params_read(out)) {
+        return true;
+    }
+    if (err_text) *err_text = "params read";
+    return false;
+}
+
+static bool op_setup_apply_params(params_t *params, uint16_t mask, const char **err_text) {
+    if (!params_write(params, mask)) {
+        if (err_text) *err_text = "params write";
+        return false;
+    }
+    if (params_apply(NULL) != PARAM_STATUS_OK) {
+        if (err_text) *err_text = "params apply";
+        return false;
+    }
+    return true;
+}
+
+static bool op_setup_start(const char **err_text) {
+    op_setup_reset();
+    if (!fan_control_override_set_output(OP_TYPE_SETUP_FANS,
+                                         PARAM_FAN_CONTROL_DC,
+                                         OP_SETUP_DC_TARGET)) {
+        if (err_text) *err_text = "fan busy";
+        return false;
+    }
+    g_setup_phase = SETUP_PHASE_WAIT_DC;
+    g_setup_next_check_us = esp_timer_get_time() + OP_SETUP_WAIT_US;
+    return true;
+}
+
+static op_step_result_t op_setup_step(int64_t now_us, const char **err_text) {
+    if (g_setup_phase == SETUP_PHASE_WAIT_DC) {
+        if (now_us < g_setup_next_check_us) {
+            return OP_STEP_CONTINUE;
+        }
+
+        bool any_active = false;
+        for (uint8_t ch = 0; ch < METRICS_FAN_CHANNELS; ch++) {
+            float rpm = metrics_get_fan_speed_rpm_channel(ch);
+            g_setup_dc_rpm[ch] = isfinite(rpm) ? rpm : 0.0f;
+            g_setup_active[ch] = isfinite(rpm) && rpm > 0.0f;
+            any_active = any_active || g_setup_active[ch];
+        }
+        if (!any_active) {
+            if (err_text) *err_text = "no fans";
+            return OP_STEP_ERROR;
+        }
+
+        params_t current;
+        if (!op_setup_read_params(&current, err_text)) {
+            return OP_STEP_ERROR;
+        }
+        current.fan_monitoring_enabled = g_setup_active[0] ? 1U : 0U;
+        current.fan2_monitoring_enabled = g_setup_active[1] ? 1U : 0U;
+        current.fan3_monitoring_enabled = g_setup_active[2] ? 1U : 0U;
+        current.fan4_monitoring_enabled = g_setup_active[3] ? 1U : 0U;
+        if (!op_setup_apply_params(&current,
+                                   PARAM_MASK_FAN_MONITORING_ENABLED |
+                                       PARAM_MASK_FAN2_MONITORING_ENABLED |
+                                       PARAM_MASK_FAN3_MONITORING_ENABLED |
+                                       PARAM_MASK_FAN4_MONITORING_ENABLED,
+                                   err_text)) {
+            return OP_STEP_ERROR;
+        }
+
+        if (!fan_control_override_set_output(OP_TYPE_SETUP_FANS,
+                                             PARAM_FAN_CONTROL_PWM,
+                                             OP_SETUP_PWM_TARGET)) {
+            if (err_text) *err_text = "fan busy";
+            return OP_STEP_ERROR;
+        }
+        g_setup_phase = SETUP_PHASE_WAIT_PWM;
+        g_setup_next_check_us = esp_timer_get_time() + OP_SETUP_WAIT_US;
+        return OP_STEP_CONTINUE;
+    }
+
+    if (g_setup_phase == SETUP_PHASE_WAIT_PWM) {
+        if (now_us < g_setup_next_check_us) {
+            return OP_STEP_CONTINUE;
+        }
+
+        bool all_active_dropped = true;
+        for (uint8_t ch = 0; ch < METRICS_FAN_CHANNELS; ch++) {
+            if (!g_setup_active[ch]) {
+                continue;
+            }
+            float rpm = metrics_get_fan_speed_rpm_channel(ch);
+            float pwm_rpm = isfinite(rpm) ? rpm : 0.0f;
+            if (pwm_rpm > g_setup_dc_rpm[ch] - OP_SETUP_RPM_DROP) {
+                all_active_dropped = false;
+                break;
+            }
+        }
+
+        params_t current;
+        if (!op_setup_read_params(&current, err_text)) {
+            return OP_STEP_ERROR;
+        }
+        current.fan_control_type = all_active_dropped ? PARAM_FAN_CONTROL_PWM : PARAM_FAN_CONTROL_DC;
+        if (!op_setup_apply_params(&current, PARAM_MASK_FAN_CONTROL_TYPE, err_text)) {
+            return OP_STEP_ERROR;
+        }
+
+        fan_control_override_clear(OP_TYPE_SETUP_FANS);
+        op_setup_reset();
+        if (!op_calibration_start(err_text)) {
+            return OP_STEP_ERROR;
+        }
+        g_active = OP_TYPE_FAN_CALIBRATION;
+        operation_manager_notify_state(OP_STATE_IN_SERVICE);
+        return OP_STEP_CONTINUE;
+    }
+
+    if (err_text) *err_text = "setup state";
+    return OP_STEP_ERROR;
+}
+
+static void op_setup_finish(void) {
+    op_setup_reset();
+}
+
 static const op_def_t g_op_defs[] = {
+    {
+        .type = OP_TYPE_SETUP_FANS,
+        .guard = {
+            .uses_override = true,
+            .override_rpm = 0.0f,
+        },
+        .start = op_setup_start,
+        .step = op_setup_step,
+        .finish = op_setup_finish,
+    },
     {
         .type = OP_TYPE_FAN_CALIBRATION,
         .guard = {
@@ -196,8 +392,6 @@ static const op_def_t g_op_defs[] = {
     },
 };
 
-static operation_state_t g_state = OP_STATE_IDLE;
-static operation_type_t g_active = OP_TYPE_NONE;
 static char g_error_text[OP_ERROR_TEXT_MAX + 1];
 static uint8_t g_error_len = 0;
 static QueueHandle_t g_op_cmd_q = NULL;

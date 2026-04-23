@@ -9,7 +9,7 @@
 #define PARAMS_NS "params"
 #define PARAMS_KEY_VER "ver"
 #define PARAMS_KEY_BLOB "blob"
-#define PARAMS_VER_VALUE 4
+#define PARAMS_VER_VALUE 5
 
 typedef struct {
     uint8_t status;
@@ -24,9 +24,12 @@ static params_t g_current = {
     .fan_start_temp = 35,
     .fan_mode = PARAM_FAN_MODE_CONTINUOUS,
     .fan_monitoring_enabled = 1,
+    .fan2_monitoring_enabled = 1,
+    .fan3_monitoring_enabled = 1,
+    .fan4_monitoring_enabled = 1,
 };
 static params_t g_pending;
-static uint8_t g_pending_mask = 0;
+static uint16_t g_pending_mask = 0;
 static bool g_pending_valid = false;
 static params_status_t g_last_status = {PARAM_STATUS_OK, PARAM_FIELD_NONE};
 static params_t g_cache;
@@ -81,32 +84,41 @@ static void params_save_to_nvs(const params_t *params) {
     nvs_close(h);
 }
 
-static bool params_decode_payload(const uint8_t *data, size_t len, params_t *out, uint8_t *mask) {
+static bool params_decode_payload(const uint8_t *data, size_t len, params_t *out, uint16_t *mask) {
     if (len != PARAMS_PAYLOAD_LEN) return false;
     if (data[0] != PARAMS_VERSION) return false;
     if (out == NULL || mask == NULL) return false;
 
-    *mask = data[1] & PARAM_MASK_ALL;
-    memcpy(&out->fan_min_speed, data + 2, 4);
-    out->fan_control_type = data[6];
-    memcpy(&out->fan_max_temp, data + 7, 4);
-    memcpy(&out->fan_off_delta, data + 11, 4);
-    memcpy(&out->fan_start_temp, data + 15, 4);
-    out->fan_mode = data[19];
-    out->fan_monitoring_enabled = data[20];
+    uint16_t raw_mask = 0;
+    memcpy(&raw_mask, data + 1, sizeof(raw_mask));
+    *mask = raw_mask & PARAM_MASK_ALL;
+    memcpy(&out->fan_min_speed, data + 3, 4);
+    out->fan_control_type = data[7];
+    memcpy(&out->fan_max_temp, data + 8, 4);
+    memcpy(&out->fan_off_delta, data + 12, 4);
+    memcpy(&out->fan_start_temp, data + 16, 4);
+    out->fan_mode = data[20];
+    out->fan_monitoring_enabled = data[21];
+    out->fan2_monitoring_enabled = data[22];
+    out->fan3_monitoring_enabled = data[23];
+    out->fan4_monitoring_enabled = data[24];
     return true;
 }
 
-static void params_encode_payload(const params_t *params, uint8_t mask, uint8_t *out) {
+static void params_encode_payload(const params_t *params, uint16_t mask, uint8_t *out) {
+    uint16_t raw_mask = mask & PARAM_MASK_ALL;
     out[0] = PARAMS_VERSION;
-    out[1] = mask & PARAM_MASK_ALL;
-    memcpy(out + 2, &params->fan_min_speed, 4);
-    out[6] = params->fan_control_type;
-    memcpy(out + 7, &params->fan_max_temp, 4);
-    memcpy(out + 11, &params->fan_off_delta, 4);
-    memcpy(out + 15, &params->fan_start_temp, 4);
-    out[19] = params->fan_mode;
-    out[20] = params->fan_monitoring_enabled;
+    memcpy(out + 1, &raw_mask, sizeof(raw_mask));
+    memcpy(out + 3, &params->fan_min_speed, 4);
+    out[7] = params->fan_control_type;
+    memcpy(out + 8, &params->fan_max_temp, 4);
+    memcpy(out + 12, &params->fan_off_delta, 4);
+    memcpy(out + 16, &params->fan_start_temp, 4);
+    out[20] = params->fan_mode;
+    out[21] = params->fan_monitoring_enabled;
+    out[22] = params->fan2_monitoring_enabled;
+    out[23] = params->fan3_monitoring_enabled;
+    out[24] = params->fan4_monitoring_enabled;
 }
 
 static void set_last_status_locked(uint8_t status, uint8_t field) {
@@ -128,6 +140,9 @@ void params_init(void) {
         g_current.fan_start_temp = 35;
         g_current.fan_mode = PARAM_FAN_MODE_CONTINUOUS;
         g_current.fan_monitoring_enabled = 1;
+        g_current.fan2_monitoring_enabled = 1;
+        g_current.fan3_monitoring_enabled = 1;
+        g_current.fan4_monitoring_enabled = 1;
     }
     g_pending_valid = false;
     g_pending_mask = 0;
@@ -144,7 +159,7 @@ bool params_read(params_t *out) {
     return true;
 }
 
-bool params_write(const params_t *params, uint8_t mask) {
+bool params_write(const params_t *params, uint16_t mask) {
     if (params == NULL) return false;
     state_lock();
     g_pending = *params;
@@ -173,7 +188,7 @@ bool params_cache_get(params_t *out) {
 
 bool params_set_pending_payload(const uint8_t *data, size_t len) {
     params_t tmp;
-    uint8_t mask = 0;
+    uint16_t mask = 0;
     if (!params_decode_payload(data, len, &tmp, &mask)) return false;
     return params_write(&tmp, mask);
 }
@@ -239,8 +254,16 @@ static bool params_validate(const params_t *params, uint8_t *field) {
         if (field) *field = PARAM_FIELD_FAN_MODE;
         return false;
     }
-    if (params->fan_monitoring_enabled > 1) {
-        if (field) *field = PARAM_FIELD_FAN_MONITORING_ENABLED;
+    if (params->fan2_monitoring_enabled > 1) {
+        if (field) *field = PARAM_FIELD_FAN2_MONITORING_ENABLED;
+        return false;
+    }
+    if (params->fan3_monitoring_enabled > 1) {
+        if (field) *field = PARAM_FIELD_FAN3_MONITORING_ENABLED;
+        return false;
+    }
+    if (params->fan4_monitoring_enabled > 1) {
+        if (field) *field = PARAM_FIELD_FAN4_MONITORING_ENABLED;
         return false;
     }
     return true;
@@ -249,7 +272,7 @@ static bool params_validate(const params_t *params, uint8_t *field) {
 uint8_t params_apply(uint8_t *field_id) {
     params_t current;
     params_t pending;
-    uint8_t mask = 0;
+    uint16_t mask = 0;
     bool pending_valid = false;
 
     state_lock();
@@ -268,7 +291,11 @@ uint8_t params_apply(uint8_t *field_id) {
         if (mask & PARAM_MASK_FAN_START_TEMP) candidate.fan_start_temp = pending.fan_start_temp;
         if (mask & PARAM_MASK_FAN_MODE) candidate.fan_mode = pending.fan_mode;
         if (mask & PARAM_MASK_FAN_MONITORING_ENABLED) candidate.fan_monitoring_enabled = pending.fan_monitoring_enabled;
+        if (mask & PARAM_MASK_FAN2_MONITORING_ENABLED) candidate.fan2_monitoring_enabled = pending.fan2_monitoring_enabled;
+        if (mask & PARAM_MASK_FAN3_MONITORING_ENABLED) candidate.fan3_monitoring_enabled = pending.fan3_monitoring_enabled;
+        if (mask & PARAM_MASK_FAN4_MONITORING_ENABLED) candidate.fan4_monitoring_enabled = pending.fan4_monitoring_enabled;
     }
+    candidate.fan_monitoring_enabled = 1;
 
     uint8_t field = PARAM_FIELD_NONE;
     if (!params_validate(&candidate, &field)) {

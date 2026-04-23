@@ -18,8 +18,9 @@
 #define FAN_TAG "fan-ctl"
 
 #define FAN_RPM_THRESHOLD 300.0f
-#define FAN_START_TIMEOUT_US 500000
-#define FAN_FAIL_TIMEOUT_US 1000000
+#define FAN_CHANNEL_SCAN_TIMEOUT_US (METRICS_FAN_CHANNELS * 1000000LL)
+#define FAN_START_TIMEOUT_US FAN_CHANNEL_SCAN_TIMEOUT_US
+#define FAN_FAIL_TIMEOUT_US FAN_CHANNEL_SCAN_TIMEOUT_US
 #define FAN_HIGHSIDE_GPIO 3
 #define FAN_PWM_GPIO_DC 10
 #define FAN_PWM_GPIO_PWM 2
@@ -35,26 +36,30 @@ static uint32_t fan_control_max_duty(ledc_timer_bit_t res_bits) {
     return (1U << (uint32_t)res_bits) - 1U;
 }
 static operation_type_t fan_control_current_operation(void);
-static fan_state_t g_state = FAN_STATE_IDLE;
-static int64_t g_state_enter_us = 0;
-static int64_t g_last_rpm_ok_us = 0;
-static fan_state_t g_last_reported = FAN_STATE_IDLE;
+static fan_state_t g_state[METRICS_FAN_CHANNELS];
+static int64_t g_state_enter_us[METRICS_FAN_CHANNELS];
+static int64_t g_last_rpm_ok_us[METRICS_FAN_CHANNELS];
+static fan_state_t g_last_reported[METRICS_FAN_CHANNELS];
 static operation_type_t g_last_reported_op = OP_TYPE_NONE;
 static bool g_override_active = false;
 static operation_type_t g_override_op = OP_TYPE_NONE;
 static float g_override_rpm = 0.0f;
+static bool g_override_has_control_type = false;
+static uint8_t g_override_control_type = PARAM_FAN_CONTROL_DC;
 static uint32_t g_status_seq = 0;
 typedef struct {
-    fan_state_t state;
+    fan_state_t state[METRICS_FAN_CHANNELS];
     operation_type_t op;
 } fan_status_cache_t;
 static fan_status_cache_t g_status_cache = {0};
 
-static void fan_status_cache_write(fan_state_t state, operation_type_t op) {
+static void fan_status_cache_write(operation_type_t op) {
     fan_status_cache_t snap = {
-        .state = state,
         .op = op,
     };
+    for (uint8_t ch = 0; ch < METRICS_FAN_CHANNELS; ch++) {
+        snap.state[ch] = g_state[ch];
+    }
     __atomic_fetch_add(&g_status_seq, 1U, __ATOMIC_ACQ_REL);
     g_status_cache = snap;
     __atomic_fetch_add(&g_status_seq, 1U, __ATOMIC_ACQ_REL);
@@ -80,8 +85,7 @@ static bool fan_control_inverted(uint8_t control_type) {
     return control_type == PARAM_FAN_CONTROL_PWM;
 }
 
-static float fan_control_regulate(const params_t *params, float temp_c, float rpm) {
-    (void)rpm;
+static float fan_control_regulate(const params_t *params, float temp_c) {
     static bool temp_mode_running = false;
     if (!params) return 0.0f;
 
@@ -239,17 +243,58 @@ static void fan_control_apply_output(uint8_t control_type, float target_percent)
              gpio);
 }
 
-static void fan_control_set_state(fan_state_t next, int64_t now_us) {
-    g_state = next;
-    g_state_enter_us = now_us;
-    if (next == FAN_STATE_RUNNING) {
-        g_last_rpm_ok_us = now_us;
+static fan_state_t fan_control_aggregate_state(void) {
+    bool any_starting = false;
+    bool any_running = false;
+
+    for (uint8_t ch = 0; ch < METRICS_FAN_CHANNELS; ch++) {
+        if (g_state[ch] == FAN_STATE_IN_SERVICE) {
+            return FAN_STATE_IN_SERVICE;
+        }
+        if (g_state[ch] == FAN_STATE_STALL) {
+            return FAN_STATE_STALL;
+        }
+        if (g_state[ch] == FAN_STATE_STARTING) {
+            any_starting = true;
+        } else if (g_state[ch] == FAN_STATE_RUNNING) {
+            any_running = true;
+        }
     }
-    fan_status_cache_write(next, fan_control_current_operation());
+
+    if (any_starting) return FAN_STATE_STARTING;
+    if (any_running) return FAN_STATE_RUNNING;
+    return FAN_STATE_IDLE;
 }
 
-static fan_state_t fan_control_get_state(void) {
-    return g_state;
+static void fan_control_set_state(uint8_t channel, fan_state_t next, int64_t now_us) {
+    if (channel >= METRICS_FAN_CHANNELS) return;
+    g_state[channel] = next;
+    g_state_enter_us[channel] = now_us;
+    if (next == FAN_STATE_RUNNING) {
+        g_last_rpm_ok_us[channel] = now_us;
+    }
+    fan_status_cache_write(fan_control_current_operation());
+}
+
+static fan_state_t fan_control_get_state(uint8_t channel) {
+    if (channel >= METRICS_FAN_CHANNELS) return FAN_STATE_IDLE;
+    return g_state[channel];
+}
+
+static bool fan_control_monitoring_enabled(const params_t *params, uint8_t channel) {
+    if (!params) return false;
+    switch (channel) {
+        case 0:
+            return params->fan_monitoring_enabled != 0;
+        case 1:
+            return params->fan2_monitoring_enabled != 0;
+        case 2:
+            return params->fan3_monitoring_enabled != 0;
+        case 3:
+            return params->fan4_monitoring_enabled != 0;
+        default:
+            return false;
+    }
 }
 
 bool fan_control_override_set(uint8_t op_type, float target_rpm) {
@@ -257,6 +302,22 @@ bool fan_control_override_set(uint8_t op_type, float target_rpm) {
         g_override_active = true;
         g_override_op = (operation_type_t)op_type;
         g_override_rpm = target_rpm;
+        g_override_has_control_type = false;
+        return true;
+    }
+    return false;
+}
+
+bool fan_control_override_set_output(uint8_t op_type, uint8_t control_type, float target_percent) {
+    if (control_type != PARAM_FAN_CONTROL_DC && control_type != PARAM_FAN_CONTROL_PWM) {
+        return false;
+    }
+    if (!g_override_active || g_override_op == (operation_type_t)op_type) {
+        g_override_active = true;
+        g_override_op = (operation_type_t)op_type;
+        g_override_rpm = target_percent;
+        g_override_has_control_type = true;
+        g_override_control_type = control_type;
         return true;
     }
     return false;
@@ -267,6 +328,8 @@ void fan_control_override_clear(uint8_t op_type) {
         g_override_active = false;
         g_override_op = OP_TYPE_NONE;
         g_override_rpm = 0.0f;
+        g_override_has_control_type = false;
+        g_override_control_type = PARAM_FAN_CONTROL_DC;
     }
 }
 
@@ -277,26 +340,43 @@ static operation_type_t fan_control_current_operation(void) {
     return operation_manager_get_active_type();
 }
 
-static bool fan_control_override_get(operation_type_t *op_type, float *rpm) {
+static bool fan_control_override_get(operation_type_t *op_type,
+                                     float *rpm,
+                                     bool *has_control_type,
+                                     uint8_t *control_type) {
     bool active = g_override_active;
     if (active) {
         if (op_type) *op_type = g_override_op;
         if (rpm) *rpm = g_override_rpm;
+        if (has_control_type) *has_control_type = g_override_has_control_type;
+        if (control_type) *control_type = g_override_control_type;
     }
     return active;
 }
 
-static void fan_control_notify_state(fan_state_t state) {
+static void fan_control_notify_state(void) {
     operation_type_t op = fan_control_current_operation();
-    if (state == g_last_reported && op == g_last_reported_op) {
+    bool changed = (op != g_last_reported_op);
+    for (uint8_t ch = 0; ch < METRICS_FAN_CHANNELS; ch++) {
+        if (g_state[ch] != g_last_reported[ch]) {
+            changed = true;
+            break;
+        }
+    }
+    if (!changed) {
         return;
     }
-    g_last_reported = state;
+    for (uint8_t ch = 0; ch < METRICS_FAN_CHANNELS; ch++) {
+        g_last_reported[ch] = g_state[ch];
+    }
     g_last_reported_op = op;
-    fan_status_cache_write(state, op);
+    fan_status_cache_write(op);
     uint8_t payload[FAN_STATUS_PAYLOAD_LEN] = {
         FAN_STATUS_VERSION,
-        (uint8_t)state,
+        (uint8_t)g_state[0],
+        (uint8_t)g_state[1],
+        (uint8_t)g_state[2],
+        (uint8_t)g_state[3],
         (uint8_t)op,
     };
     uint16_t conn = fsm_get_conn_handle();
@@ -308,20 +388,27 @@ void fan_control_get_status_payload(uint8_t *out, size_t len) {
     fan_status_cache_t snap;
     fan_status_cache_read(&snap);
     out[0] = FAN_STATUS_VERSION;
-    out[1] = (uint8_t)snap.state;
-    out[2] = (uint8_t)snap.op;
+    for (uint8_t ch = 0; ch < METRICS_FAN_CHANNELS; ch++) {
+        out[1 + ch] = (uint8_t)snap.state[ch];
+    }
+    out[1 + METRICS_FAN_CHANNELS] = (uint8_t)snap.op;
 }
 
 void fan_control_init(void) {
-    g_state = FAN_STATE_IDLE;
-    g_state_enter_us = esp_timer_get_time();
-    g_last_rpm_ok_us = 0;
-    g_last_reported = FAN_STATE_IDLE;
+    int64_t now = esp_timer_get_time();
+    for (uint8_t ch = 0; ch < METRICS_FAN_CHANNELS; ch++) {
+        g_state[ch] = FAN_STATE_IDLE;
+        g_state_enter_us[ch] = now;
+        g_last_rpm_ok_us[ch] = 0;
+        g_last_reported[ch] = FAN_STATE_IDLE;
+    }
     g_last_reported_op = OP_TYPE_NONE;
     g_override_active = false;
     g_override_op = OP_TYPE_NONE;
     g_override_rpm = 0.0f;
-    fan_status_cache_write(FAN_STATE_IDLE, OP_TYPE_NONE);
+    g_override_has_control_type = false;
+    g_override_control_type = PARAM_FAN_CONTROL_DC;
+    fan_status_cache_write(OP_TYPE_NONE);
 }
 
 void fan_control_task(void *param) {
@@ -332,17 +419,24 @@ void fan_control_task(void *param) {
         int64_t now = esp_timer_get_time();
         operation_manager_tick(now);
 
-        fan_state_t state = fan_control_get_state();
+        fan_state_t aggregate_state = fan_control_aggregate_state();
         bool op_active = operation_manager_is_active();
         operation_type_t op_type = op_active ? operation_manager_get_active_type() : OP_TYPE_NONE;
         operation_type_t override_op = OP_TYPE_NONE;
         float override_rpm = 0.0f;
-        bool override_active = fan_control_override_get(&override_op, &override_rpm);
+        bool override_has_control_type = false;
+        uint8_t override_control_type = PARAM_FAN_CONTROL_DC;
+        bool override_active = fan_control_override_get(&override_op,
+                                                        &override_rpm,
+                                                        &override_has_control_type,
+                                                        &override_control_type);
 
         if (op_active) {
-            if (state != FAN_STATE_IN_SERVICE) {
-                fan_control_set_state(FAN_STATE_IN_SERVICE, now);
-                fan_control_notify_state(FAN_STATE_IN_SERVICE);
+            if (aggregate_state != FAN_STATE_IN_SERVICE) {
+                for (uint8_t ch = 0; ch < METRICS_FAN_CHANNELS; ch++) {
+                    fan_control_set_state(ch, FAN_STATE_IN_SERVICE, now);
+                }
+                fan_control_notify_state();
             }
             params_t params;
             uint8_t control_type = PARAM_FAN_CONTROL_DC;
@@ -350,6 +444,9 @@ void fan_control_task(void *param) {
                 control_type = params.fan_control_type;
             }
             if (override_active && override_op == op_type) {
+                if (override_has_control_type) {
+                    control_type = override_control_type;
+                }
                 fan_control_apply_output(control_type, override_rpm);
             } else {
                 fan_control_apply_output(control_type, 0.0f);
@@ -358,10 +455,12 @@ void fan_control_task(void *param) {
             continue;
         }
 
-        if (state == FAN_STATE_IN_SERVICE) {
-            fan_control_set_state(FAN_STATE_IDLE, now);
-            fan_control_notify_state(FAN_STATE_IDLE);
-            state = FAN_STATE_IDLE;
+        if (aggregate_state == FAN_STATE_IN_SERVICE) {
+            for (uint8_t ch = 0; ch < METRICS_FAN_CHANNELS; ch++) {
+                fan_control_set_state(ch, FAN_STATE_IDLE, now);
+            }
+            fan_control_notify_state();
+            aggregate_state = FAN_STATE_IDLE;
         }
 
         params_t params;
@@ -370,75 +469,72 @@ void fan_control_task(void *param) {
             continue;
         }
 
-        float rpm = metrics_get_fan_speed_rpm();
         float temp = metrics_get_temp(3);
-        float target_percent = fan_control_regulate(&params, temp, rpm);
+        float target_percent = fan_control_regulate(&params, temp);
         bool command_on = target_percent > 0.0f;
         bool fan_required = command_on;
-        bool rpm_ok = isfinite(rpm) && rpm >= FAN_RPM_THRESHOLD;
 
         fan_control_apply_output(params.fan_control_type, target_percent);
 
         if (!fan_required) {
-            if (state != FAN_STATE_IDLE) {
-                fan_control_set_state(FAN_STATE_IDLE, now);
-                fan_control_notify_state(FAN_STATE_IDLE);
+            if (aggregate_state != FAN_STATE_IDLE) {
+                for (uint8_t ch = 0; ch < METRICS_FAN_CHANNELS; ch++) {
+                    fan_control_set_state(ch, FAN_STATE_IDLE, now);
+                }
+                fan_control_notify_state();
             }
             vTaskDelay(delay);
             continue;
         }
 
-        if (!params.fan_monitoring_enabled) {
+        for (uint8_t ch = 0; ch < METRICS_FAN_CHANNELS; ch++) {
+            fan_state_t state = fan_control_get_state(ch);
+            float fan_rpm = metrics_get_fan_speed_rpm_channel(ch);
+            bool rpm_ok = isfinite(fan_rpm) && fan_rpm >= FAN_RPM_THRESHOLD;
+
+            if (!fan_control_monitoring_enabled(&params, ch)) {
+                fan_state_t next = rpm_ok ? FAN_STATE_RUNNING : FAN_STATE_IDLE;
+                if (state != next) {
+                    fan_control_set_state(ch, next, now);
+                }
+                continue;
+            }
+
             if (rpm_ok) {
-                if (state != FAN_STATE_RUNNING) {
-                    fan_control_set_state(FAN_STATE_RUNNING, now);
-                }
-                fan_control_notify_state(FAN_STATE_RUNNING);
-            } else if (state != FAN_STATE_IDLE) {
-                fan_control_set_state(FAN_STATE_IDLE, now);
-                fan_control_notify_state(FAN_STATE_IDLE);
+                g_last_rpm_ok_us[ch] = now;
             }
-            vTaskDelay(delay);
-            continue;
-        }
 
-        if (rpm_ok) {
-            g_last_rpm_ok_us = now;
+            switch (state) {
+                case FAN_STATE_IDLE:
+                    fan_control_set_state(ch, FAN_STATE_STARTING, now);
+                    break;
+                case FAN_STATE_STARTING:
+                    if (rpm_ok) {
+                        fan_control_set_state(ch, FAN_STATE_RUNNING, now);
+                    } else if (now - g_state_enter_us[ch] >= FAN_START_TIMEOUT_US) {
+                        ESP_LOGE(FAN_TAG, "Fan %u stall detected (start timeout), rpm=%.1f",
+                                 (unsigned)(ch + 1U), (double)fan_rpm);
+                        fan_control_set_state(ch, FAN_STATE_STALL, now);
+                    }
+                    break;
+                case FAN_STATE_RUNNING:
+                    if (!rpm_ok && now - g_last_rpm_ok_us[ch] >= FAN_FAIL_TIMEOUT_US) {
+                        ESP_LOGE(FAN_TAG, "Fan %u stall detected (run timeout), rpm=%.1f",
+                                 (unsigned)(ch + 1U), (double)fan_rpm);
+                        fan_control_set_state(ch, FAN_STATE_STALL, now);
+                    }
+                    break;
+                case FAN_STATE_STALL:
+                    if (rpm_ok) {
+                        fan_control_set_state(ch, FAN_STATE_RUNNING, now);
+                    }
+                    break;
+                default:
+                    fan_control_set_state(ch, FAN_STATE_IDLE, now);
+                    break;
+            }
         }
-
-        switch (state) {
-            case FAN_STATE_IDLE:
-                fan_control_set_state(FAN_STATE_STARTING, now);
-                break;
-            case FAN_STATE_STARTING:
-                if (rpm_ok) {
-                    fan_control_set_state(FAN_STATE_RUNNING, now);
-                    fan_control_notify_state(FAN_STATE_RUNNING);
-                } else if (now - g_state_enter_us >= FAN_START_TIMEOUT_US) {
-                    ESP_LOGE(FAN_TAG, "Fan stall detected (start timeout), rpm=%.1f", (double)rpm);
-                    fan_control_set_state(FAN_STATE_STALL, now);
-                    fan_control_notify_state(FAN_STATE_STALL);
-                }
-                break;
-            case FAN_STATE_RUNNING:
-                if (!rpm_ok && now - g_last_rpm_ok_us >= FAN_FAIL_TIMEOUT_US) {
-                    ESP_LOGE(FAN_TAG, "Fan stall detected (run timeout), rpm=%.1f", (double)rpm);
-                    fan_control_set_state(FAN_STATE_STALL, now);
-                    fan_control_notify_state(FAN_STATE_STALL);
-                } else if (rpm_ok) {
-                    fan_control_notify_state(FAN_STATE_RUNNING);
-                }
-                break;
-            case FAN_STATE_STALL:
-                if (rpm_ok) {
-                    fan_control_set_state(FAN_STATE_RUNNING, now);
-                    fan_control_notify_state(FAN_STATE_RUNNING);
-                }
-                break;
-            default:
-                fan_control_set_state(FAN_STATE_IDLE, now);
-                break;
-        }
+        fan_control_notify_state();
 
         vTaskDelay(delay);
     }

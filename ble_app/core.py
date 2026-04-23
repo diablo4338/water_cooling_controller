@@ -39,6 +39,9 @@ __all__ = [
     "UUID_TEMP2_VALUE",
     "UUID_TEMP3_VALUE",
     "UUID_FAN_SPEED_VALUE",
+    "UUID_FAN2_SPEED_VALUE",
+    "UUID_FAN3_SPEED_VALUE",
+    "UUID_FAN4_SPEED_VALUE",
     "UUID_CONFIG_SVC",
     "UUID_CONFIG_PARAMS",
     "UUID_CONFIG_STATUS",
@@ -83,6 +86,7 @@ __all__ = [
     "OP_ERROR_TEXT_MAX",
     "OP_TYPE_NONE",
     "OP_TYPE_FAN_CALIBRATION",
+    "OP_TYPE_SETUP_FANS",
     "OP_TYPE_NAMES",
     "OP_STATE_IDLE",
     "OP_STATE_IN_SERVICE",
@@ -141,6 +145,9 @@ UUID_TEMP1_VALUE = "a1b2c3d4-0b1c-4a2b-9c3d-4e5f60718292"
 UUID_TEMP2_VALUE = "a1b2c3d4-0b1c-4a2b-9c3d-4e5f60718293"
 UUID_TEMP3_VALUE = "a1b2c3d4-0b1c-4a2b-9c3d-4e5f60718294"
 UUID_FAN_SPEED_VALUE = "a1b2c3d4-0b1c-4a2b-9c3d-4e5f60718295"
+UUID_FAN2_SPEED_VALUE = "a1b2c3d4-0b1c-4a2b-9c3d-4e5f60718296"
+UUID_FAN3_SPEED_VALUE = "a1b2c3d4-0b1c-4a2b-9c3d-4e5f60718297"
+UUID_FAN4_SPEED_VALUE = "a1b2c3d4-0b1c-4a2b-9c3d-4e5f60718298"
 
 UUID_CONFIG_SVC = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e10"
 UUID_CONFIG_PARAMS = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e11"
@@ -152,6 +159,12 @@ UUID_OP_CONTROL = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e21"
 UUID_OP_STATUS = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e22"
 
 TEMP_CHAR_UUIDS = [UUID_TEMP0_VALUE, UUID_TEMP1_VALUE, UUID_TEMP2_VALUE, UUID_TEMP3_VALUE]
+FAN_SPEED_UUIDS = [
+    UUID_FAN_SPEED_VALUE,
+    UUID_FAN2_SPEED_VALUE,
+    UUID_FAN3_SPEED_VALUE,
+    UUID_FAN4_SPEED_VALUE,
+]
 
 APP_NAME = "BLECoolingController"
 
@@ -167,7 +180,7 @@ PAIRED_DB = os.path.join(APP_CONFIG_DIR, "paired_devices.json")
 HOST_KEY_PATH = os.path.join(APP_CONFIG_DIR, "host_key.pem")
 PARAMS_DB = os.path.join(APP_CONFIG_DIR, "params.json")
 
-PARAMS_VERSION = 4
+PARAMS_VERSION = 5
 PARAM_STATUS_OK = 0
 PARAM_STATUS_INVALID = 1
 PARAM_STATUS_BUSY = 2
@@ -180,6 +193,9 @@ PARAM_FIELD_NAMES = {
     4: "fan_start_temp",
     5: "fan_mode",
     6: "fan_monitoring_enabled",
+    7: "fan2_monitoring_enabled",
+    8: "fan3_monitoring_enabled",
+    9: "fan4_monitoring_enabled",
 }
 FAN_CONTROL_DC = 0
 FAN_CONTROL_PWM = 1
@@ -227,9 +243,11 @@ OP_CONTROL_VERSION = 1
 OP_ERROR_TEXT_MAX = 20
 OP_TYPE_NONE = 0
 OP_TYPE_FAN_CALIBRATION = 1
+OP_TYPE_SETUP_FANS = 2
 OP_TYPE_NAMES = {
     OP_TYPE_NONE: "NONE",
     OP_TYPE_FAN_CALIBRATION: "FAN_CALIBRATION",
+    OP_TYPE_SETUP_FANS: "SETUP_FANS",
 }
 OP_STATE_IDLE = 0
 OP_STATE_IN_SERVICE = 1
@@ -362,6 +380,9 @@ class DeviceParams:
     fan_start_temp: int
     fan_mode: int
     fan_monitoring_enabled: bool
+    fan2_monitoring_enabled: bool
+    fan3_monitoring_enabled: bool
+    fan4_monitoring_enabled: bool
 
 
 @dataclass(frozen=True)
@@ -373,10 +394,26 @@ class ParamsStatus:
 
 @dataclass(frozen=True)
 class FanStatus:
-    state: int
-    label: str
+    states: tuple[int, int, int, int]
+    labels: tuple[str, str, str, str]
     op_type: int
     op_label: str
+
+    @property
+    def state(self) -> int:
+        if FAN_STATE_STALL in self.states:
+            return FAN_STATE_STALL
+        if FAN_STATE_IN_SERVICE in self.states:
+            return FAN_STATE_IN_SERVICE
+        if FAN_STATE_STARTING in self.states:
+            return FAN_STATE_STARTING
+        if FAN_STATE_RUNNING in self.states:
+            return FAN_STATE_RUNNING
+        return FAN_STATE_IDLE
+
+    @property
+    def label(self) -> str:
+        return FAN_STATE_NAMES.get(self.state, "UNKNOWN")
 
 
 @dataclass(frozen=True)
@@ -402,6 +439,9 @@ DEFAULT_PARAMS = DeviceParams(
     fan_start_temp=35,
     fan_mode=FAN_MODE_CONTINUOUS,
     fan_monitoring_enabled=True,
+    fan2_monitoring_enabled=True,
+    fan3_monitoring_enabled=True,
+    fan4_monitoring_enabled=True,
 )
 
 
@@ -416,6 +456,15 @@ def _params_from_dict(raw: dict) -> Optional[DeviceParams]:
             fan_mode=int(raw.get("fan_mode", DEFAULT_PARAMS.fan_mode)),
             fan_monitoring_enabled=bool(
                 raw.get("fan_monitoring_enabled", DEFAULT_PARAMS.fan_monitoring_enabled)
+            ),
+            fan2_monitoring_enabled=bool(
+                raw.get("fan2_monitoring_enabled", DEFAULT_PARAMS.fan2_monitoring_enabled)
+            ),
+            fan3_monitoring_enabled=bool(
+                raw.get("fan3_monitoring_enabled", DEFAULT_PARAMS.fan3_monitoring_enabled)
+            ),
+            fan4_monitoring_enabled=bool(
+                raw.get("fan4_monitoring_enabled", DEFAULT_PARAMS.fan4_monitoring_enabled)
             ),
         )
     except (TypeError, ValueError):
@@ -432,6 +481,9 @@ def _params_to_dict(params: DeviceParams) -> dict:
         "fan_start_temp": params.fan_start_temp,
         "fan_mode": params.fan_mode,
         "fan_monitoring_enabled": params.fan_monitoring_enabled,
+        "fan2_monitoring_enabled": params.fan2_monitoring_enabled,
+        "fan3_monitoring_enabled": params.fan3_monitoring_enabled,
+        "fan4_monitoring_enabled": params.fan4_monitoring_enabled,
     }
 
 
@@ -494,11 +546,11 @@ def save_params(params: DeviceParams) -> None:
     _save_params_db(raw)
 
 
-def encode_params(params: DeviceParams, mask: int = 0x7F) -> bytes:
+def encode_params(params: DeviceParams, mask: int = 0x03FF) -> bytes:
     return struct.pack(
-        "<BBiBiiiBB",
+        "<BHiBiiiBBBBB",
         PARAMS_VERSION,
-        mask & 0x7F,
+        mask & 0x03FF,
         params.fan_min_speed,
         params.fan_control_type,
         params.fan_max_temp,
@@ -506,14 +558,30 @@ def encode_params(params: DeviceParams, mask: int = 0x7F) -> bytes:
         params.fan_start_temp,
         params.fan_mode,
         1 if params.fan_monitoring_enabled else 0,
+        1 if params.fan2_monitoring_enabled else 0,
+        1 if params.fan3_monitoring_enabled else 0,
+        1 if params.fan4_monitoring_enabled else 0,
     )
 
 
 def decode_params(data: bytes) -> DeviceParams:
-    if len(data) != 21:
+    if len(data) != 25:
         raise RuntimeError(f"Bad params len={len(data)}")
-    version, mask, fan_min_speed, fan_control_type, fan_max_temp, fan_off_delta, fan_start_temp, fan_mode, fan_monitoring_enabled = struct.unpack(
-        "<BBiBiiiBB", data
+    (
+        version,
+        mask,
+        fan_min_speed,
+        fan_control_type,
+        fan_max_temp,
+        fan_off_delta,
+        fan_start_temp,
+        fan_mode,
+        fan_monitoring_enabled,
+        fan2_monitoring_enabled,
+        fan3_monitoring_enabled,
+        fan4_monitoring_enabled,
+    ) = struct.unpack(
+        "<BHiBiiiBBBBB", data
     )
     if version != PARAMS_VERSION:
         raise RuntimeError(f"Unsupported params version={version}")
@@ -526,6 +594,9 @@ def decode_params(data: bytes) -> DeviceParams:
         fan_start_temp=int(fan_start_temp),
         fan_mode=int(fan_mode),
         fan_monitoring_enabled=bool(fan_monitoring_enabled),
+        fan2_monitoring_enabled=bool(fan2_monitoring_enabled),
+        fan3_monitoring_enabled=bool(fan3_monitoring_enabled),
+        fan4_monitoring_enabled=bool(fan4_monitoring_enabled),
     )
 
 
@@ -543,14 +614,15 @@ def decode_params_status(data: bytes) -> ParamsStatus:
 
 
 def decode_fan_status(data: bytes) -> FanStatus:
-    if len(data) != 3:
+    if len(data) != 6:
         raise RuntimeError(f"Bad fan status len={len(data)}")
-    version, state, op_type = struct.unpack("<BBB", data)
+    version, s1, s2, s3, s4, op_type = struct.unpack("<BBBBBB", data)
     if version != FAN_STATUS_VERSION:
         raise RuntimeError(f"Unsupported fan status version={version}")
-    label = FAN_STATE_NAMES.get(state, "UNKNOWN")
+    states = (int(s1), int(s2), int(s3), int(s4))
+    labels = tuple(FAN_STATE_NAMES.get(state, "UNKNOWN") for state in states)
     op_label = OP_TYPE_NAMES.get(op_type, "UNKNOWN")
-    return FanStatus(state=int(state), label=label, op_type=int(op_type), op_label=op_label)
+    return FanStatus(states=states, labels=labels, op_type=int(op_type), op_label=op_label)
 
 
 def decode_device_status(data: bytes) -> DeviceStatus:
@@ -811,6 +883,20 @@ class BleAppCore:
             raise RuntimeError(f"Bad fan speed value len={len(data)}")
         return value
 
+    async def read_fan_speeds(self, timeout: Optional[float] = None) -> list[float]:
+        if not self.client:
+            raise RuntimeError("Not connected")
+        if timeout is None:
+            timeout = self._config.metrics_timeout_s
+        values: list[float] = []
+        for uuid in FAN_SPEED_UUIDS:
+            data = await asyncio.wait_for(self.client.read_gatt_char(uuid), timeout=timeout)
+            value = decode_fan_speed(bytes(data))
+            if value is None:
+                raise RuntimeError(f"Bad fan speed value len={len(data)}")
+            values.append(value)
+        return values
+
     async def read_params(self, timeout: Optional[float] = None) -> DeviceParams:
         if not self.client:
             raise RuntimeError("Not connected")
@@ -852,7 +938,7 @@ class BleAppCore:
         return decode_operation_status(bytes(data))
 
     async def write_params(
-        self, params: DeviceParams, timeout: Optional[float] = None, mask: int = 0x7F
+        self, params: DeviceParams, timeout: Optional[float] = None, mask: int = 0x03FF
     ) -> None:
         if not self.client:
             raise RuntimeError("Not connected")
@@ -887,6 +973,9 @@ class BleAppCore:
 
     async def start_fan_calibration(self, timeout: Optional[float] = None) -> None:
         await self.start_operation(OP_TYPE_FAN_CALIBRATION, timeout=timeout)
+
+    async def start_setup_fans(self, timeout: Optional[float] = None) -> None:
+        await self.start_operation(OP_TYPE_SETUP_FANS, timeout=timeout)
 
     async def _reconnect_for_metrics(self, timeout: float) -> None:
         try:
@@ -970,7 +1059,7 @@ class BleAppCore:
     async def start_metrics_notify(
         self,
         callback: Callable[[int, float], None],
-        fan_callback: Optional[Callable[[float], None]] = None,
+        fan_callback: Optional[Callable[[int, float], None]] = None,
     ) -> None:
         if not self.client:
             raise RuntimeError("Not connected")
@@ -980,23 +1069,25 @@ class BleAppCore:
                 lambda _, data, ch=idx: self._emit_temp(callback, ch, data),
             )
         if fan_callback is not None:
-            try:
-                await self.client.start_notify(
-                    UUID_FAN_SPEED_VALUE,
-                    lambda _, data: self._emit_fan(fan_callback, data),
-                )
-            except Exception as exc:
-                self._emit(f"Fan notify unavailable: {exc}")
+            for idx, uuid in enumerate(FAN_SPEED_UUIDS):
+                try:
+                    await self.client.start_notify(
+                        uuid,
+                        lambda _, data, ch=idx: self._emit_fan(fan_callback, ch, data),
+                    )
+                except Exception as exc:
+                    self._emit(f"Fan {idx + 1} notify unavailable: {exc}")
 
     async def stop_metrics_notify(self) -> None:
         if not self.client:
             raise RuntimeError("Not connected")
         for uuid in TEMP_CHAR_UUIDS:
             await self.client.stop_notify(uuid)
-        try:
-            await self.client.stop_notify(UUID_FAN_SPEED_VALUE)
-        except Exception:
-            pass
+        for uuid in FAN_SPEED_UUIDS:
+            try:
+                await self.client.stop_notify(uuid)
+            except Exception:
+                pass
 
     @staticmethod
     def _emit_temp(callback: Callable[[int, float], None], channel: int, data: bytearray) -> None:
@@ -1006,11 +1097,11 @@ class BleAppCore:
         callback(channel, value)
 
     @staticmethod
-    def _emit_fan(callback: Callable[[float], None], data: bytearray) -> None:
+    def _emit_fan(callback: Callable[[int, float], None], channel: int, data: bytearray) -> None:
         value = decode_fan_speed(bytes(data))
         if value is None:
             return
-        callback(value)
+        callback(channel, value)
 
     @staticmethod
     def _emit_params_status(callback: Callable[[ParamsStatus], None], data: bytearray) -> None:

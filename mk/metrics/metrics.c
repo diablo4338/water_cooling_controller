@@ -5,6 +5,7 @@
 
 #include "esp_err.h"
 #include "esp_log.h"
+#include "esp_rom_sys.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -20,6 +21,8 @@ static uint8_t g_temp_failures[METRICS_TEMP_CHANNELS] = {0};
 static bool g_metrics_error = false;
 
 #define FAN_TACH_GPIO 18
+#define FAN_TACH_SEL_GPIO0 6
+#define FAN_TACH_SEL_GPIO1 7
 #define FAN_TACH_PULSES_PER_REV 2
 #define FAN_TACH_MIN_VALID_DT_US 10000U
 #define FAN_TACH_DT_BUF_SIZE 16
@@ -28,27 +31,36 @@ static bool g_metrics_error = false;
 #define FAN_TACH_RATIO_SCALE 10U
 #define FAN_TACH_MIN_RATIO_X10 6U
 #define FAN_TACH_MAX_RATIO_X10 22U
-#define FAN_TACH_STOP_TIMEOUT_US 2000000
+#define FAN_TACH_STOP_TIMEOUT_US (METRICS_FAN_CHANNELS * 1000000LL)
+#define FAN_TACH_SWITCH_DELAY_US 200
 #define FAN_RPM_NOTIFY_EPS 1.0f
 #define FAN_RPM_EMA_OLD 0.7f
 #define FAN_RPM_EMA_NEW 0.3f
 #define TEMP_NOTIFY_EPS 0.01f
 
+typedef struct {
+    volatile uint32_t dt_buf[FAN_TACH_DT_BUF_SIZE];
+    volatile uint32_t dt_count;
+    volatile uint32_t dt_idx;
+    volatile int64_t last_edge_us;
+    volatile int64_t last_valid_edge_us;
+    volatile uint32_t last_good_dt_us;
+    float rpm;
+    bool valid;
+    float filtered_rpm;
+    bool filter_valid;
+} fan_tach_channel_t;
+
 static portMUX_TYPE g_fan_mux = portMUX_INITIALIZER_UNLOCKED;
-static volatile uint32_t g_fan_dt_buf[FAN_TACH_DT_BUF_SIZE] = {0};
-static volatile uint32_t g_fan_dt_count = 0;
-static volatile uint32_t g_fan_dt_idx = 0;
-static volatile int64_t g_fan_last_edge_us = 0;
-static volatile int64_t g_fan_last_valid_edge_us = 0;
-static volatile uint32_t g_fan_last_good_dt_us = 0;
-static float g_fan_rpm = NAN;
-static bool g_fan_valid = false;
-static float g_fan_filtered_rpm = 0.0f;
-static bool g_fan_filter_valid = false;
+static fan_tach_channel_t g_fan_channels[METRICS_FAN_CHANNELS];
+static volatile uint8_t g_fan_active_channel = 0;
+static volatile int64_t g_fan_ignore_edges_until_us = 0;
 static uint32_t g_snapshot_seq = 0;
 static metrics_snapshot_t g_snapshot = {0};
 
 static void fan_pcnt_init(void);
+static uint8_t fan_tach_get_active_channel(void);
+static void fan_tach_select_channel(uint8_t channel);
 static void fan_tach_isr(void *arg);
 static void metrics_snapshot_write_from_state(void);
 static bool metrics_snapshot_read(metrics_snapshot_t *out);
@@ -62,18 +74,22 @@ void metrics_init(void) {
         g_temp_valid[i] = false;
         g_temp_failures[i] = 0;
     }
-    g_fan_rpm = NAN;
-    g_fan_valid = false;
-    g_fan_filtered_rpm = 0.0f;
-    g_fan_filter_valid = false;
-    g_fan_last_edge_us = 0;
-    g_fan_last_valid_edge_us = 0;
-    g_fan_last_good_dt_us = 0;
-    g_fan_dt_count = 0;
-    g_fan_dt_idx = 0;
-    for (int i = 0; i < FAN_TACH_DT_BUF_SIZE; i++) {
-        g_fan_dt_buf[i] = 0;
+    for (uint8_t ch = 0; ch < METRICS_FAN_CHANNELS; ch++) {
+        g_fan_channels[ch].rpm = NAN;
+        g_fan_channels[ch].valid = false;
+        g_fan_channels[ch].filtered_rpm = 0.0f;
+        g_fan_channels[ch].filter_valid = false;
+        g_fan_channels[ch].last_edge_us = 0;
+        g_fan_channels[ch].last_valid_edge_us = 0;
+        g_fan_channels[ch].last_good_dt_us = 0;
+        g_fan_channels[ch].dt_count = 0;
+        g_fan_channels[ch].dt_idx = 0;
+        for (int i = 0; i < FAN_TACH_DT_BUF_SIZE; i++) {
+            g_fan_channels[ch].dt_buf[i] = 0;
+        }
     }
+    g_fan_active_channel = 0;
+    g_fan_ignore_edges_until_us = 0;
     g_metrics_error = !ads1115_init();
     fan_pcnt_init();
     metrics_snapshot_write_from_state();
@@ -87,14 +103,25 @@ float metrics_get_temp(uint8_t channel) {
     return snap.temp_c[channel];
 }
 
-float metrics_get_fan_speed_rpm(void) {
+float metrics_get_fan_speed_rpm_channel(uint8_t channel) {
+    if (channel >= METRICS_FAN_CHANNELS) return NAN;
     metrics_snapshot_t snap;
     metrics_get_snapshot(&snap);
-    if (!snap.fan_valid) return NAN;
-    return snap.fan_rpm;
+    if (!snap.fan_valid[channel]) return NAN;
+    return snap.fan_rpm[channel];
 }
 
 static void fan_pcnt_init(void) {
+    gpio_config_t sel_io = {
+        .pin_bit_mask = (1ULL << FAN_TACH_SEL_GPIO0) | (1ULL << FAN_TACH_SEL_GPIO1),
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    ESP_ERROR_CHECK(gpio_config(&sel_io));
+    fan_tach_select_channel(0);
+
     gpio_config_t io = {
         .pin_bit_mask = 1ULL << FAN_TACH_GPIO,
         .mode = GPIO_MODE_INPUT,
@@ -111,6 +138,28 @@ static void fan_pcnt_init(void) {
     if (err != ESP_OK) {
         ESP_LOGW(METRICS_TAG, "gpio_isr_handler_add failed: %d", err);
     }
+}
+
+static uint8_t fan_tach_get_active_channel(void) {
+    uint8_t channel = 0;
+    portENTER_CRITICAL(&g_fan_mux);
+    channel = g_fan_active_channel;
+    portEXIT_CRITICAL(&g_fan_mux);
+    return channel;
+}
+
+static void fan_tach_select_channel(uint8_t channel) {
+    if (channel >= METRICS_FAN_CHANNELS) return;
+
+    gpio_set_level(FAN_TACH_SEL_GPIO0, channel & 0x01U);
+    gpio_set_level(FAN_TACH_SEL_GPIO1, (channel >> 1) & 0x01U);
+
+    int64_t ignore_until = esp_timer_get_time() + FAN_TACH_SWITCH_DELAY_US;
+    portENTER_CRITICAL(&g_fan_mux);
+    g_fan_active_channel = channel;
+    g_fan_ignore_edges_until_us = ignore_until;
+    g_fan_channels[channel].last_edge_us = 0;
+    portEXIT_CRITICAL(&g_fan_mux);
 }
 
 static bool metrics_update_value(uint8_t channel, float temp_c) {
@@ -133,7 +182,8 @@ static bool metrics_mark_invalid(uint8_t channel) {
     return true;
 }
 
-static bool metrics_calc_fan_rpm(float *out_rpm) {
+static bool metrics_calc_fan_rpm(uint8_t channel, float *out_rpm) {
+    if (channel >= METRICS_FAN_CHANNELS) return false;
     int64_t now = esp_timer_get_time();
     uint32_t count = 0;
     int64_t last_valid_edge = 0;
@@ -141,20 +191,21 @@ static bool metrics_calc_fan_rpm(float *out_rpm) {
     bool stopped = false;
 
     portENTER_CRITICAL(&g_fan_mux);
-    last_valid_edge = g_fan_last_valid_edge_us;
+    fan_tach_channel_t *fan = &g_fan_channels[channel];
+    last_valid_edge = fan->last_valid_edge_us;
     if (last_valid_edge != 0 && (now - last_valid_edge) > FAN_TACH_STOP_TIMEOUT_US) {
         stopped = true;
-        g_fan_dt_count = 0;
-        g_fan_dt_idx = 0;
-        g_fan_last_edge_us = 0;
-        g_fan_last_good_dt_us = 0;
+        fan->dt_count = 0;
+        fan->dt_idx = 0;
+        fan->last_edge_us = 0;
+        fan->last_good_dt_us = 0;
         for (uint32_t i = 0; i < FAN_TACH_DT_BUF_SIZE; i++) {
-            g_fan_dt_buf[i] = 0;
+            fan->dt_buf[i] = 0;
         }
     } else {
-        count = g_fan_dt_count;
+        count = fan->dt_count;
         for (uint32_t i = 0; i < FAN_TACH_DT_BUF_SIZE; i++) {
-            buf[i] = g_fan_dt_buf[i];
+            buf[i] = fan->dt_buf[i];
         }
     }
     portEXIT_CRITICAL(&g_fan_mux);
@@ -163,8 +214,8 @@ static bool metrics_calc_fan_rpm(float *out_rpm) {
         return false;
     }
     if (stopped) {
-        g_fan_filtered_rpm = 0.0f;
-        g_fan_filter_valid = false;
+        g_fan_channels[channel].filtered_rpm = 0.0f;
+        g_fan_channels[channel].filter_valid = false;
         *out_rpm = 0.0f;
         return true;
     }
@@ -212,13 +263,14 @@ static bool metrics_calc_fan_rpm(float *out_rpm) {
     if (!isfinite(raw_rpm) || raw_rpm < 0.0f) {
         return false;
     }
-    if (!g_fan_filter_valid) {
-        g_fan_filtered_rpm = raw_rpm;
-        g_fan_filter_valid = true;
+    if (!g_fan_channels[channel].filter_valid) {
+        g_fan_channels[channel].filtered_rpm = raw_rpm;
+        g_fan_channels[channel].filter_valid = true;
     } else {
-        g_fan_filtered_rpm = g_fan_filtered_rpm * FAN_RPM_EMA_OLD + raw_rpm * FAN_RPM_EMA_NEW;
+        g_fan_channels[channel].filtered_rpm =
+            g_fan_channels[channel].filtered_rpm * FAN_RPM_EMA_OLD + raw_rpm * FAN_RPM_EMA_NEW;
     }
-    *out_rpm = g_fan_filtered_rpm;
+    *out_rpm = g_fan_channels[channel].filtered_rpm;
     return true;
 }
 
@@ -226,8 +278,18 @@ static void IRAM_ATTR fan_tach_isr(void *arg) {
     (void)arg;
     int64_t now = esp_timer_get_time();
     portENTER_CRITICAL_ISR(&g_fan_mux);
-    int64_t last = g_fan_last_edge_us;
-    g_fan_last_edge_us = now;
+    if (now < g_fan_ignore_edges_until_us) {
+        portEXIT_CRITICAL_ISR(&g_fan_mux);
+        return;
+    }
+    uint8_t channel = g_fan_active_channel;
+    if (channel >= METRICS_FAN_CHANNELS) {
+        portEXIT_CRITICAL_ISR(&g_fan_mux);
+        return;
+    }
+    fan_tach_channel_t *fan = &g_fan_channels[channel];
+    int64_t last = fan->last_edge_us;
+    fan->last_edge_us = now;
     if (last == 0) {
         portEXIT_CRITICAL_ISR(&g_fan_mux);
         return;
@@ -243,7 +305,7 @@ static void IRAM_ATTR fan_tach_isr(void *arg) {
         return;
     }
 
-    uint32_t last_good_dt_us = g_fan_last_good_dt_us;
+    uint32_t last_good_dt_us = fan->last_good_dt_us;
     if (last_good_dt_us != 0) {
         uint64_t dt_scaled = (uint64_t)dt_us * FAN_TACH_RATIO_SCALE;
         if (dt_scaled < (uint64_t)last_good_dt_us * FAN_TACH_MIN_RATIO_X10 ||
@@ -253,34 +315,38 @@ static void IRAM_ATTR fan_tach_isr(void *arg) {
         }
     }
 
-    g_fan_last_valid_edge_us = now;
-    g_fan_last_good_dt_us = dt_us;
-    uint32_t idx = g_fan_dt_idx;
-    g_fan_dt_buf[idx] = dt_us;
-    g_fan_dt_idx = (idx + 1) % FAN_TACH_DT_BUF_SIZE;
-    if (g_fan_dt_count < FAN_TACH_DT_BUF_SIZE) {
-        g_fan_dt_count++;
+    fan->last_valid_edge_us = now;
+    fan->last_good_dt_us = dt_us;
+    uint32_t idx = fan->dt_idx;
+    fan->dt_buf[idx] = dt_us;
+    fan->dt_idx = (idx + 1) % FAN_TACH_DT_BUF_SIZE;
+    if (fan->dt_count < FAN_TACH_DT_BUF_SIZE) {
+        fan->dt_count++;
     }
     portEXIT_CRITICAL_ISR(&g_fan_mux);
 }
 
-static bool metrics_update_fan(float rpm) {
+static bool metrics_update_fan(uint8_t channel, float rpm) {
+    if (channel >= METRICS_FAN_CHANNELS) return false;
+    fan_tach_channel_t *fan = &g_fan_channels[channel];
     if (!isfinite(rpm) || rpm < 0.0f) {
-        if (!g_fan_valid) return false;
-        g_fan_valid = false;
+        if (!fan->valid) return false;
+        fan->valid = false;
         return true;
     }
-    bool changed = !g_fan_valid || fabsf(g_fan_rpm - rpm) >= FAN_RPM_NOTIFY_EPS;
-    g_fan_valid = true;
-    g_fan_rpm = rpm;
+    bool changed = !fan->valid || fabsf(fan->rpm - rpm) >= FAN_RPM_NOTIFY_EPS;
+    fan->valid = true;
+    fan->rpm = rpm;
     return changed;
 }
 
-static bool metrics_mark_fan_invalid(void) {
-    if (!g_fan_valid) return false;
-    g_fan_valid = false;
-    g_fan_filter_valid = false;
-    g_fan_filtered_rpm = 0.0f;
+static bool metrics_mark_fan_invalid(uint8_t channel) {
+    if (channel >= METRICS_FAN_CHANNELS) return false;
+    fan_tach_channel_t *fan = &g_fan_channels[channel];
+    if (!fan->valid) return false;
+    fan->valid = false;
+    fan->filter_valid = false;
+    fan->filtered_rpm = 0.0f;
     return true;
 }
 
@@ -342,14 +408,18 @@ uint8_t metrics_sample_all(void) {
         vTaskDelay(pdMS_TO_TICKS(ADS1115_INTER_CH_DELAY_MS));
     }
 
+    uint8_t fan_channel = fan_tach_get_active_channel();
     float rpm = 0.0f;
-    if (metrics_calc_fan_rpm(&rpm)) {
-        if (metrics_update_fan(rpm)) {
-            changed_mask |= METRICS_FAN_CHANGED_BIT;
+    if (metrics_calc_fan_rpm(fan_channel, &rpm)) {
+        if (metrics_update_fan(fan_channel, rpm)) {
+            changed_mask |= (uint8_t)METRICS_FAN_CHANGED_BIT(fan_channel);
         }
-    } else if (metrics_mark_fan_invalid()) {
-        changed_mask |= METRICS_FAN_CHANGED_BIT;
+    } else if (metrics_mark_fan_invalid(fan_channel)) {
+        changed_mask |= (uint8_t)METRICS_FAN_CHANGED_BIT(fan_channel);
     }
+
+    fan_tach_select_channel((uint8_t)((fan_channel + 1U) % METRICS_FAN_CHANNELS));
+    esp_rom_delay_us(FAN_TACH_SWITCH_DELAY_US);
 
     metrics_snapshot_write_from_state();
     return changed_mask;
@@ -365,8 +435,10 @@ static void metrics_snapshot_write_from_state(void) {
         snap.temp_c[i] = g_temp_values[i];
         snap.temp_valid[i] = g_temp_valid[i] ? 1U : 0U;
     }
-    snap.fan_rpm = g_fan_rpm;
-    snap.fan_valid = g_fan_valid ? 1U : 0U;
+    for (int i = 0; i < METRICS_FAN_CHANNELS; i++) {
+        snap.fan_rpm[i] = g_fan_channels[i].rpm;
+        snap.fan_valid[i] = g_fan_channels[i].valid ? 1U : 0U;
+    }
 
     __atomic_fetch_add(&g_snapshot_seq, 1U, __ATOMIC_ACQ_REL);
     g_snapshot = snap;

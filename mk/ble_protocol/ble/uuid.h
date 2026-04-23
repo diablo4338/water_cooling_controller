@@ -28,6 +28,9 @@ extern const char *UUID_TEMP1_VALUE_STR;
 extern const char *UUID_TEMP2_VALUE_STR;
 extern const char *UUID_TEMP3_VALUE_STR;
 extern const char *UUID_FAN_SPEED_VALUE_STR;
+extern const char *UUID_FAN2_SPEED_VALUE_STR;
+extern const char *UUID_FAN3_SPEED_VALUE_STR;
+extern const char *UUID_FAN4_SPEED_VALUE_STR;
 
 extern ble_uuid_any_t UUID_PAIR_SVC;
 extern ble_uuid_any_t UUID_MAIN_SVC;
@@ -54,5 +57,8 @@ extern ble_uuid_any_t UUID_TEMP1_VALUE;
 extern ble_uuid_any_t UUID_TEMP2_VALUE;
 extern ble_uuid_any_t UUID_TEMP3_VALUE;
 extern ble_uuid_any_t UUID_FAN_SPEED_VALUE;
+extern ble_uuid_any_t UUID_FAN2_SPEED_VALUE;
+extern ble_uuid_any_t UUID_FAN3_SPEED_VALUE;
+extern ble_uuid_any_t UUID_FAN4_SPEED_VALUE;
 
 #endif
