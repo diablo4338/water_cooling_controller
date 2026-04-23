@@ -10,6 +10,7 @@
 #include "freertos/task.h"
 
 #include "fan_status_ble.h"
+#include "device_status.h"
 #include "metrics.h"
 #include "operation_manager.h"
 #include "params.h"
@@ -28,6 +29,7 @@
 #define FAN_DC_FREQ_HZ 1000
 #define FAN_PWM_RES_BITS LEDC_TIMER_10_BIT
 #define FAN_DC_RES_BITS LEDC_TIMER_10_BIT
+#define FAN_TEMP_CONTROL_CHANNEL 3
 static const ledc_mode_t FAN_PWM_MODE = LEDC_LOW_SPEED_MODE;
 static const ledc_channel_t FAN_PWM_CHANNEL_ACTIVE = LEDC_CHANNEL_0;
 static const ledc_timer_t FAN_PWM_TIMER = LEDC_TIMER_0;
@@ -443,6 +445,7 @@ void fan_control_task(void *param) {
 
         if (op_active) {
             fan_control_set_overheat(false);
+            device_status_set_error_flag(DEVICE_ERROR_NTC_DISCONNECTED, false);
             if (aggregate_state != FAN_STATE_IN_SERVICE) {
                 for (uint8_t ch = 0; ch < METRICS_FAN_CHANNELS; ch++) {
                     fan_control_set_state(ch, FAN_STATE_IN_SERVICE, now);
@@ -477,16 +480,24 @@ void fan_control_task(void *param) {
         params_t params;
         if (!params_cache_get(&params)) {
             fan_control_set_overheat(false);
+            device_status_set_error_flag(DEVICE_ERROR_NTC_DISCONNECTED, false);
             vTaskDelay(delay);
             continue;
         }
 
-        float temp = metrics_get_temp(3);
+        float temp = metrics_get_temp(FAN_TEMP_CONTROL_CHANNEL);
+        bool temp_sensor_disconnected =
+            params.fan_mode == PARAM_FAN_MODE_TEMP_SENSOR &&
+            !isfinite(temp);
+        device_status_set_error_flag(DEVICE_ERROR_NTC_DISCONNECTED, temp_sensor_disconnected);
         bool overheat = params.fan_mode == PARAM_FAN_MODE_TEMP_SENSOR &&
                         isfinite(temp) &&
                         temp >= (float)params.fan_max_temp;
         fan_control_set_overheat(overheat);
         float target_percent = fan_control_regulate(&params, temp);
+        if (temp_sensor_disconnected) {
+            target_percent = (float)params.fan_min_speed;
+        }
         bool command_on = target_percent > 0.0f;
         bool fan_required = command_on;
 

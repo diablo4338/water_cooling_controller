@@ -64,6 +64,7 @@ Characteristics:
 - `CONFIG_PARAMS` (read/write): parameter payload (version, mask, 3 float32 LE)
 - `CONFIG_STATUS` (read/notify/write): apply status; write `0x01` to apply
 - `CONFIG_FAN_STATUS` (read/notify): fan status (`IDLE/STARTING/RUNNING/STALL/IN_SERVICE`)
+- `CONFIG_DEVICE_STATUS` (read/notify): global device status (`OK/ERROR`)
 
 Payload `CONFIG_PARAMS`:
 - `version` (uint8) = `1`
@@ -81,6 +82,13 @@ Payload `CONFIG_FAN_STATUS`:
 - `version` (uint8) = `1`
 - `state` (uint8): `0=IDLE`, `1=STARTING`, `2=RUNNING`, `3=STALL`, `4=IN_SERVICE`
 - `op_type` (uint8): `0=NONE`, `1=FAN_CALIBRATION` (set when `state=IN_SERVICE`)
+
+Payload `CONFIG_DEVICE_STATUS`:
+- `version` (uint8) = `2`
+- `state` (uint8): `0=OK`, `1=ERROR`
+- `error_mask` (uint32 LE): bitmask of active errors
+- bit0: `ADC_OFFLINE`
+- bit1: `NTC_DISCONNECTED`
 
 Parameters are cached in RAM and persisted to NVS; firmware loads them from NVS on boot.
 
@@ -128,6 +136,7 @@ AUTH_PROOF: `74cde77a-7f14-4e6e-b7f5-92ef0c3ad7e4`
 CONFIG_PARAMS: `6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e11`
 CONFIG_STATUS: `6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e12`
 CONFIG_FAN_STATUS: `6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e13`
+CONFIG_DEVICE_STATUS: `6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e14`
 OP_CONTROL: `6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e21`
 OP_STATUS: `6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e22`
 

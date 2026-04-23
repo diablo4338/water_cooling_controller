@@ -362,11 +362,13 @@ uint8_t metrics_sample_all(void) {
         int16_t raw = 0;
         if (ads1115_read_raw(ch, &raw)) {
             g_metrics_error = false;
-            if (raw < METRICS_RAW_NO_SENSOR_THRESHOLD) {
+            float temp_c = ads1115_raw_to_temp(raw);
+            if (raw < METRICS_RAW_NO_SENSOR_THRESHOLD || !isfinite(temp_c)) {
                 bool was_offline = g_temp_failures[ch] >= METRICS_FAIL_THRESHOLD;
                 g_temp_failures[ch] = METRICS_FAIL_THRESHOLD;
                 if (!was_offline) {
-                    ESP_LOGW(METRICS_TAG, "channel %u no sensor (raw=%d)", (unsigned)ch, raw);
+                    ESP_LOGW(METRICS_TAG, "channel %u no sensor (raw=%d temp=%.2f)",
+                             (unsigned)ch, raw, (double)temp_c);
                 }
                 if (metrics_mark_invalid(ch)) {
                     changed_mask |= (uint8_t)(1U << ch);
@@ -379,7 +381,6 @@ uint8_t metrics_sample_all(void) {
             if (was_offline) {
                 ESP_LOGI(METRICS_TAG, "channel %u online", (unsigned)ch);
             }
-            float temp_c = ads1115_raw_to_temp(raw);
             if (metrics_update_value(ch, temp_c)) {
                 changed_mask |= (uint8_t)(1U << ch);
             }

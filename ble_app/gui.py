@@ -1466,11 +1466,10 @@ class MainWindow(QMainWindow):
             self.device_status_field.setText("OK")
             self._set_device_status_indicator("#22c55e")
         elif status.state == DEVICE_STATE_ERROR:
-            error_label = DEVICE_ERROR_NAMES.get(status.error, status.error_label)
-            if status.error == DEVICE_ERROR_NONE:
+            if status.error_mask == DEVICE_ERROR_NONE:
                 self.device_status_field.setText("ERROR")
             else:
-                self.device_status_field.setText(f"ERROR ({error_label})")
+                self.device_status_field.setText(f"ERROR ({', '.join(status.error_labels)})")
             self._set_device_status_indicator("#ef4444")
         else:
             self.device_status_field.setText(status.label)

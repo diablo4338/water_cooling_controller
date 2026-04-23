@@ -73,6 +73,7 @@ __all__ = [
     "DEVICE_STATE_ERROR",
     "DEVICE_ERROR_NONE",
     "DEVICE_ERROR_ADC_OFFLINE",
+    "DEVICE_ERROR_NTC_DISCONNECTED",
     "DEVICE_STATE_NAMES",
     "DEVICE_ERROR_NAMES",
     "FAN_STATE_IDLE",
@@ -212,11 +213,13 @@ FAN_MODE_NAMES = {
     FAN_MODE_INACTIVE: "Inactive (fans off)",
 }
 FAN_STATUS_VERSION = 1
-DEVICE_STATUS_VERSION = 1
+DEVICE_STATUS_VERSION = 2
 DEVICE_STATE_OK = 0
 DEVICE_STATE_ERROR = 1
 DEVICE_ERROR_NONE = 0
-DEVICE_ERROR_ADC_OFFLINE = 1
+DEVICE_ERROR_ADC_OFFLINE = 1 << 0
+DEVICE_ERROR_NTC_DISCONNECTED = 1 << 1
+DEVICE_ERROR_KNOWN_MASK = DEVICE_ERROR_ADC_OFFLINE | DEVICE_ERROR_NTC_DISCONNECTED
 DEVICE_STATE_NAMES = {
     DEVICE_STATE_OK: "OK",
     DEVICE_STATE_ERROR: "ERROR",
@@ -224,6 +227,7 @@ DEVICE_STATE_NAMES = {
 DEVICE_ERROR_NAMES = {
     DEVICE_ERROR_NONE: "NONE",
     DEVICE_ERROR_ADC_OFFLINE: "ADC_OFFLINE",
+    DEVICE_ERROR_NTC_DISCONNECTED: "NTC_DISCONNECTED",
 }
 FAN_STATE_IDLE = 0
 FAN_STATE_STARTING = 1
@@ -420,8 +424,9 @@ class FanStatus:
 class DeviceStatus:
     state: int
     label: str
-    error: int
-    error_label: str
+    error_mask: int
+    errors: tuple[int, ...]
+    error_labels: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -625,17 +630,37 @@ def decode_fan_status(data: bytes) -> FanStatus:
     return FanStatus(states=states, labels=labels, op_type=int(op_type), op_label=op_label)
 
 
+def _decode_device_error_mask(error_mask: int) -> tuple[tuple[int, ...], tuple[str, ...]]:
+    if error_mask == DEVICE_ERROR_NONE:
+        return (), ()
+    errors = tuple(
+        flag for flag in sorted(DEVICE_ERROR_NAMES) if flag != DEVICE_ERROR_NONE and (error_mask & flag)
+    )
+    labels = tuple(DEVICE_ERROR_NAMES.get(flag, f"UNKNOWN_0x{flag:08X}") for flag in errors)
+    unknown_bits = error_mask & ~DEVICE_ERROR_KNOWN_MASK
+    if unknown_bits:
+        bit = 1
+        while bit <= unknown_bits:
+            if unknown_bits & bit:
+                errors += (bit,)
+                labels += (f"UNKNOWN_0x{bit:08X}",)
+            bit <<= 1
+    return errors, labels
+
+
 def decode_device_status(data: bytes) -> DeviceStatus:
-    if len(data) != 3:
+    if len(data) != 6:
         raise RuntimeError(f"Bad device status len={len(data)}")
-    version, state, error = struct.unpack("<BBB", data)
+    version, state, error_mask = struct.unpack("<BBI", data)
     if version != DEVICE_STATUS_VERSION:
         raise RuntimeError(f"Unsupported device status version={version}")
+    errors, error_labels = _decode_device_error_mask(int(error_mask))
     return DeviceStatus(
         state=int(state),
         label=DEVICE_STATE_NAMES.get(state, "UNKNOWN"),
-        error=int(error),
-        error_label=DEVICE_ERROR_NAMES.get(error, "UNKNOWN"),
+        error_mask=int(error_mask),
+        errors=errors,
+        error_labels=error_labels,
     )
 
 
