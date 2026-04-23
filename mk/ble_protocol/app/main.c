@@ -31,6 +31,7 @@
 #include "operation_manager.h"
 #include "operation_status_ble.h"
 #include "pair_mode.h"
+#include "status_led.h"
 
 #ifdef PAIR_RUN_TESTS
 #include "unity_test_runner.h"
@@ -54,6 +55,7 @@ void app_main(void) {
 
     ecdh_init();
     pair_mode_init_from_nvs();
+    status_led_init();
     metrics_init();
     metrics_ble_init();
     device_status_ble_init();
@@ -105,6 +107,7 @@ void app_main(void) {
 
     xTaskCreate(metrics_task, "metrics", 4096, NULL, 5, NULL);
     xTaskCreate(fan_control_task, "fan_ctl", 4096, NULL, 5, NULL);
+    xTaskCreate(status_led_task, "status_led", 2048, NULL, 3, NULL);
 
     ble_hs_cfg.sync_cb = ble_app_on_sync;
 

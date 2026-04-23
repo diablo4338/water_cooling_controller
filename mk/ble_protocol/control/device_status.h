@@ -1,6 +1,7 @@
 #ifndef DEVICE_STATUS_H
 #define DEVICE_STATUS_H
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -23,6 +24,7 @@ typedef enum {
 
 void device_status_init(void);
 void device_status_set_error(device_error_t error);
+bool device_status_is_error(void);
 void device_status_get_payload(uint8_t *out, size_t len);
 
 #ifdef __cplusplus

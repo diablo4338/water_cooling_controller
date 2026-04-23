@@ -43,6 +43,14 @@ void device_status_set_error(device_error_t error) {
     }
 }
 
+bool device_status_is_error(void) {
+    bool is_error;
+    state_lock();
+    is_error = g_status.state != DEVICE_STATE_OK;
+    state_unlock();
+    return is_error;
+}
+
 void device_status_get_payload(uint8_t *out, size_t len) {
     if (!out || len < DEVICE_STATUS_PAYLOAD_LEN) return;
     state_lock();

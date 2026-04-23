@@ -14,6 +14,7 @@ set(SRCS
     "control/operation_manager.c"
     "control/params.c"
     "hw/rgb.c"
+    "hw/status_led.c"
     "pairing/conn_guard.c"
     "pairing/crypto.c"
     "pairing/ecdh.c"
