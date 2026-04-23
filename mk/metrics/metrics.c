@@ -21,11 +21,17 @@ static bool g_metrics_error = false;
 
 #define FAN_TACH_GPIO 18
 #define FAN_TACH_PULSES_PER_REV 2
-#define FAN_TACH_MAX_RPM 4000
 #define FAN_TACH_MIN_VALID_DT_US 10000U
 #define FAN_TACH_DT_BUF_SIZE 16
+#define FAN_TACH_MIN_CALC_SAMPLES 6
+#define FAN_TACH_TRIM_SAMPLES 2
+#define FAN_TACH_RATIO_SCALE 10U
+#define FAN_TACH_MIN_RATIO_X10 6U
+#define FAN_TACH_MAX_RATIO_X10 22U
 #define FAN_TACH_STOP_TIMEOUT_US 2000000
 #define FAN_RPM_NOTIFY_EPS 1.0f
+#define FAN_RPM_EMA_OLD 0.7f
+#define FAN_RPM_EMA_NEW 0.3f
 #define TEMP_NOTIFY_EPS 0.01f
 
 static portMUX_TYPE g_fan_mux = portMUX_INITIALIZER_UNLOCKED;
@@ -34,8 +40,11 @@ static volatile uint32_t g_fan_dt_count = 0;
 static volatile uint32_t g_fan_dt_idx = 0;
 static volatile int64_t g_fan_last_edge_us = 0;
 static volatile int64_t g_fan_last_valid_edge_us = 0;
+static volatile uint32_t g_fan_last_good_dt_us = 0;
 static float g_fan_rpm = NAN;
 static bool g_fan_valid = false;
+static float g_fan_filtered_rpm = 0.0f;
+static bool g_fan_filter_valid = false;
 static uint32_t g_snapshot_seq = 0;
 static metrics_snapshot_t g_snapshot = {0};
 
@@ -55,8 +64,11 @@ void metrics_init(void) {
     }
     g_fan_rpm = NAN;
     g_fan_valid = false;
+    g_fan_filtered_rpm = 0.0f;
+    g_fan_filter_valid = false;
     g_fan_last_edge_us = 0;
     g_fan_last_valid_edge_us = 0;
+    g_fan_last_good_dt_us = 0;
     g_fan_dt_count = 0;
     g_fan_dt_idx = 0;
     for (int i = 0; i < FAN_TACH_DT_BUF_SIZE; i++) {
@@ -126,22 +138,37 @@ static bool metrics_calc_fan_rpm(float *out_rpm) {
     uint32_t count = 0;
     int64_t last_valid_edge = 0;
     uint32_t buf[FAN_TACH_DT_BUF_SIZE] = {0};
+    bool stopped = false;
+
     portENTER_CRITICAL(&g_fan_mux);
-    count = g_fan_dt_count;
     last_valid_edge = g_fan_last_valid_edge_us;
-    for (uint32_t i = 0; i < FAN_TACH_DT_BUF_SIZE; i++) {
-        buf[i] = g_fan_dt_buf[i];
+    if (last_valid_edge != 0 && (now - last_valid_edge) > FAN_TACH_STOP_TIMEOUT_US) {
+        stopped = true;
+        g_fan_dt_count = 0;
+        g_fan_dt_idx = 0;
+        g_fan_last_edge_us = 0;
+        g_fan_last_good_dt_us = 0;
+        for (uint32_t i = 0; i < FAN_TACH_DT_BUF_SIZE; i++) {
+            g_fan_dt_buf[i] = 0;
+        }
+    } else {
+        count = g_fan_dt_count;
+        for (uint32_t i = 0; i < FAN_TACH_DT_BUF_SIZE; i++) {
+            buf[i] = g_fan_dt_buf[i];
+        }
     }
     portEXIT_CRITICAL(&g_fan_mux);
 
     if (last_valid_edge == 0) {
         return false;
     }
-    if ((now - last_valid_edge) > FAN_TACH_STOP_TIMEOUT_US) {
+    if (stopped) {
+        g_fan_filtered_rpm = 0.0f;
+        g_fan_filter_valid = false;
         *out_rpm = 0.0f;
         return true;
     }
-    if (count == 0) {
+    if (count < FAN_TACH_MIN_CALC_SAMPLES) {
         return false;
     }
     if (count > FAN_TACH_DT_BUF_SIZE) {
@@ -154,7 +181,7 @@ static bool metrics_calc_fan_rpm(float *out_rpm) {
             values[used++] = buf[i];
         }
     }
-    if (used == 0) {
+    if (used < FAN_TACH_MIN_CALC_SAMPLES) {
         return false;
     }
     for (uint32_t i = 1; i < used; i++) {
@@ -166,18 +193,32 @@ static bool metrics_calc_fan_rpm(float *out_rpm) {
         }
         values[j + 1] = key;
     }
-    float median_dt_us = 0.0f;
-    if (used & 1U) {
-        median_dt_us = (float)values[used / 2];
+
+    uint32_t stable_count = used - (FAN_TACH_TRIM_SAMPLES * 2U);
+    uint32_t stable_start = FAN_TACH_TRIM_SAMPLES;
+    float stable_dt_us = 0.0f;
+    if (stable_count & 1U) {
+        stable_dt_us = (float)values[stable_start + stable_count / 2U];
     } else {
-        uint32_t a = values[(used / 2) - 1];
-        uint32_t b = values[used / 2];
-        median_dt_us = 0.5f * ((float)a + (float)b);
+        uint32_t a = values[stable_start + (stable_count / 2U) - 1U];
+        uint32_t b = values[stable_start + stable_count / 2U];
+        stable_dt_us = 0.5f * ((float)a + (float)b);
     }
-    if (!(median_dt_us > 0.0f)) {
+    if (!(stable_dt_us > 0.0f)) {
         return false;
     }
-    *out_rpm = (60.0f * 1000000.0f) / (median_dt_us * (float)FAN_TACH_PULSES_PER_REV);
+
+    float raw_rpm = (60.0f * 1000000.0f) / (stable_dt_us * (float)FAN_TACH_PULSES_PER_REV);
+    if (!isfinite(raw_rpm) || raw_rpm < 0.0f) {
+        return false;
+    }
+    if (!g_fan_filter_valid) {
+        g_fan_filtered_rpm = raw_rpm;
+        g_fan_filter_valid = true;
+    } else {
+        g_fan_filtered_rpm = g_fan_filtered_rpm * FAN_RPM_EMA_OLD + raw_rpm * FAN_RPM_EMA_NEW;
+    }
+    *out_rpm = g_fan_filtered_rpm;
     return true;
 }
 
@@ -202,24 +243,20 @@ static void IRAM_ATTR fan_tach_isr(void *arg) {
         return;
     }
 
-    int64_t last_valid = g_fan_last_valid_edge_us;
-    uint32_t valid_dt_us = dt_us;
-    if (last_valid != 0) {
-        int64_t vdt64 = now - last_valid;
-        if (vdt64 <= 0) {
-            portEXIT_CRITICAL_ISR(&g_fan_mux);
-            return;
-        }
-        valid_dt_us = (uint32_t)vdt64;
-        if (valid_dt_us < FAN_TACH_MIN_VALID_DT_US) {
+    uint32_t last_good_dt_us = g_fan_last_good_dt_us;
+    if (last_good_dt_us != 0) {
+        uint64_t dt_scaled = (uint64_t)dt_us * FAN_TACH_RATIO_SCALE;
+        if (dt_scaled < (uint64_t)last_good_dt_us * FAN_TACH_MIN_RATIO_X10 ||
+            dt_scaled > (uint64_t)last_good_dt_us * FAN_TACH_MAX_RATIO_X10) {
             portEXIT_CRITICAL_ISR(&g_fan_mux);
             return;
         }
     }
 
     g_fan_last_valid_edge_us = now;
+    g_fan_last_good_dt_us = dt_us;
     uint32_t idx = g_fan_dt_idx;
-    g_fan_dt_buf[idx] = valid_dt_us;
+    g_fan_dt_buf[idx] = dt_us;
     g_fan_dt_idx = (idx + 1) % FAN_TACH_DT_BUF_SIZE;
     if (g_fan_dt_count < FAN_TACH_DT_BUF_SIZE) {
         g_fan_dt_count++;
@@ -231,15 +268,20 @@ static bool metrics_update_fan(float rpm) {
     if (!isfinite(rpm) || rpm < 0.0f) {
         if (!g_fan_valid) return false;
         g_fan_valid = false;
-        g_fan_rpm = NAN;
         return true;
     }
-    if (!g_fan_valid || fabsf(g_fan_rpm - rpm) >= FAN_RPM_NOTIFY_EPS) {
-        g_fan_valid = true;
-        g_fan_rpm = rpm;
-        return true;
-    }
-    return false;
+    bool changed = !g_fan_valid || fabsf(g_fan_rpm - rpm) >= FAN_RPM_NOTIFY_EPS;
+    g_fan_valid = true;
+    g_fan_rpm = rpm;
+    return changed;
+}
+
+static bool metrics_mark_fan_invalid(void) {
+    if (!g_fan_valid) return false;
+    g_fan_valid = false;
+    g_fan_filter_valid = false;
+    g_fan_filtered_rpm = 0.0f;
+    return true;
 }
 
 void metrics_get_snapshot(metrics_snapshot_t *out) {
@@ -305,6 +347,8 @@ uint8_t metrics_sample_all(void) {
         if (metrics_update_fan(rpm)) {
             changed_mask |= METRICS_FAN_CHANGED_BIT;
         }
+    } else if (metrics_mark_fan_invalid()) {
+        changed_mask |= METRICS_FAN_CHANGED_BIT;
     }
 
     metrics_snapshot_write_from_state();

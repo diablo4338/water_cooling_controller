@@ -15,6 +15,8 @@
 
 static const char *METRICS_TAG = "metrics";
 
+#define METRICS_TASK_PERIOD_MS 250
+
 uint16_t g_temp_attr_handles[METRICS_TEMP_CHANNELS] = {0};
 uint16_t g_fan_attr_handle = 0;
 
@@ -107,7 +109,7 @@ void metrics_task(void *param) {
         }
 
         TickType_t elapsed = xTaskGetTickCount() - start;
-        TickType_t delay = pdMS_TO_TICKS(1000);
+        TickType_t delay = pdMS_TO_TICKS(METRICS_TASK_PERIOD_MS);
         if (elapsed < delay) {
             vTaskDelay(delay - elapsed);
         }
