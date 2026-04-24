@@ -21,6 +21,9 @@ from .protocol import (
     PARAMS_VERSION,
 )
 
+PARAMS_FORMAT = "<BHiBiiiBBBBB"
+PARAMS_PAYLOAD_LEN = struct.calcsize(PARAMS_FORMAT)
+
 
 def decode_metrics(data: bytes) -> str:
     value = decode_temp_value(data)
@@ -41,7 +44,7 @@ def decode_fan_speed(data: bytes) -> float | None:
 
 def encode_params(params: DeviceParams, mask: int = 0x03FF) -> bytes:
     return struct.pack(
-        "<BHiBiiiBBBBB",
+        PARAMS_FORMAT,
         PARAMS_VERSION,
         int(mask),
         int(params.fan_min_speed),
@@ -58,7 +61,7 @@ def encode_params(params: DeviceParams, mask: int = 0x03FF) -> bytes:
 
 
 def decode_params(data: bytes) -> DeviceParams:
-    if len(data) != 22:
+    if len(data) != PARAMS_PAYLOAD_LEN:
         raise RuntimeError(f"Bad params len={len(data)}")
     (
         version,
@@ -73,7 +76,7 @@ def decode_params(data: bytes) -> DeviceParams:
         fan2_monitoring_enabled,
         fan3_monitoring_enabled,
         fan4_monitoring_enabled,
-    ) = struct.unpack("<BHiBiiiBBBBB", data)
+    ) = struct.unpack(PARAMS_FORMAT, data)
     if version != PARAMS_VERSION:
         raise RuntimeError(f"Unsupported params version={version}")
     _ = mask
