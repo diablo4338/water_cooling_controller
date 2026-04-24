@@ -145,9 +145,9 @@ async def test_pairing_succeeds(paired_device: DeviceInfo) -> None:
 
 
 @pytest.mark.asyncio
-async def test_unauthorize_read_metrics(
+async def test_unauthorize_read_metrics_snapshot(
     core: BleAppCore, ble_address: Optional[str]
 ) -> None:
     await core.connect_raw(DeviceInfo(name="Test", address=ble_address))
     with pytest.raises(RuntimeError):
-        await core.read_metrics(timeout=10)
+        await core.read_metrics_snapshot(timeout=10)
