@@ -29,7 +29,11 @@ class MainWindowListMixin:
         ):
             widget.setEnabled(action in ui.enabled_actions)
 
-        params_enabled = self.model.state.conn == self.ConnState.CONNECTED and not self.model.state.busy
+        params_enabled = (
+            self.model.state.conn == self.ConnState.CONNECTED
+            and not self.model.state.busy
+            and self._device_params_snapshot is not None
+        )
         if self._operation_active:
             self.apply_button.setEnabled(False)
             self.discard_button.setEnabled(False)
