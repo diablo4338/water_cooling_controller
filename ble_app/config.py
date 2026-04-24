@@ -74,9 +74,9 @@ class BleConfig:
 
 
 def load_config() -> BleConfig:
-    scan_timeout_s = _get_float("BLE_SCAN_TIMEOUT_S", 5.0)
-    resolve_timeout_s = _get_float("BLE_RESOLVE_TIMEOUT_S", 5.0)
-    connect_timeout_s = _get_float("BLE_CONNECT_TIMEOUT_S", 5.0)
+    scan_timeout_s = _get_float("BLE_SCAN_TIMEOUT_S", 10.0)
+    resolve_timeout_s = _get_float("BLE_RESOLVE_TIMEOUT_S", 10.0)
+    connect_timeout_s = _get_float("BLE_CONNECT_TIMEOUT_S", 10.0)
     pair_timeout_s = _get_float("BLE_PAIR_TIMEOUT_S", 8.0)
     auth_timeout_s = _get_float("BLE_AUTH_TIMEOUT_S", 5.0)
     metrics_timeout_s = _get_float("BLE_METRICS_TIMEOUT_S", 5.0)
