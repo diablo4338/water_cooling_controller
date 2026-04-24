@@ -45,6 +45,7 @@ void app_main(void) {
     pair_tests_force_link();
     conn_guard_tests_force_link();
     metrics_tests_force_link();
+    ESP_ERROR_CHECK(nvs_flash_init());
     unity_run_all_tests();
     return;
 #endif
@@ -54,7 +55,7 @@ void app_main(void) {
     nvs_load_or_empty();
 
     ecdh_init();
-    pair_mode_init_from_nvs();
+    pair_mode_init();
     status_led_init();
     metrics_init();
     metrics_ble_init();

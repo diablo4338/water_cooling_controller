@@ -15,16 +15,12 @@ extern const char *TAG;
 
 typedef enum {
     FSM_STATE_UNPAIRED_IDLE = 0,
-    FSM_STATE_PAIRING,
     FSM_STATE_PAIRED_UNAUTH,
     FSM_STATE_AUTHED
 } fsm_state_t;
 
 typedef enum {
-    FSM_EVT_PAIR_START = 0,
-    FSM_EVT_PAIR_TIMEOUT,
-    FSM_EVT_PAIR_FINISH,
-    FSM_EVT_CONNECT,
+    FSM_EVT_CONNECT = 0,
     FSM_EVT_DISCONNECT,
     FSM_EVT_AUTH_OK,
     FSM_EVT_AUTH_FAILED,
@@ -53,7 +49,6 @@ void state_unlock(void);
 void fsm_reset(void);
 bool fsm_dispatch(fsm_event_t event, uint16_t conn_handle);
 fsm_state_t fsm_get_state(void);
-bool fsm_is_pairing(void);
 bool fsm_is_paired(void);
 bool fsm_is_authed(void);
 
@@ -66,6 +61,7 @@ bool fsm_pair_conn_bind_or_check(uint16_t conn_handle);
 bool fsm_pair_conn_check(uint16_t conn_handle);
 bool fsm_auth_conn_check_or_any(uint16_t conn_handle);
 bool fsm_auth_conn_check(uint16_t conn_handle);
+void fsm_set_term_conn_handle(uint16_t conn_handle);
 void fsm_conn_guard_reset(void);
 
 #endif

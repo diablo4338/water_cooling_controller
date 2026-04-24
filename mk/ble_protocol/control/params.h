@@ -74,6 +74,7 @@ bool params_get_current_payload(uint8_t *out, size_t len);
 void params_get_last_status_payload(uint8_t *out, size_t len);
 void params_set_last_status(uint8_t status, uint8_t field);
 uint8_t params_apply(uint8_t *field_id);
+void params_factory_reset(void);
 
 #ifdef __cplusplus
 }

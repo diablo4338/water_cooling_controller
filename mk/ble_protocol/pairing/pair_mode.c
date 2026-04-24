@@ -1,65 +1,81 @@
 #include "pair_mode.h"
 
+#include <string.h>
+
 #include "esp_log.h"
+#include "esp_timer.h"
 
 #include "crypto.h"
 #include "ecdh.h"
 #include "gap.h"
 #include "pair_state.h"
 #include "state.h"
-#include "storage.h"
 
-static bool g_pair_forced = false;
+#define PAIR_MODE_TIMEOUT_US (60ULL * 1000ULL * 1000ULL)
 
-static bool pair_session_init(void) {
+static bool g_pair_active = false;
+
+static void clear_pair_session_buffers(void) {
+    state_lock();
+    memset(dev_nonce, 0, sizeof(dev_nonce));
+    memset(dev_pub65, 0, sizeof(dev_pub65));
+    memset(host_pub65, 0, sizeof(host_pub65));
+    memset(K, 0, sizeof(K));
+    memset(host_id_hash, 0, sizeof(host_id_hash));
+    state_unlock();
+}
+
+bool pair_mode_prepare_session(void) {
+    if (!g_pair_active) {
+        return false;
+    }
+
+    clear_pair_session_buffers();
     rand_bytes(dev_nonce, sizeof(dev_nonce));
     if (ecdh_make_dev_keys() != 0) {
         ESP_LOGE(TAG, "ECDH keygen failed");
+        clear_pair_session_buffers();
         return false;
     }
     pair_state_start();
     return true;
 }
 
-void pair_mode_init_from_nvs(void) {
-    if (!g_pair_forced && nvs_is_pair_forced()) {
-        g_pair_forced = true;
-        if (!fsm_dispatch(FSM_EVT_PAIR_START, BLE_HS_CONN_HANDLE_NONE)) {
-            ESP_LOGW(TAG, "Forced pairing ignored: bad state");
-            return;
-        }
-        if (!pair_session_init()) {
-            return;
-        }
-        ESP_LOGW(TAG, "Forced pairing mode ON (boot)");
-    }
+void pair_mode_init(void) {
+    g_pair_active = false;
+    pair_state_full_reset();
+    clear_pair_session_buffers();
 }
 
-bool pair_mode_is_forced(void) {
-    return g_pair_forced;
+bool pair_mode_is_active(void) {
+    return g_pair_active;
 }
 
-void pair_mode_force_on(void) {
-    if (!g_pair_forced) {
-        g_pair_forced = true;
-        nvs_set_pair_forced(true);
+bool pair_mode_activate(void) {
+    g_pair_active = true;
+    pair_state_full_reset();
+    if (!pair_mode_prepare_session()) {
+        g_pair_active = false;
+        return false;
     }
-    if (!fsm_dispatch(FSM_EVT_PAIR_START, BLE_HS_CONN_HANDLE_NONE)) {
-        ESP_LOGW(TAG, "Forced pairing ignored: bad state");
-        return;
-    }
-    if (!pair_session_init()) {
-        return;
-    }
+
+    esp_timer_stop(g_pair_timer);
+    ESP_ERROR_CHECK(esp_timer_start_once(g_pair_timer, PAIR_MODE_TIMEOUT_US));
+
     stop_advertising();
     start_advertising();
-    ESP_LOGW(TAG, "Forced pairing mode ON");
+    ESP_LOGW(TAG, "Pairing mode ON (60s window)");
+    return true;
 }
 
-void pair_mode_clear_on_success(uint16_t conn_handle) {
-    if (!g_pair_forced) return;
-    g_pair_forced = false;
-    nvs_set_pair_forced(false);
-    fsm_dispatch(FSM_EVT_PAIR_FINISH, conn_handle);
-    ESP_LOGW(TAG, "Forced pairing mode OFF (paired)");
+void pair_mode_deactivate(void) {
+    if (!g_pair_active) {
+        return;
+    }
+
+    g_pair_active = false;
+    esp_timer_stop(g_pair_timer);
+    pair_state_full_reset();
+    clear_pair_session_buffers();
+    ESP_LOGW(TAG, "Pairing mode OFF");
 }

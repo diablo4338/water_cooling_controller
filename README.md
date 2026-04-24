@@ -29,6 +29,7 @@ Firmware (ESP-IDF):
 
 ## Pairing protocol
 Scanning only shows devices that advertise `PAIR_SVC`. This indicates readiness to pair. In pairing mode the device advertises the name `sensor-pair`; in normal mode it advertises `sensor`.
+Pairing mode is a separate 60-second window used only to add trusted clients. It is enabled by the hardware button, ends on timeout or reboot, and does not wipe previously saved clients.
 
 ### Pairing service `PAIR_SVC`
 Characteristics:
@@ -43,7 +44,12 @@ Algorithm:
 2. Reads `PAIR_DEV_NONCE` and `PAIR_DEV_PUB`.
 3. Computes ECDH `shared`, then `K = HKDF(shared, salt=nonce_d, info="PAIRv1", len=32)`.
 4. Writes `PAIR_HOST_PUB`, then `PAIR_CONFIRM`, then `PAIR_FINISH`.
-5. The device stores the host identity (hash of `h_pub`) and exits pairing mode.
+5. The device stores the host identity (hash of `h_pub`) and derived key in the trusted clients store.
+
+Trusted clients:
+- Up to 5 clients are stored on the device.
+- Re-pairing the same host updates its existing slot.
+- Adding a 6th distinct host overwrites the oldest slot in round-robin order.
 
 ## Other services (brief)
 After pairing, the device operates in normal mode. Authorization and access to metrics use `MAIN_SVC`, cooling parameters use `CONFIG_SVC`, maintenance operations use `OPERATIONS_SVC`, and metrics use `METRICS_SVC`.

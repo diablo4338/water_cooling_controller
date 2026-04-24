@@ -20,9 +20,10 @@
 
 // ====== Terminate timer ======
 static void clear_session_secrets_locked(void) {
-    memset(dev_nonce, 0, sizeof(dev_nonce));
     memset(auth_nonce, 0, sizeof(auth_nonce));
     memset(host_pub65, 0, sizeof(host_pub65));
+    memset(K, 0, sizeof(K));
+    memset(host_id_hash, 0, sizeof(host_id_hash));
 }
 
 void term_cb(void *arg) {
@@ -54,7 +55,7 @@ void start_advertising(void) {
 
     adv_fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
 
-    bool pairing = fsm_is_pairing();
+    bool pairing = pair_mode_is_active();
 
     if (pairing) {
         adv_fields.uuids128 = (ble_uuid128_t *)&UUID_PAIR_SVC.u128;
@@ -139,8 +140,7 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
 
         case BLE_GAP_EVENT_DISCONNECT: {
             ESP_LOGI(TAG, "Disconnected; restarting adv");
-            bool was_pairing = fsm_is_pairing();
-            bool forced = pair_mode_is_forced();
+            bool pair_mode_active = pair_mode_is_active();
             fsm_dispatch(FSM_EVT_DISCONNECT, BLE_HS_CONN_HANDLE_NONE);
             state_lock();
             clear_session_secrets_locked();
@@ -149,12 +149,14 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
             metrics_reset_notify();
             device_status_reset_notify();
             operation_status_reset_notify();
-            if (was_pairing) {
+            if (pair_mode_active) {
                 pair_state_full_reset();
-                esp_timer_stop(g_pair_timer);
-            }
-            if (forced) {
-                pair_mode_force_on();
+                if (pair_mode_prepare_session()) {
+                    start_advertising();
+                } else {
+                    pair_mode_deactivate();
+                    start_advertising();
+                }
             } else {
                 start_advertising();
             }

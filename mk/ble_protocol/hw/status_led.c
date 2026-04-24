@@ -10,6 +10,7 @@
 
 #include "device_status.h"
 #include "fan_control.h"
+#include "pair_mode.h"
 #include "state.h"
 
 #define STATUS_LED_GPIO 1
@@ -18,6 +19,8 @@
 #define STATUS_LED_POLL_MS 50
 #define STATUS_LED_SLOW_BLINK_MS 2000
 #define STATUS_LED_FAST_BLINK_MS 500
+#define STATUS_LED_FACTORY_BLINK_MS 150
+#define STATUS_LED_FACTORY_BLINK_TOGGLES 4
 
 typedef enum {
     STATUS_LED_MODE_OFF = 0,
@@ -25,6 +28,9 @@ typedef enum {
     STATUS_LED_MODE_BLINK_SLOW,
     STATUS_LED_MODE_BLINK_FAST,
 } status_led_mode_t;
+
+static volatile uint32_t s_factory_blink_remaining = 0;
+static volatile bool s_factory_blink_armed = false;
 
 static void status_led_set_level(int level) {
     gpio_set_level(STATUS_LED_GPIO, level);
@@ -37,7 +43,7 @@ static status_led_mode_t status_led_resolve_mode(void) {
     if (device_status_is_error()) {
         return STATUS_LED_MODE_BLINK_SLOW;
     }
-    if (fsm_is_pairing()) {
+    if (pair_mode_is_active()) {
         return STATUS_LED_MODE_ON;
     }
     return STATUS_LED_MODE_OFF;
@@ -55,6 +61,11 @@ void status_led_init(void) {
     status_led_set_level(STATUS_LED_OFF_LEVEL);
 }
 
+void status_led_blink_twice(void) {
+    __atomic_store_n(&s_factory_blink_armed, true, __ATOMIC_RELEASE);
+    __atomic_store_n(&s_factory_blink_remaining, STATUS_LED_FACTORY_BLINK_TOGGLES, __ATOMIC_RELEASE);
+}
+
 void status_led_task(void *param) {
     (void)param;
 
@@ -63,6 +74,32 @@ void status_led_task(void *param) {
     bool output_on = false;
 
     while (1) {
+        if (__atomic_exchange_n(&s_factory_blink_armed, false, __ATOMIC_ACQ_REL)) {
+            output_on = false;
+            last_toggle_tick = xTaskGetTickCount() - pdMS_TO_TICKS(STATUS_LED_FACTORY_BLINK_MS);
+        }
+
+        uint32_t factory_blink_remaining = __atomic_load_n(&s_factory_blink_remaining, __ATOMIC_ACQUIRE);
+        if (factory_blink_remaining > 0) {
+            TickType_t now = xTaskGetTickCount();
+            if ((now - last_toggle_tick) >= pdMS_TO_TICKS(STATUS_LED_FACTORY_BLINK_MS)) {
+                output_on = !output_on;
+                last_toggle_tick = now;
+                if (factory_blink_remaining > 0) {
+                    __atomic_fetch_sub(&s_factory_blink_remaining, 1U, __ATOMIC_ACQ_REL);
+                }
+            }
+            status_led_set_level(output_on ? STATUS_LED_ON_LEVEL : STATUS_LED_OFF_LEVEL);
+            if (__atomic_load_n(&s_factory_blink_remaining, __ATOMIC_ACQUIRE) == 0) {
+                output_on = false;
+                status_led_set_level(STATUS_LED_OFF_LEVEL);
+                last_mode = STATUS_LED_MODE_OFF;
+                last_toggle_tick = xTaskGetTickCount();
+            }
+            vTaskDelay(pdMS_TO_TICKS(STATUS_LED_POLL_MS));
+            continue;
+        }
+
         status_led_mode_t mode = status_led_resolve_mode();
         TickType_t now = xTaskGetTickCount();
 

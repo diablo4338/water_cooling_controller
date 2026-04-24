@@ -81,9 +81,7 @@ bool fsm_dispatch(fsm_event_t event, uint16_t conn_handle) {
             g_fsm.term_conn_handle = BLE_HS_CONN_HANDLE_NONE;
             g_fsm.auth_conn_handle = BLE_HS_CONN_HANDLE_NONE;
             g_fsm.pair_conn_handle = BLE_HS_CONN_HANDLE_NONE;
-            if (g_fsm.state == FSM_STATE_PAIRING) {
-                g_fsm.state = FSM_STATE_UNPAIRED_IDLE;
-            } else if (g_fsm.state == FSM_STATE_AUTHED) {
+            if (g_fsm.state == FSM_STATE_AUTHED) {
                 g_fsm.state = FSM_STATE_PAIRED_UNAUTH;
             }
             handled = true;
@@ -95,27 +93,8 @@ bool fsm_dispatch(fsm_event_t event, uint16_t conn_handle) {
     if (!handled) {
         switch (g_fsm.state) {
             case FSM_STATE_UNPAIRED_IDLE:
-                if (event == FSM_EVT_PAIR_START) {
-                    g_fsm.state = FSM_STATE_PAIRING;
-                    g_fsm.pair_conn_handle = BLE_HS_CONN_HANDLE_NONE;
-                    g_fsm.auth_conn_handle = BLE_HS_CONN_HANDLE_NONE;
-                    handled = true;
-                } else if (event == FSM_EVT_TRUST_LOADED) {
+                if (event == FSM_EVT_TRUST_LOADED) {
                     g_fsm.state = FSM_STATE_PAIRED_UNAUTH;
-                    handled = true;
-                }
-                break;
-            case FSM_STATE_PAIRING:
-                if (event == FSM_EVT_PAIR_TIMEOUT) {
-                    g_fsm.state = FSM_STATE_UNPAIRED_IDLE;
-                    g_fsm.pair_conn_handle = BLE_HS_CONN_HANDLE_NONE;
-                    g_fsm.auth_conn_handle = BLE_HS_CONN_HANDLE_NONE;
-                    handled = true;
-                } else if (event == FSM_EVT_PAIR_FINISH) {
-                    g_fsm.state = FSM_STATE_PAIRED_UNAUTH;
-                    g_fsm.term_conn_handle = conn_handle;
-                    g_fsm.auth_conn_handle = conn_handle;
-                    g_fsm.pair_conn_handle = BLE_HS_CONN_HANDLE_NONE;
                     handled = true;
                 }
                 break;
@@ -124,6 +103,8 @@ bool fsm_dispatch(fsm_event_t event, uint16_t conn_handle) {
                     g_fsm.state = FSM_STATE_AUTHED;
                     g_fsm.auth_conn_handle = conn_handle;
                     handled = true;
+                } else if (event == FSM_EVT_TRUST_LOADED) {
+                    handled = true;
                 } else if (event == FSM_EVT_AUTH_FAILED) {
                     handled = true;
                 }
@@ -131,6 +112,8 @@ bool fsm_dispatch(fsm_event_t event, uint16_t conn_handle) {
             case FSM_STATE_AUTHED:
                 if (event == FSM_EVT_AUTH_FAILED) {
                     g_fsm.state = FSM_STATE_PAIRED_UNAUTH;
+                    handled = true;
+                } else if (event == FSM_EVT_TRUST_LOADED) {
                     handled = true;
                 }
                 break;
@@ -149,10 +132,6 @@ fsm_state_t fsm_get_state(void) {
     state = g_fsm.state;
     state_unlock();
     return state;
-}
-
-bool fsm_is_pairing(void) {
-    return fsm_get_state() == FSM_STATE_PAIRING;
 }
 
 bool fsm_is_paired(void) {
@@ -230,6 +209,12 @@ bool fsm_auth_conn_check(uint16_t conn_handle) {
     ok = (g_fsm.auth_conn_handle == conn_handle);
     state_unlock();
     return ok;
+}
+
+void fsm_set_term_conn_handle(uint16_t conn_handle) {
+    state_lock();
+    g_fsm.term_conn_handle = conn_handle;
+    state_unlock();
 }
 
 void fsm_conn_guard_reset(void) {

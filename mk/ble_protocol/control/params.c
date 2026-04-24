@@ -16,18 +16,20 @@ typedef struct {
     uint8_t field;
 } params_status_t;
 
-static params_t g_current = {
-    .fan_min_speed = 10,
-    .fan_control_type = PARAM_FAN_CONTROL_DC,
-    .fan_max_temp = 45,
-    .fan_off_delta = 2,
-    .fan_start_temp = 35,
-    .fan_mode = PARAM_FAN_MODE_CONTINUOUS,
-    .fan_monitoring_enabled = 1,
-    .fan2_monitoring_enabled = 1,
-    .fan3_monitoring_enabled = 1,
-    .fan4_monitoring_enabled = 1,
-};
+#define PARAMS_DEFAULTS_INIT { \
+    .fan_min_speed = 50, \
+    .fan_control_type = PARAM_FAN_CONTROL_DC, \
+    .fan_max_temp = 45, \
+    .fan_off_delta = 2, \
+    .fan_start_temp = 35, \
+    .fan_mode = PARAM_FAN_MODE_CONTINUOUS, \
+    .fan_monitoring_enabled = 1, \
+    .fan2_monitoring_enabled = 1, \
+    .fan3_monitoring_enabled = 1, \
+    .fan4_monitoring_enabled = 1, \
+}
+
+static params_t g_current = PARAMS_DEFAULTS_INIT;
 static params_t g_pending;
 static uint16_t g_pending_mask = 0;
 static bool g_pending_valid = false;
@@ -35,6 +37,11 @@ static params_status_t g_last_status = {PARAM_STATUS_OK, PARAM_FIELD_NONE};
 static params_t g_cache;
 static uint32_t g_cache_seq = 0;
 static bool g_cache_valid = false;
+
+static params_t params_defaults(void) {
+    params_t params = PARAMS_DEFAULTS_INIT;
+    return params;
+}
 
 static void params_cache_write(const params_t *params) {
     __atomic_fetch_add(&g_cache_seq, 1U, __ATOMIC_ACQ_REL);
@@ -133,16 +140,7 @@ void params_init(void) {
     if (has_saved) {
         g_current = loaded;
     } else {
-        g_current.fan_min_speed = 10;
-        g_current.fan_control_type = PARAM_FAN_CONTROL_DC;
-        g_current.fan_max_temp = 45;
-        g_current.fan_off_delta = 2;
-        g_current.fan_start_temp = 35;
-        g_current.fan_mode = PARAM_FAN_MODE_CONTINUOUS;
-        g_current.fan_monitoring_enabled = 1;
-        g_current.fan2_monitoring_enabled = 1;
-        g_current.fan3_monitoring_enabled = 1;
-        g_current.fan4_monitoring_enabled = 1;
+        g_current = params_defaults();
     }
     g_pending_valid = false;
     g_pending_mask = 0;
@@ -318,4 +316,21 @@ uint8_t params_apply(uint8_t *field_id) {
 
     if (field_id) *field_id = PARAM_FIELD_NONE;
     return PARAM_STATUS_OK;
+}
+
+void params_factory_reset(void) {
+    params_t defaults = params_defaults();
+
+    params_save_to_nvs(&defaults);
+
+    state_lock();
+    g_current = defaults;
+    g_pending = defaults;
+    g_pending_valid = false;
+    g_pending_mask = 0;
+    set_last_status_locked(PARAM_STATUS_OK, PARAM_FIELD_NONE);
+    state_unlock();
+
+    params_cache_write(&defaults);
+    ESP_LOGW(TAG, "Parameters reset to defaults");
 }

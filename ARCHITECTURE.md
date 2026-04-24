@@ -3,7 +3,7 @@
 The project is a PC water cooling controller. The system consists of a GUI app (BLE client), device firmware, and a small HTTP service used by integration tests.
 
 Key artifacts:
-- `paired_devices.json` - trusted devices database.
+- `paired_devices.json` - trusted devices database on the host.
 - `host_key.pem` - persistent host private key (P-256) used for pairing.
 
 ## App (ble_app)
@@ -19,11 +19,12 @@ Key artifacts:
 - `mk/ble_protocol/gap.c` - advertising, connect/disconnect, PAIR/MAIN mode selection.
 - `mk/ble_protocol/gatt.c` - GATT database (PAIR/MAIN/METRICS), read/write callbacks.
 - `mk/ble_protocol/uuid.c` - UUID strings, firmware source of truth.
-- `mk/ble_protocol/state.c` - state machine (pairing, paired, authed) and session state.
+- `mk/ble_protocol/state.c` - main access state machine (trusted/unauth/authed) and session handles.
 - `mk/ble_protocol/pair_state.c` - pairing flow steps.
+- `mk/ble_protocol/pair_mode.c` - separate 60-second pairing window and per-session ECDH material.
 - `mk/ble_protocol/conn_guard.c` - connection handle constraints.
 - `mk/ble_protocol/crypto.c`, `ecdh.c`, `host_verify.c` - cryptography and host identity checks.
-- `mk/ble_protocol/storage.c` - trusted host/key storage in NVS.
+- `mk/ble_protocol/storage.c` - ring-buffer storage for up to 5 trusted host/key entries in NVS.
 - `mk/ble_protocol/metrics_ble.c` - notify/handle metrics over BLE.
 - `mk/metrics/` - metrics source (ADS1115 and aggregation).
 - `mk/build/` - ESP-IDF build artifacts.

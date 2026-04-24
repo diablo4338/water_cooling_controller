@@ -137,19 +137,15 @@ static int gatt_write_pair_finish(uint16_t conn_handle, uint16_t attr_handle,
     os_mbuf_copydata(ctxt->om, 0, 1, &b);
     if (b != 0x01) return BLE_ATT_ERR_UNLIKELY;
 
-    nvs_save_trust();
-    if (pair_mode_is_forced()) {
-        pair_mode_clear_on_success(conn_handle);
-    } else {
-        fsm_dispatch(FSM_EVT_PAIR_FINISH, conn_handle);
-    }
+    trust_store_upsert(host_id_hash, K);
     pair_state_set_finish_ok();
-    esp_timer_stop(g_pair_timer);
+    pair_mode_deactivate();
 
+    fsm_set_term_conn_handle(conn_handle);
     esp_timer_stop(g_term_timer);
     ESP_ERROR_CHECK(esp_timer_start_once(g_term_timer, 250 * 1000));
 
-    ESP_LOGI(TAG, "Pairing finished; pairing mode off");
+    ESP_LOGI(TAG, "Pairing finished; trusted client added and pairing mode closed");
     return 0;
 }
 
@@ -192,57 +188,14 @@ static int gatt_write_auth_proof(uint16_t conn_handle, uint16_t attr_handle,
     uint8_t got[32];
     os_mbuf_copydata(ctxt->om, 0, 32, got);
 
-    uint8_t msg[64];
-    size_t off = 0;
-    memcpy(msg + off, "auth", 4); off += 4;
     uint8_t auth_nonce_local[sizeof(auth_nonce)];
-    uint8_t K_local[sizeof(K)];
-    bool k_loaded = false;
     state_lock();
     memcpy(auth_nonce_local, auth_nonce, sizeof(auth_nonce));
-    memcpy(K_local, K, sizeof(K));
     state_unlock();
 
-    bool all_zero = true;
-    for (size_t i = 0; i < sizeof(K_local); i++) {
-        if (K_local[i] != 0) { all_zero = false; break; }
-    }
-    if (all_zero) {
-        bool paired = fsm_is_paired();
-        if (paired) {
-            uint8_t nvs_host_id_hash[32];
-            uint8_t nvs_k[32];
-            k_loaded = nvs_load_trust_if_available(nvs_host_id_hash, nvs_k);
-            if (k_loaded) {
-                ESP_LOGW(TAG, "K was empty; reloaded from NVS");
-                state_lock();
-                memcpy(host_id_hash, nvs_host_id_hash, sizeof(host_id_hash));
-                memcpy(K_local, nvs_k, sizeof(K_local));
-                memcpy(K, nvs_k, sizeof(K));
-                state_unlock();
-            }
-        }
-    }
-    memcpy(msg + off, auth_nonce_local, sizeof(auth_nonce_local)); off += sizeof(auth_nonce_local);
-
-    uint8_t expect[32];
-    if (hmac_sha256(K_local, sizeof(K_local), msg, off, expect) != 0) return BLE_ATT_ERR_UNLIKELY;
-
-    if (memcmp(got, expect, 32) != 0) {
+    if (!trust_store_match_auth(auth_nonce_local, got, NULL)) {
         fsm_dispatch(FSM_EVT_AUTH_FAILED, conn_handle);
         ESP_LOGW(TAG, "AUTH failed");
-        return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
-    }
-
-    bool host_pub_present = false;
-    state_lock();
-    for (size_t i = 0; i < sizeof(host_pub65); i++) {
-        if (host_pub65[i] != 0) { host_pub_present = true; break; }
-    }
-    state_unlock();
-    if (host_pub_present && !host_verify_check()) {
-        fsm_dispatch(FSM_EVT_AUTH_FAILED, conn_handle);
-        ESP_LOGW(TAG, "AUTH host mismatch");
         return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
     }
 

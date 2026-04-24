@@ -1,8 +1,9 @@
 #include "access.h"
+#include "pair_mode.h"
 #include "state.h"
 
 bool can_access_pairing(void) {
-    return fsm_is_pairing();
+    return pair_mode_is_active();
 }
 
 bool can_access_auth_nonce(void) {

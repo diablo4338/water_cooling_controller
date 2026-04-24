@@ -65,9 +65,6 @@ TEST_CASE("access control gates pairing and data", "[access]") {
     TEST_ASSERT_FALSE(can_access_auth_nonce());
     TEST_ASSERT_FALSE(can_access_data());
 
-    fsm_dispatch(FSM_EVT_PAIR_START, BLE_HS_CONN_HANDLE_NONE);
-    TEST_ASSERT_TRUE(can_access_pairing());
-
     fsm_reset();
     fsm_dispatch(FSM_EVT_TRUST_LOADED, BLE_HS_CONN_HANDLE_NONE);
     TEST_ASSERT_FALSE(can_access_pairing());
