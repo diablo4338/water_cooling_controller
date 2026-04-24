@@ -14,7 +14,7 @@ class BleCoreMetricsMixin:
             raise RuntimeError("Not connected")
         values: list[float] = []
         for uuid in TEMP_CHAR_UUIDS:
-            data = await asyncio.wait_for(self.client.read_gatt_char(uuid), timeout=timeout)
+            data = await self._read_char(uuid, timeout=timeout)
             value = decode_temp_value(bytes(data))
             if value is None:
                 raise RuntimeError(f"Bad metrics value len={len(data)}")
@@ -28,7 +28,7 @@ class BleCoreMetricsMixin:
             timeout = self._config.metrics_timeout_s
         values: list[float] = []
         for uuid in FAN_SPEED_UUIDS:
-            data = await asyncio.wait_for(self.client.read_gatt_char(uuid), timeout=timeout)
+            data = await self._read_char(uuid, timeout=timeout)
             value = decode_fan_speed(bytes(data))
             if value is None:
                 raise RuntimeError(f"Bad fan speed value len={len(data)}")
@@ -65,11 +65,19 @@ class BleCoreMetricsMixin:
         return MetricsSnapshot(temperatures=temperatures, fan_speeds=fan_speeds)
 
     async def _reconnect_for_metrics(self, timeout: float) -> None:
+        self._emit_conn("metrics reconnect: start")
         try:
             await self.disconnect()
         except Exception:
             pass
-        await asyncio.sleep(self._config.metrics_reconnect_delay_s)
+        self._emit_conn(
+            f"metrics reconnect: sleeping {self._config.metrics_reconnect_delay_s:.1f}s before reconnect"
+        )
+        await self._run_step(
+            "metrics reconnect delay",
+            asyncio.sleep(self._config.metrics_reconnect_delay_s),
+            timeout=self._config.metrics_reconnect_delay_s + 0.5,
+        )
         if not self.device:
             return
         await self.connect_raw(
@@ -77,6 +85,7 @@ class BleCoreMetricsMixin:
             connect_timeout=max(self._config.connect_timeout_s, timeout),
         )
         await self.auth(timeout=timeout)
+        self._emit_conn("metrics reconnect: completed")
 
     async def start_metrics_notify(
         self,
@@ -87,13 +96,13 @@ class BleCoreMetricsMixin:
             raise RuntimeError("Not connected")
         state = {"snapshot": initial_snapshot or MetricsSnapshot.empty()}
         for idx, uuid in enumerate(TEMP_CHAR_UUIDS):
-            await self.client.start_notify(
+            await self._start_notify(
                 uuid,
                 lambda _, data, ch=idx: self._emit_temp(callback, state, ch, data),
             )
         for idx, uuid in enumerate(FAN_SPEED_UUIDS):
             try:
-                await self.client.start_notify(
+                await self._start_notify(
                     uuid,
                     lambda _, data, ch=idx: self._emit_fan(callback, state, ch, data),
                 )
@@ -104,10 +113,10 @@ class BleCoreMetricsMixin:
         if not self.client:
             raise RuntimeError("Not connected")
         for uuid in TEMP_CHAR_UUIDS:
-            await self.client.stop_notify(uuid)
+            await self._stop_notify(uuid)
         for uuid in FAN_SPEED_UUIDS:
             try:
-                await self.client.stop_notify(uuid)
+                await self._stop_notify(uuid)
             except Exception:
                 pass
 

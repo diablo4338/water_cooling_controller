@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-import asyncio
 from typing import Callable, Optional
-
-from bleak import BleakClient
 
 from .codec import (
     decode_device_status,
@@ -16,6 +13,7 @@ from .codec import (
 )
 from .models import DeviceInfo, DeviceStatus, FanStatus, OperationStatus, ParamsStatus
 from .protocol import (
+    MAIN_SERVICE_UUIDS,
     OP_TYPE_FAN_CALIBRATION,
     OP_TYPE_SETUP_FANS,
     UUID_CONFIG_DEVICE_STATUS,
@@ -31,18 +29,40 @@ class BleCoreControlMixin:
     async def connect_raw(self, device: DeviceInfo, connect_timeout: Optional[float] = None) -> None:
         if connect_timeout is None:
             connect_timeout = self._config.connect_timeout_s
+        self._emit_conn(
+            f"connect {self._format_device(device)}: start (timeout={connect_timeout:.1f}s)"
+        )
         await self.disconnect()
-        client = BleakClient(device.address, adapter=self._adapter)
-        await asyncio.wait_for(client.connect(), timeout=connect_timeout)
+        target = await self._resolve_ble_target(device, timeout=self._config.resolve_timeout_s)
+        client = self._make_client(
+            target,
+            connect_timeout=connect_timeout,
+            services=MAIN_SERVICE_UUIDS,
+        )
+        await self._run_step(
+            f"connect {self._format_device(device)}",
+            client.connect(),
+            timeout=connect_timeout,
+        )
         self.client = client
-        self.device = device
+        self.device = device if isinstance(target, str) else device.with_ble_device(target)
+        backend_id = getattr(client, "backend_id", None)
+        self._emit_conn(
+            "connect established: "
+            f"backend={backend_id or 'unknown'}, is_connected={self._bool_state(client.is_connected)}"
+        )
 
     async def disconnect(self) -> None:
         if self.client:
             try:
-                await self.client.disconnect()
-            except Exception:
-                pass
+                label = (
+                    f"disconnect {self._format_device(self.device)}"
+                    if self.device
+                    else "disconnect current client"
+                )
+                await self._run_step(label, self.client.disconnect(), timeout=3.0)
+            except Exception as exc:
+                self._emit_conn(f"disconnect cleanup error: {self._format_error(exc)}")
         self.client = None
         self.device = None
 
@@ -51,7 +71,7 @@ class BleCoreControlMixin:
             raise RuntimeError("Not connected")
         if timeout is None:
             timeout = self._config.metrics_timeout_s
-        data = await asyncio.wait_for(self.client.read_gatt_char(UUID_CONFIG_PARAMS), timeout=timeout)
+        data = await self._read_char(UUID_CONFIG_PARAMS, timeout=timeout)
         return decode_params(bytes(data))
 
     async def read_fan_status(self, timeout: Optional[float] = None) -> FanStatus:
@@ -59,10 +79,7 @@ class BleCoreControlMixin:
             raise RuntimeError("Not connected")
         if timeout is None:
             timeout = self._config.metrics_timeout_s
-        data = await asyncio.wait_for(
-            self.client.read_gatt_char(UUID_CONFIG_FAN_STATUS),
-            timeout=timeout,
-        )
+        data = await self._read_char(UUID_CONFIG_FAN_STATUS, timeout=timeout)
         return decode_fan_status(bytes(data))
 
     async def read_device_status(self, timeout: Optional[float] = None) -> DeviceStatus:
@@ -70,10 +87,7 @@ class BleCoreControlMixin:
             raise RuntimeError("Not connected")
         if timeout is None:
             timeout = self._config.metrics_timeout_s
-        data = await asyncio.wait_for(
-            self.client.read_gatt_char(UUID_CONFIG_DEVICE_STATUS),
-            timeout=timeout,
-        )
+        data = await self._read_char(UUID_CONFIG_DEVICE_STATUS, timeout=timeout)
         return decode_device_status(bytes(data))
 
     async def read_operation_status(self, timeout: Optional[float] = None) -> OperationStatus:
@@ -81,7 +95,7 @@ class BleCoreControlMixin:
             raise RuntimeError("Not connected")
         if timeout is None:
             timeout = self._config.metrics_timeout_s
-        data = await asyncio.wait_for(self.client.read_gatt_char(UUID_OP_STATUS), timeout=timeout)
+        data = await self._read_char(UUID_OP_STATUS, timeout=timeout)
         return decode_operation_status(bytes(data))
 
     async def write_params(self, params, timeout: Optional[float] = None, mask: int = 0x03FF) -> None:
@@ -90,8 +104,10 @@ class BleCoreControlMixin:
         if timeout is None:
             timeout = self._config.metrics_timeout_s
         payload = encode_params(params, mask=mask)
-        await asyncio.wait_for(
-            self.client.write_gatt_char(UUID_CONFIG_PARAMS, payload, response=True),
+        await self._write_char(
+            UUID_CONFIG_PARAMS,
+            payload,
+            response=True,
             timeout=timeout,
         )
 
@@ -100,8 +116,10 @@ class BleCoreControlMixin:
             raise RuntimeError("Not connected")
         if timeout is None:
             timeout = self._config.metrics_timeout_s
-        await asyncio.wait_for(
-            self.client.write_gatt_char(UUID_CONFIG_STATUS, b"\x01", response=True),
+        await self._write_char(
+            UUID_CONFIG_STATUS,
+            b"\x01",
+            response=True,
             timeout=timeout,
         )
 
@@ -111,8 +129,10 @@ class BleCoreControlMixin:
         if timeout is None:
             timeout = self._config.metrics_timeout_s
         payload = encode_operation_control(op_type, action=1)
-        await asyncio.wait_for(
-            self.client.write_gatt_char(UUID_OP_CONTROL, payload, response=True),
+        await self._write_char(
+            UUID_OP_CONTROL,
+            payload,
+            response=True,
             timeout=timeout,
         )
 
@@ -125,7 +145,7 @@ class BleCoreControlMixin:
     async def start_params_notify(self, callback: Callable[[ParamsStatus], None]) -> None:
         if not self.client:
             raise RuntimeError("Not connected")
-        await self.client.start_notify(
+        await self._start_notify(
             UUID_CONFIG_STATUS,
             lambda _, data: self._emit_params_status(callback, data),
         )
@@ -134,14 +154,14 @@ class BleCoreControlMixin:
         if not self.client:
             raise RuntimeError("Not connected")
         try:
-            await self.client.stop_notify(UUID_CONFIG_STATUS)
+            await self._stop_notify(UUID_CONFIG_STATUS)
         except Exception:
             pass
 
     async def start_fan_status_notify(self, callback: Callable[[FanStatus], None]) -> None:
         if not self.client:
             raise RuntimeError("Not connected")
-        await self.client.start_notify(
+        await self._start_notify(
             UUID_CONFIG_FAN_STATUS,
             lambda _, data: self._emit_fan_status(callback, data),
         )
@@ -149,7 +169,7 @@ class BleCoreControlMixin:
     async def start_device_status_notify(self, callback: Callable[[DeviceStatus], None]) -> None:
         if not self.client:
             raise RuntimeError("Not connected")
-        await self.client.start_notify(
+        await self._start_notify(
             UUID_CONFIG_DEVICE_STATUS,
             lambda _, data: self._emit_device_status(callback, data),
         )
@@ -160,7 +180,7 @@ class BleCoreControlMixin:
     ) -> None:
         if not self.client:
             raise RuntimeError("Not connected")
-        await self.client.start_notify(
+        await self._start_notify(
             UUID_OP_STATUS,
             lambda _, data: self._emit_operation_status(callback, data),
         )
@@ -169,7 +189,7 @@ class BleCoreControlMixin:
         if not self.client:
             raise RuntimeError("Not connected")
         try:
-            await self.client.stop_notify(UUID_CONFIG_FAN_STATUS)
+            await self._stop_notify(UUID_CONFIG_FAN_STATUS)
         except Exception:
             pass
 
@@ -177,7 +197,7 @@ class BleCoreControlMixin:
         if not self.client:
             raise RuntimeError("Not connected")
         try:
-            await self.client.stop_notify(UUID_CONFIG_DEVICE_STATUS)
+            await self._stop_notify(UUID_CONFIG_DEVICE_STATUS)
         except Exception:
             pass
 
@@ -185,7 +205,7 @@ class BleCoreControlMixin:
         if not self.client:
             raise RuntimeError("Not connected")
         try:
-            await self.client.stop_notify(UUID_OP_STATUS)
+            await self._stop_notify(UUID_OP_STATUS)
         except Exception:
             pass
 

@@ -56,7 +56,7 @@ class BleWorkerRuntimeMixin:
             self._monitor_stop_evt.set()
         if self._manual_disconnect:
             return
-        self.log.emit("Connection dropped by device.")
+        self.log.emit(self._conn_message("Connection dropped by device."))
         self.connection_state.emit(False, None)
 
     def _start_monitor(self) -> None:

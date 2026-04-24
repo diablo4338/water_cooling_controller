@@ -51,9 +51,9 @@ class MainWindowActionMixin:
         if command is None:
             return
         if command.action == self.Action.SCAN:
-            self._start_action(self.Action.SCAN, self.worker.scan())
+            self._start_action(self.Action.SCAN, self.worker.scan(), use_timeout=False)
         elif command.action == self.Action.PAIR and command.device:
-            self._start_action(self.Action.PAIR, self.worker.pair(command.device))
+            self._start_action(self.Action.PAIR, self.worker.pair(command.device), use_timeout=False)
         elif command.action == self.Action.CONNECT and command.device:
             self.model.start_connecting()
             self._apply_ui()
@@ -61,12 +61,14 @@ class MainWindowActionMixin:
                 self.Action.CONNECT,
                 self.worker.connect_device(command.device),
                 timeout_override=self.action_timeouts[self.Action.CONNECT],
+                use_timeout=False,
             )
         elif command.action == self.Action.DISCONNECT:
             self._start_action(
                 self.Action.DISCONNECT,
                 self.worker.disconnect_device(),
                 timeout_override=self.action_timeouts[self.Action.DISCONNECT],
+                use_timeout=False,
             )
         elif command.action == self.Action.APPLY:
             self._start_action(self.Action.APPLY, self.worker.apply_params())

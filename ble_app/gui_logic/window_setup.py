@@ -42,6 +42,8 @@ class MainWindowSetupMixin:
         self.data_view.setReadOnly(True)
         self.op_log_view = QTextEdit()
         self.op_log_view.setReadOnly(True)
+        self.debug_log_view = QTextEdit()
+        self.debug_log_view.setReadOnly(True)
         self.status_label = QLabel(self.model.state.status)
 
     def _init_view_state(self) -> None:
@@ -100,6 +102,8 @@ class MainWindowSetupMixin:
         if self.debug_enabled:
             layout.addWidget(QLabel("Operations (log)"))
             layout.addWidget(self.op_log_view)
+            layout.addWidget(QLabel("Debug log"))
+            layout.addWidget(self.debug_log_view)
             layout.addWidget(QLabel("Real-time data"))
             layout.addWidget(self.data_view)
         layout.addWidget(self.status_label)

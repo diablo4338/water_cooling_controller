@@ -11,6 +11,7 @@ Local data:
 ## Quick start
 1. Install GUI dependencies from `ble_app/requirements.txt`.
 2. Run the app: `python -m ble_app.main` or `make run-app`.
+3. For extended BLE diagnostics, run with `--debug` to show the in-app debug log.
 
 Buttons service (for integration tests):
 - `make run-buttons` or `uvicorn raspberry.app:app --host 0.0.0.0 --port 8001`.
@@ -171,6 +172,10 @@ Application (GUI/ble_app):
 - `BLE_METRICS_TIMEOUT_S` - metrics read timeout.
 - `BLE_METRICS_RETRIES` - metrics read retries.
 - `BLE_METRICS_RECONNECT_DELAY_S` - reconnect delay between metrics reads.
+- `BLE_RESOLVE_BEFORE_CONNECT` - resolve address to `BLEDevice` before connect. Default is enabled on Windows.
+- `BLE_USE_SERVICE_FILTER` - pass the known service UUID list to `BleakClient`.
+- `BLE_WINRT_USE_CACHED_SERVICES` - Windows-only service cache mode (`1/0`).
+- `BLE_WINRT_ADDRESS_TYPE` - Windows-only address type override (`public` or `random`).
 - `GUI_ACTION_DEFAULT_TIMEOUT_S` - default UI action timeout.
 - `GUI_ACTION_SCAN_TIMEOUT_S` - UI scan timeout.
 - `GUI_ACTION_PAIR_TIMEOUT_S` - UI pairing timeout.

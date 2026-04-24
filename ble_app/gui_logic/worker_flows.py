@@ -18,6 +18,10 @@ from ..core import (
 
 class BleWorkerFlowMixin:
     @staticmethod
+    def _conn_message(message: str) -> str:
+        return f"[BLE-CONN] {message}"
+
+    @staticmethod
     def _format_error(exc: BaseException | None) -> str:
         if exc is None:
             return "unknown"
@@ -93,54 +97,54 @@ class BleWorkerFlowMixin:
     async def connect_device(self, device: DeviceInfo) -> None:
         await self.disconnect_device()
         self._metrics_snapshot = MetricsSnapshot.empty()
-        self.log.emit(f"Connecting to {device.name} ({device.address})...")
+        self.log.emit(self._conn_message(f"Connecting to {device.name} ({device.address})..."))
         last_exc: Optional[Exception] = None
         self._disconnect_evt = asyncio.Event()
         for attempt in range(1, 2):
-            self.log.emit(f"Connect attempt {attempt} to {device.address}")
+            self.log.emit(self._conn_message(f"Connect attempt {attempt} to {device.address}"))
             try:
                 await self.core.connect_raw(device, connect_timeout=self.config.connect_timeout_s)
                 if self.core.client and hasattr(self.core.client, "set_disconnected_callback"):
                     self.core.client.set_disconnected_callback(self._on_disconnected)
-                self.log.emit("Connected, starting AUTH...")
+                self.log.emit(self._conn_message("Connected, starting AUTH..."))
                 await self._do_auth()
-                self.log.emit("AUTH ok, reading initial PARAMS...")
+                self.log.emit(self._conn_message("AUTH ok, reading initial PARAMS..."))
                 try:
                     params = await self.core.read_params(timeout=self.config.metrics_timeout_s)
                     self.params_received.emit(params)
-                    self.log.emit("Initial PARAMS read ok.")
+                    self.log.emit(self._conn_message("Initial PARAMS read ok."))
                 except Exception as exc:
-                    self.log.emit(f"Initial PARAMS read failed: {exc}")
-                self.log.emit("AUTH ok, reading initial FAN status...")
+                    self.log.emit(self._conn_message(f"Initial PARAMS read failed: {exc}"))
+                self.log.emit(self._conn_message("AUTH ok, reading initial FAN status..."))
                 try:
                     status = await self.core.read_fan_status(timeout=self.config.metrics_timeout_s)
                     self.fan_status_received.emit(status)
-                    self.log.emit("Initial FAN status read ok.")
+                    self.log.emit(self._conn_message("Initial FAN status read ok."))
                 except Exception as exc:
-                    self.log.emit(f"Initial FAN status read failed: {exc}")
-                self.log.emit("AUTH ok, reading initial DEVICE status...")
+                    self.log.emit(self._conn_message(f"Initial FAN status read failed: {exc}"))
+                self.log.emit(self._conn_message("AUTH ok, reading initial DEVICE status..."))
                 try:
                     status = await self.core.read_device_status(timeout=self.config.metrics_timeout_s)
                     self.device_status_received.emit(status)
-                    self.log.emit("Initial DEVICE status read ok.")
+                    self.log.emit(self._conn_message("Initial DEVICE status read ok."))
                 except Exception as exc:
-                    self.log.emit(f"Initial DEVICE status read failed: {exc}")
-                self.log.emit("AUTH ok, reading initial OP status...")
+                    self.log.emit(self._conn_message(f"Initial DEVICE status read failed: {exc}"))
+                self.log.emit(self._conn_message("AUTH ok, reading initial OP status..."))
                 try:
                     status = await self.core.read_operation_status(timeout=self.config.metrics_timeout_s)
                     if status.state == OP_STATE_IN_SERVICE:
                         self.operation_status_received.emit(status)
-                    self.log.emit("Initial OP status read ok.")
+                    self.log.emit(self._conn_message("Initial OP status read ok."))
                 except Exception as exc:
-                    self.log.emit(f"Initial OP status read failed: {exc}")
-                self.log.emit("AUTH ok, reading initial METRICS...")
+                    self.log.emit(self._conn_message(f"Initial OP status read failed: {exc}"))
+                self.log.emit(self._conn_message("AUTH ok, reading initial METRICS..."))
                 try:
                     snapshot = await self.core.read_metrics_snapshot(timeout=self.config.metrics_timeout_s)
                     self._set_metrics_snapshot(snapshot)
-                    self.log.emit("Initial METRICS snapshot read ok.")
+                    self.log.emit(self._conn_message("Initial METRICS snapshot read ok."))
                 except Exception as exc:
-                    self.log.emit(f"Initial METRICS snapshot read failed: {exc}")
-                self.log.emit("Starting notify...")
+                    self.log.emit(self._conn_message(f"Initial METRICS snapshot read failed: {exc}"))
+                self.log.emit(self._conn_message("Starting notify..."))
                 try:
                     await self._with_timeout(
                         self.core.start_metrics_notify(
@@ -149,60 +153,60 @@ class BleWorkerFlowMixin:
                         ),
                         f"start_notify#{attempt}",
                     )
-                    self.log.emit("Notify METRICS started.")
+                    self.log.emit(self._conn_message("Notify METRICS started."))
                 except Exception as exc:
-                    self.log.emit(f"METRICS notify unavailable: {exc}")
+                    self.log.emit(self._conn_message(f"METRICS notify unavailable: {exc}"))
                 try:
                     await self._with_timeout(
                         self.core.start_params_notify(self._on_params_status),
                         f"start_params_notify#{attempt}",
                         timeout=3.0,
                     )
-                    self.log.emit("Notify PARAMS status started.")
+                    self.log.emit(self._conn_message("Notify PARAMS status started."))
                 except Exception as exc:
-                    self.log.emit(f"PARAMS status notify unavailable: {exc}")
+                    self.log.emit(self._conn_message(f"PARAMS status notify unavailable: {exc}"))
                 try:
                     await self._with_timeout(
                         self.core.start_fan_status_notify(self._on_fan_status),
                         f"start_fan_status_notify#{attempt}",
                         timeout=3.0,
                     )
-                    self.log.emit("Notify FAN status started.")
+                    self.log.emit(self._conn_message("Notify FAN status started."))
                 except Exception as exc:
-                    self.log.emit(f"FAN status notify unavailable: {exc}")
+                    self.log.emit(self._conn_message(f"FAN status notify unavailable: {exc}"))
                 try:
                     await self._with_timeout(
                         self.core.start_device_status_notify(self._on_device_status),
                         f"start_device_status_notify#{attempt}",
                         timeout=3.0,
                     )
-                    self.log.emit("Notify DEVICE status started.")
+                    self.log.emit(self._conn_message("Notify DEVICE status started."))
                 except Exception as exc:
-                    self.log.emit(f"DEVICE status notify unavailable: {exc}")
+                    self.log.emit(self._conn_message(f"DEVICE status notify unavailable: {exc}"))
                 try:
                     await self._with_timeout(
                         self.core.start_operation_status_notify(self._on_operation_status),
                         f"start_operation_status_notify#{attempt}",
                         timeout=3.0,
                     )
-                    self.log.emit("Notify OP status started.")
+                    self.log.emit(self._conn_message("Notify OP status started."))
                 except Exception as exc:
-                    self.log.emit(f"OP status notify unavailable: {exc}")
+                    self.log.emit(self._conn_message(f"OP status notify unavailable: {exc}"))
                 self._start_monitor()
                 self.device = device
                 self.connection_state.emit(True, device)
                 return
             except Exception as exc:
                 last_exc = exc
-                self.log.emit(
+                self.log.emit(self._conn_message(
                     f"Connect attempt {attempt} failed: {self._format_error(exc)}"
-                )
+                ))
                 try:
                     await self._with_timeout(self.core.disconnect(), "disconnect", timeout=3.0)
                 except Exception:
                     pass
                 await asyncio.sleep(0.4 * attempt)
-        self.log.emit(f"Connection error: {self._format_error(last_exc)}")
+        self.log.emit(self._conn_message(f"Connection error: {self._format_error(last_exc)}"))
         if self._disconnect_evt is None or not self._disconnect_evt.is_set():
             self.connection_state.emit(False, None)
 
@@ -215,24 +219,24 @@ class BleWorkerFlowMixin:
             if self.core.client:
                 log_enabled = not already_disconnected
                 if log_enabled:
-                    self.log.emit("Disconnecting...")
+                    self.log.emit(self._conn_message("Disconnecting..."))
                 if self._monitor_stop_evt is not None:
                     self._monitor_stop_evt.set()
                 try:
                     if log_enabled:
-                        self.log.emit("Stopping notify METRICS...")
+                        self.log.emit(self._conn_message("Stopping notify METRICS..."))
                     await self._with_timeout(self.core.stop_metrics_notify(), "stop_notify", timeout=3.0)
                 except Exception:
                     pass
                 try:
                     if log_enabled:
-                        self.log.emit("Stopping notify PARAMS...")
+                        self.log.emit(self._conn_message("Stopping notify PARAMS..."))
                     await self._with_timeout(self.core.stop_params_notify(), "stop_params_notify", timeout=3.0)
                 except Exception:
                     pass
                 try:
                     if log_enabled:
-                        self.log.emit("Stopping notify FAN status...")
+                        self.log.emit(self._conn_message("Stopping notify FAN status..."))
                     await self._with_timeout(
                         self.core.stop_fan_status_notify(),
                         "stop_fan_status_notify",
@@ -242,7 +246,7 @@ class BleWorkerFlowMixin:
                     pass
                 try:
                     if log_enabled:
-                        self.log.emit("Stopping notify DEVICE status...")
+                        self.log.emit(self._conn_message("Stopping notify DEVICE status..."))
                     await self._with_timeout(
                         self.core.stop_device_status_notify(),
                         "stop_device_status_notify",
@@ -252,7 +256,7 @@ class BleWorkerFlowMixin:
                     pass
                 try:
                     if log_enabled:
-                        self.log.emit("Stopping notify OP status...")
+                        self.log.emit(self._conn_message("Stopping notify OP status..."))
                     await self._with_timeout(
                         self.core.stop_operation_status_notify(),
                         "stop_operation_status_notify",
@@ -262,7 +266,7 @@ class BleWorkerFlowMixin:
                     pass
                 try:
                     if log_enabled:
-                        self.log.emit("Disconnecting BLE...")
+                        self.log.emit(self._conn_message("Disconnecting BLE..."))
                     await self._with_timeout(self.core.disconnect(), "disconnect", timeout=3.0)
                 except Exception:
                     pass

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import Any, Optional
 
 from .protocol import (
     DEVICE_STATE_NAMES,
@@ -105,6 +105,10 @@ class OperationStatus:
 class DeviceInfo:
     name: str
     address: str
+    ble_device: Any = field(default=None, compare=False, repr=False)
+
+    def with_ble_device(self, ble_device: Any) -> "DeviceInfo":
+        return DeviceInfo(name=self.name, address=self.address, ble_device=ble_device)
 
 
 @dataclass(frozen=True)

@@ -58,6 +58,8 @@ class MainWindowUpdateMixin:
     @Slot(str)
     def on_log(self, message: str) -> None:
         self.model.set_status(message)
+        if self.debug_enabled and self.debug_log_view is not None:
+            self.debug_log_view.append(message)
         print(message, flush=True)
         self._apply_ui()
 
