@@ -9,6 +9,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/i2c_master.h"
+#include "shared_i2c_bus.h"
 
 static const char *ADS_TAG = "ads1115";
 static bool s_i2c_inited = false;
@@ -65,30 +66,15 @@ static void ads1115_recover(const char *stage, esp_err_t err) {
 
 bool ads1115_init(void) {
     if (s_i2c_inited) return !s_ads_error && s_i2c_dev != NULL;
-    i2c_master_bus_config_t bus_cfg = {
-        .i2c_port = ADS1115_I2C_PORT,
-        .sda_io_num = ADS1115_I2C_SDA_GPIO,
-        .scl_io_num = ADS1115_I2C_SCL_GPIO,
-        .clk_source = I2C_CLK_SRC_DEFAULT,
-        .glitch_ignore_cnt = 7,
-        .intr_priority = 0,
-        .trans_queue_depth = 0,
-        .flags = {
-            .enable_internal_pullup = 1,
-            .allow_pd = 0,
-        },
-    };
-    esp_err_t err = i2c_new_master_bus(&bus_cfg, &s_i2c_bus);
-    if (err == ESP_ERR_INVALID_STATE) {
-        err = i2c_master_get_bus_handle(ADS1115_I2C_PORT, &s_i2c_bus);
-    }
-    if (err != ESP_OK) {
-        ESP_LOGW(ADS_TAG, "i2c bus init err=%s", esp_err_to_name(err));
+    s_i2c_bus = shared_i2c_bus_get_handle();
+    if (s_i2c_bus == NULL) {
+        ESP_LOGW(ADS_TAG, "shared i2c bus is not initialized");
         s_ads_error = true;
         s_retry_after_us = esp_timer_get_time() + ADS1115_RETRY_COOLDOWN_US;
         return false;
     }
 
+    esp_err_t err;
     i2c_device_config_t dev_cfg = {
         .dev_addr_length = I2C_ADDR_BIT_LEN_7,
         .device_address = ADS1115_I2C_ADDR,

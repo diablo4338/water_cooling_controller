@@ -23,6 +23,7 @@
 #include "uuid.h"
 #include "metrics.h"
 #include "metrics_ble.h"
+#include "shared_i2c_bus.h"
 #include "device_status.h"
 #include "device_status_ble.h"
 #include "params.h"
@@ -57,6 +58,7 @@ void app_main(void) {
     ecdh_init();
     pair_mode_init();
     status_led_init();
+    ESP_ERROR_CHECK(shared_i2c_bus_init());
     metrics_init();
     metrics_ble_init();
     device_status_ble_init();

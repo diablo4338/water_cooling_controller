@@ -4,13 +4,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "driver/i2c_types.h"
-
-#define ADS1115_I2C_PORT      I2C_NUM_0
 #define ADS1115_I2C_ADDR      0x48
 #define ADS1115_I2C_FREQ_HZ   400000
-#define ADS1115_I2C_SDA_GPIO  5
-#define ADS1115_I2C_SCL_GPIO  4
 
 #define ADS1115_CONV_DELAY_MS     10
 #define ADS1115_INTER_CH_DELAY_MS 5

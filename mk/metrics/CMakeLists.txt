@@ -9,7 +9,7 @@ endif()
 idf_component_register(
     SRCS ${SRCS}
     INCLUDE_DIRS "."
-    REQUIRES esp_driver_i2c esp_driver_gpio esp_timer freertos log
+    REQUIRES esp_driver_i2c esp_driver_gpio esp_timer freertos i2c_bus log
     PRIV_REQUIRES unity
 )
 

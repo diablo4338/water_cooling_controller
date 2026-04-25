@@ -33,7 +33,7 @@ endif()
 
 idf_component_register(SRCS ${SRCS}
                        INCLUDE_DIRS "." "app" "ble" "control" "pairing" "hw"
-                       REQUIRES bt mbedtls nvs_flash driver esp_timer log freertos metrics
+                       REQUIRES bt mbedtls nvs_flash driver esp_timer i2c_bus log freertos metrics
                        PRIV_REQUIRES unity)
 
 if(DEFINED PAIR_RUN_TESTS)
