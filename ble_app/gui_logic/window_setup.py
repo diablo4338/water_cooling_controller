@@ -25,7 +25,10 @@ from .constants import APP_TITLE, PARAM_FIELDS
 class MainWindowSetupMixin:
     def _create_widgets(self) -> None:
         self.setWindowTitle(APP_TITLE)
-        self.resize(900, 600)
+        if self.debug_enabled:
+            self.resize(1280, 720)
+        else:
+            self.resize(900, 600)
         self.scan_button = QPushButton("Scan")
         self.pair_button = QPushButton("Pair")
         self.connect_button = QPushButton("Connect")
@@ -87,29 +90,30 @@ class MainWindowSetupMixin:
         buttons.addWidget(self.auto_checkbox)
 
         lists_layout = QHBoxLayout()
-        lists_layout.addWidget(self._wrap_list("Devices for pairing", self.found_list))
-        lists_layout.addWidget(self._wrap_list("Paired devices", self.paired_list))
+        lists_layout.addWidget(self._wrap_section("Devices for pairing", self.found_list))
+        lists_layout.addWidget(self._wrap_section("Paired devices", self.paired_list))
 
-        layout = QVBoxLayout()
-        layout.addLayout(buttons)
-        layout.addLayout(lists_layout)
-        layout.addWidget(QLabel("Device parameters"))
-        layout.addWidget(self._build_params_layout())
-        layout.addWidget(QLabel("Temperatures"))
-        layout.addLayout(self._build_temp_layout())
-        layout.addWidget(QLabel("Fan speed"))
-        layout.addLayout(self._build_fan_layout())
+        main_content_layout = QVBoxLayout()
+        main_content_layout.addLayout(buttons)
+        main_content_layout.addLayout(lists_layout)
+        main_content_layout.addWidget(QLabel("Device parameters"))
+        main_content_layout.addWidget(self._build_params_layout())
+        main_content_layout.addWidget(QLabel("Temperatures"))
+        main_content_layout.addLayout(self._build_temp_layout())
+        main_content_layout.addWidget(QLabel("Fan speed"))
+        main_content_layout.addLayout(self._build_fan_layout())
+
+        body_layout = QHBoxLayout()
+        body_layout.addLayout(main_content_layout, 3)
         if self.debug_enabled:
-            layout.addWidget(QLabel("Operations (log)"))
-            layout.addWidget(self.op_log_view)
-            layout.addWidget(QLabel("Debug log"))
-            layout.addWidget(self.debug_log_view)
-            layout.addWidget(QLabel("Real-time data"))
-            layout.addWidget(self.data_view)
-        layout.addWidget(self.status_label)
+            body_layout.addWidget(self._build_debug_panel(), 2)
+
+        root_layout = QVBoxLayout()
+        root_layout.addLayout(body_layout)
+        root_layout.addWidget(self.status_label)
 
         container = QWidget()
-        container.setLayout(layout)
+        container.setLayout(root_layout)
         self.setCentralWidget(container)
 
     def _connect_signals(self) -> None:
@@ -152,11 +156,20 @@ class MainWindowSetupMixin:
         super().closeEvent(event)
 
     @staticmethod
-    def _wrap_list(title: str, widget: QListWidget) -> QWidget:
+    def _wrap_section(title: str, widget: QWidget) -> QWidget:
         wrapper = QWidget()
         layout = QVBoxLayout()
         layout.addWidget(QLabel(title))
         layout.addWidget(widget)
+        wrapper.setLayout(layout)
+        return wrapper
+
+    def _build_debug_panel(self) -> QWidget:
+        wrapper = QWidget()
+        layout = QVBoxLayout()
+        layout.addWidget(self._wrap_section("Operations (log)", self.op_log_view))
+        layout.addWidget(self._wrap_section("Debug log", self.debug_log_view))
+        layout.addWidget(self._wrap_section("Real-time data", self.data_view))
         wrapper.setLayout(layout)
         return wrapper
 

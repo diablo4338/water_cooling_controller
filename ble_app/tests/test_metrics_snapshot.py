@@ -5,7 +5,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("XDG_CONFIG_HOME", "/tmp")
 
 import pytest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QVBoxLayout
 
 from ble_app.core import (
     BleAppCore,
@@ -103,6 +103,47 @@ def test_temp_indicator_uses_device_params_snapshot_while_form_is_dirty(
     fan_max_temp.setValue(30)
 
     assert "#eab308" in window.temp_indicators[0].styleSheet()
+
+    window.close()
+    app.processEvents()
+
+
+def test_debug_panels_are_rendered_in_right_column(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("ble_app.core.load_or_create_host_key", lambda: object())
+    monkeypatch.setattr(gui_module.BleWorker, "start", lambda self: None)
+    monkeypatch.setattr(gui_module.BleWorker, "stop", lambda self: None)
+
+    def _submit_noop(self, coro):
+        coro.close()
+        return None
+
+    monkeypatch.setattr(gui_module.BleWorker, "submit", _submit_noop)
+
+    app = QApplication.instance() or QApplication([])
+    window = gui_module.MainWindow(debug=True)
+
+    container = window.centralWidget()
+    root_layout = container.layout()
+    assert isinstance(root_layout, QVBoxLayout)
+
+    body_layout = root_layout.itemAt(0).layout()
+    assert isinstance(body_layout, QHBoxLayout)
+    assert body_layout.count() == 2
+
+    debug_panel = body_layout.itemAt(1).widget()
+    assert debug_panel is not None
+
+    debug_layout = debug_panel.layout()
+    assert isinstance(debug_layout, QVBoxLayout)
+    assert debug_layout.count() == 3
+
+    titles = []
+    for index in range(debug_layout.count()):
+        section = debug_layout.itemAt(index).widget()
+        section_layout = section.layout()
+        titles.append(section_layout.itemAt(0).widget().text())
+
+    assert titles == ["Operations (log)", "Debug log", "Real-time data"]
 
     window.close()
     app.processEvents()
