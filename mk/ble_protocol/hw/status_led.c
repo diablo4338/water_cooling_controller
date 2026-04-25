@@ -9,7 +9,6 @@
 #include "freertos/task.h"
 
 #include "device_status.h"
-#include "fan_control.h"
 #include "pair_mode.h"
 #include "state.h"
 
@@ -18,16 +17,9 @@
 #define STATUS_LED_OFF_LEVEL 0
 #define STATUS_LED_POLL_MS 50
 #define STATUS_LED_SLOW_BLINK_MS 2000
-#define STATUS_LED_FAST_BLINK_MS 500
+#define STATUS_LED_FAST_BLINK_MS 120
 #define STATUS_LED_FACTORY_BLINK_MS 150
 #define STATUS_LED_FACTORY_BLINK_TOGGLES 4
-
-typedef enum {
-    STATUS_LED_MODE_OFF = 0,
-    STATUS_LED_MODE_ON,
-    STATUS_LED_MODE_BLINK_SLOW,
-    STATUS_LED_MODE_BLINK_FAST,
-} status_led_mode_t;
 
 static volatile uint32_t s_factory_blink_remaining = 0;
 static volatile bool s_factory_blink_armed = false;
@@ -36,17 +28,25 @@ static void status_led_set_level(int level) {
     gpio_set_level(STATUS_LED_GPIO, level);
 }
 
-static status_led_mode_t status_led_resolve_mode(void) {
-    if (fan_control_is_overheat()) {
-        return STATUS_LED_MODE_BLINK_FAST;
-    }
-    if (device_status_is_error()) {
-        return STATUS_LED_MODE_BLINK_SLOW;
-    }
-    if (pair_mode_is_active()) {
+status_led_mode_t status_led_resolve_mode_for_state(bool pairing_active, bool overheat_active, bool error_active) {
+    if (pairing_active) {
         return STATUS_LED_MODE_ON;
     }
+    if (overheat_active) {
+        return STATUS_LED_MODE_BLINK_FAST;
+    }
+    if (error_active) {
+        return STATUS_LED_MODE_BLINK_SLOW;
+    }
     return STATUS_LED_MODE_OFF;
+}
+
+static status_led_mode_t status_led_resolve_mode(void) {
+    return status_led_resolve_mode_for_state(
+        pair_mode_is_active(),
+        device_status_has_error_flag(DEVICE_ERROR_OVERHEAT),
+        device_status_is_error()
+    );
 }
 
 void status_led_init(void) {

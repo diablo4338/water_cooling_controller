@@ -22,7 +22,6 @@ typedef enum {
 
 void fan_control_init(void);
 void fan_control_task(void *param);
-bool fan_control_is_overheat(void);
 
 void fan_control_get_status_payload(uint8_t *out, size_t len);
 bool fan_control_override_set(uint8_t op_type, float target_rpm);

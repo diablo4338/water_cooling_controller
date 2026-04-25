@@ -96,6 +96,7 @@ Payload `CONFIG_DEVICE_STATUS`:
 - `error_mask` (uint32 LE): bitmask of active errors
 - bit0: `ADC_OFFLINE`
 - bit1: `NTC_DISCONNECTED`
+- bit2: `OVERHEAT`
 
 Parameters are cached in RAM and persisted to NVS; firmware loads them from NVS on boot.
 

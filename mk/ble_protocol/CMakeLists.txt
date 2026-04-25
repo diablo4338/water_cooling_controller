@@ -13,7 +13,6 @@ set(SRCS
     "control/fan_control.c"
     "control/operation_manager.c"
     "control/params.c"
-    "hw/rgb.c"
     "hw/status_led.c"
     "pairing/conn_guard.c"
     "pairing/crypto.c"
@@ -29,11 +28,12 @@ if(DEFINED PAIR_RUN_TESTS)
     list(APPEND SRCS "test/test_conn_guard.c")
     list(APPEND SRCS "test/test_fsm.c")
     list(APPEND SRCS "test/test_storage.c")
+    list(APPEND SRCS "test/test_status_led.c")
 endif()
 
 idf_component_register(SRCS ${SRCS}
                        INCLUDE_DIRS "." "app" "ble" "control" "pairing" "hw"
-                       REQUIRES bt mbedtls nvs_flash driver esp_timer log freertos esp_driver_rmt metrics
+                       REQUIRES bt mbedtls nvs_flash driver esp_timer log freertos metrics
                        PRIV_REQUIRES unity)
 
 if(DEFINED PAIR_RUN_TESTS)

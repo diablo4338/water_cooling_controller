@@ -73,6 +73,15 @@ bool device_status_is_error(void) {
     return is_error;
 }
 
+bool device_status_has_error_flag(device_error_mask_t flag) {
+    bool active;
+    if (flag == DEVICE_ERROR_NONE) return false;
+    state_lock();
+    active = (g_status.error_mask & flag) != 0;
+    state_unlock();
+    return active;
+}
+
 void device_status_get_payload(uint8_t *out, size_t len) {
     if (!out || len < DEVICE_STATUS_PAYLOAD_LEN) return;
     state_lock();

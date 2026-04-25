@@ -49,7 +49,6 @@ static float g_override_rpm = 0.0f;
 static bool g_override_has_control_type = false;
 static uint8_t g_override_control_type = PARAM_FAN_CONTROL_DC;
 static uint32_t g_status_seq = 0;
-static bool g_overheat = false;
 typedef struct {
     fan_state_t state[METRICS_FAN_CHANNELS];
     operation_type_t op;
@@ -300,14 +299,6 @@ static bool fan_control_monitoring_enabled(const params_t *params, uint8_t chann
     }
 }
 
-static void fan_control_set_overheat(bool overheat) {
-    __atomic_store_n(&g_overheat, overheat, __ATOMIC_RELEASE);
-}
-
-bool fan_control_is_overheat(void) {
-    return __atomic_load_n(&g_overheat, __ATOMIC_ACQUIRE);
-}
-
 bool fan_control_override_set(uint8_t op_type, float target_rpm) {
     if (!g_override_active || g_override_op == (operation_type_t)op_type) {
         g_override_active = true;
@@ -419,7 +410,7 @@ void fan_control_init(void) {
     g_override_rpm = 0.0f;
     g_override_has_control_type = false;
     g_override_control_type = PARAM_FAN_CONTROL_DC;
-    fan_control_set_overheat(false);
+    device_status_set_error_flag(DEVICE_ERROR_OVERHEAT, false);
     fan_status_cache_write(OP_TYPE_NONE);
 }
 
@@ -444,7 +435,7 @@ void fan_control_task(void *param) {
                                                         &override_control_type);
 
         if (op_active) {
-            fan_control_set_overheat(false);
+            device_status_set_error_flag(DEVICE_ERROR_OVERHEAT, false);
             device_status_set_error_flag(DEVICE_ERROR_NTC_DISCONNECTED, false);
             if (aggregate_state != FAN_STATE_IN_SERVICE) {
                 for (uint8_t ch = 0; ch < METRICS_FAN_CHANNELS; ch++) {
@@ -479,7 +470,7 @@ void fan_control_task(void *param) {
 
         params_t params;
         if (!params_cache_get(&params)) {
-            fan_control_set_overheat(false);
+            device_status_set_error_flag(DEVICE_ERROR_OVERHEAT, false);
             device_status_set_error_flag(DEVICE_ERROR_NTC_DISCONNECTED, false);
             vTaskDelay(delay);
             continue;
@@ -493,7 +484,7 @@ void fan_control_task(void *param) {
         bool overheat = params.fan_mode == PARAM_FAN_MODE_TEMP_SENSOR &&
                         isfinite(temp) &&
                         temp >= (float)params.fan_max_temp;
-        fan_control_set_overheat(overheat);
+        device_status_set_error_flag(DEVICE_ERROR_OVERHEAT, overheat);
         float target_percent = fan_control_regulate(&params, temp);
         if (temp_sensor_disconnected) {
             target_percent = (float)params.fan_min_speed;

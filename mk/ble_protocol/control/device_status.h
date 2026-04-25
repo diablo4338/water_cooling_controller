@@ -23,11 +23,13 @@ typedef enum {
     DEVICE_ERROR_NONE = 0,
     DEVICE_ERROR_ADC_OFFLINE = 1u << 0,
     DEVICE_ERROR_NTC_DISCONNECTED = 1u << 1,
+    DEVICE_ERROR_OVERHEAT = 1u << 2,
 } device_error_flag_t;
 
 void device_status_init(void);
 void device_status_set_error_flag(device_error_mask_t flag, bool active);
 bool device_status_is_error(void);
+bool device_status_has_error_flag(device_error_mask_t flag);
 void device_status_get_payload(uint8_t *out, size_t len);
 
 #ifdef __cplusplus
