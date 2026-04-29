@@ -20,9 +20,9 @@ int my_rng(void *ctx, unsigned char *out, size_t len) {
     return 0;
 }
 
-int hmac_sha256(const uint8_t *key, size_t key_len,
-                const uint8_t *msg, size_t msg_len,
-                uint8_t out[32]) {
+int pair_hmac_sha256(const uint8_t *key, size_t key_len,
+                     const uint8_t *msg, size_t msg_len,
+                     uint8_t out[32]) {
     const mbedtls_md_info_t *md = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
     if (!md) return -1;
     if (mbedtls_md_hmac(md, key, key_len, msg, msg_len, out) != 0) return -1;
@@ -34,14 +34,14 @@ int hkdf_sha256_32(const uint8_t *salt, size_t salt_len,
                    const uint8_t *info, size_t info_len,
                    uint8_t out32[32]) {
     uint8_t prk[32];
-    if (hmac_sha256(salt, salt_len, ikm, ikm_len, prk) != 0) return -1;
+    if (pair_hmac_sha256(salt, salt_len, ikm, ikm_len, prk) != 0) return -1;
 
     uint8_t buf[128];
     if (info_len + 1 > sizeof(buf)) return -1;
     memcpy(buf, info, info_len);
     buf[info_len] = 0x01;
 
-    if (hmac_sha256(prk, sizeof(prk), buf, info_len + 1, out32) != 0) return -1;
+    if (pair_hmac_sha256(prk, sizeof(prk), buf, info_len + 1, out32) != 0) return -1;
     return 0;
 }
 

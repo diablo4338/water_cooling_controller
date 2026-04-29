@@ -58,6 +58,8 @@ class MainWindowSetupMixin:
         self._fan_is_nc = [None] * 4
         self.fan_status_indicators = []
         self.fan_monitor_checkboxes = []
+        self.voltage_field = None
+        self.current_field = None
         self.device_status_field = None
         self.device_status_indicator = None
         self._operation_active = False
@@ -100,6 +102,8 @@ class MainWindowSetupMixin:
         main_content_layout.addWidget(self._build_params_layout())
         main_content_layout.addWidget(QLabel("Temperatures"))
         main_content_layout.addLayout(self._build_temp_layout())
+        main_content_layout.addWidget(QLabel("Power"))
+        main_content_layout.addLayout(self._build_power_layout())
         main_content_layout.addWidget(QLabel("Fan speed"))
         main_content_layout.addLayout(self._build_fan_layout())
 
@@ -251,6 +255,32 @@ class MainWindowSetupMixin:
             grid.addWidget(indicator, row, col + 2)
             self.temp_fields.append(field)
             self.temp_indicators.append(indicator)
+        return grid
+
+    def _build_power_layout(self) -> QGridLayout:
+        grid = QGridLayout()
+
+        voltage_field = QLineEdit("â€”")
+        voltage_field.setReadOnly(True)
+        voltage_field.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        voltage_field.setCursor(Qt.CursorShape.ArrowCursor)
+        voltage_field.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        voltage_field.setAlignment(Qt.AlignmentFlag.AlignRight)
+
+        current_field = QLineEdit("â€”")
+        current_field.setReadOnly(True)
+        current_field.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        current_field.setCursor(Qt.CursorShape.ArrowCursor)
+        current_field.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        current_field.setAlignment(Qt.AlignmentFlag.AlignRight)
+
+        grid.addWidget(QLabel("Voltage, V"), 0, 0)
+        grid.addWidget(voltage_field, 0, 1)
+        grid.addWidget(QLabel("Current, mA"), 0, 2)
+        grid.addWidget(current_field, 0, 3)
+
+        self.voltage_field = voltage_field
+        self.current_field = current_field
         return grid
 
     def _build_fan_layout(self) -> QGridLayout:

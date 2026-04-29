@@ -12,6 +12,7 @@
 #include "driver/gpio.h"
 
 #include "ads1115.h"
+#include "ina226.h"
 
 static const char *METRICS_TAG = "metrics";
 
@@ -19,6 +20,9 @@ static float g_temp_values[METRICS_TEMP_CHANNELS] = {NAN, NAN, NAN, NAN};
 static bool g_temp_valid[METRICS_TEMP_CHANNELS] = {false};
 static uint8_t g_temp_failures[METRICS_TEMP_CHANNELS] = {0};
 static bool g_metrics_error = false;
+static float g_voltage_v = NAN;
+static float g_current_ma = NAN;
+static bool g_power_valid = false;
 
 #define FAN_TACH_GPIO 18
 #define FAN_TACH_SEL_GPIO0 6
@@ -64,6 +68,7 @@ static void fan_tach_select_channel(uint8_t channel);
 static void fan_tach_isr(void *arg);
 static void metrics_snapshot_write_from_state(void);
 static bool metrics_snapshot_read(metrics_snapshot_t *out);
+static uint16_t metrics_update_power_sample(void);
 
 #define METRICS_FAIL_THRESHOLD 3
 #define METRICS_RAW_NO_SENSOR_THRESHOLD 500
@@ -90,7 +95,12 @@ void metrics_init(void) {
     }
     g_fan_active_channel = 0;
     g_fan_ignore_edges_until_us = 0;
-    g_metrics_error = !ads1115_init();
+    g_voltage_v = NAN;
+    g_current_ma = NAN;
+    g_power_valid = false;
+    bool ads_ok = ads1115_init();
+    bool ina_ok = ina226_init();
+    g_metrics_error = !ads_ok || !ina_ok;
     fan_pcnt_init();
     metrics_snapshot_write_from_state();
 }
@@ -109,6 +119,20 @@ float metrics_get_fan_speed_rpm_channel(uint8_t channel) {
     metrics_get_snapshot(&snap);
     if (!snap.fan_valid[channel]) return NAN;
     return snap.fan_rpm[channel];
+}
+
+float metrics_get_voltage_v(void) {
+    metrics_snapshot_t snap;
+    metrics_get_snapshot(&snap);
+    if (!snap.power_valid) return NAN;
+    return snap.voltage_v;
+}
+
+float metrics_get_current_ma(void) {
+    metrics_snapshot_t snap;
+    metrics_get_snapshot(&snap);
+    if (!snap.power_valid) return NAN;
+    return snap.current_ma;
 }
 
 static void fan_pcnt_init(void) {
@@ -355,8 +379,8 @@ void metrics_get_snapshot(metrics_snapshot_t *out) {
     metrics_snapshot_read(out);
 }
 
-uint8_t metrics_sample_all(void) {
-    uint8_t changed_mask = 0;
+uint16_t metrics_sample_all(void) {
+    uint16_t changed_mask = 0;
 
     for (uint8_t ch = 0; ch < METRICS_TEMP_CHANNELS; ch++) {
         int16_t raw = 0;
@@ -371,7 +395,7 @@ uint8_t metrics_sample_all(void) {
                              (unsigned)ch, raw, (double)temp_c);
                 }
                 if (metrics_mark_invalid(ch)) {
-                    changed_mask |= (uint8_t)(1U << ch);
+                    changed_mask |= (uint16_t)(1U << ch);
                 }
                 vTaskDelay(pdMS_TO_TICKS(ADS1115_INTER_CH_DELAY_MS));
                 continue;
@@ -382,14 +406,14 @@ uint8_t metrics_sample_all(void) {
                 ESP_LOGI(METRICS_TAG, "channel %u online", (unsigned)ch);
             }
             if (metrics_update_value(ch, temp_c)) {
-                changed_mask |= (uint8_t)(1U << ch);
+                changed_mask |= (uint16_t)(1U << ch);
             }
         } else {
             if (ads1115_has_error()) {
                 g_metrics_error = true;
                 for (uint8_t i = 0; i < METRICS_TEMP_CHANNELS; i++) {
                     if (metrics_mark_invalid(i)) {
-                        changed_mask |= (uint8_t)(1U << i);
+                        changed_mask |= (uint16_t)(1U << i);
                     }
                 }
                 break;
@@ -402,7 +426,7 @@ uint8_t metrics_sample_all(void) {
             }
             if (g_temp_failures[ch] >= METRICS_FAIL_THRESHOLD) {
                 if (metrics_mark_invalid(ch)) {
-                    changed_mask |= (uint8_t)(1U << ch);
+                    changed_mask |= (uint16_t)(1U << ch);
                 }
             }
         }
@@ -413,21 +437,22 @@ uint8_t metrics_sample_all(void) {
     float rpm = 0.0f;
     if (metrics_calc_fan_rpm(fan_channel, &rpm)) {
         if (metrics_update_fan(fan_channel, rpm)) {
-            changed_mask |= (uint8_t)METRICS_FAN_CHANGED_BIT(fan_channel);
+            changed_mask |= (uint16_t)METRICS_FAN_CHANGED_BIT(fan_channel);
         }
     } else if (metrics_mark_fan_invalid(fan_channel)) {
-        changed_mask |= (uint8_t)METRICS_FAN_CHANGED_BIT(fan_channel);
+        changed_mask |= (uint16_t)METRICS_FAN_CHANGED_BIT(fan_channel);
     }
 
     fan_tach_select_channel((uint8_t)((fan_channel + 1U) % METRICS_FAN_CHANNELS));
     esp_rom_delay_us(FAN_TACH_SWITCH_DELAY_US);
+    changed_mask |= metrics_update_power_sample();
 
     metrics_snapshot_write_from_state();
     return changed_mask;
 }
 
 bool metrics_has_error(void) {
-    return g_metrics_error;
+    return g_metrics_error || ina226_has_error();
 }
 
 static void metrics_snapshot_write_from_state(void) {
@@ -440,10 +465,36 @@ static void metrics_snapshot_write_from_state(void) {
         snap.fan_rpm[i] = g_fan_channels[i].rpm;
         snap.fan_valid[i] = g_fan_channels[i].valid ? 1U : 0U;
     }
+    snap.voltage_v = g_voltage_v;
+    snap.current_ma = g_current_ma;
+    snap.power_valid = g_power_valid ? 1U : 0U;
 
     __atomic_fetch_add(&g_snapshot_seq, 1U, __ATOMIC_ACQ_REL);
     g_snapshot = snap;
     __atomic_fetch_add(&g_snapshot_seq, 1U, __ATOMIC_ACQ_REL);
+}
+
+static uint16_t metrics_update_power_sample(void) {
+    ina226_sample_t sample;
+    if (!ina226_get_sample(&sample)) {
+        if (!g_power_valid) return 0;
+        g_power_valid = false;
+        g_voltage_v = NAN;
+        g_current_ma = NAN;
+        return METRICS_VOLTAGE_CHANGED_BIT | METRICS_CURRENT_CHANGED_BIT;
+    }
+
+    uint16_t changed = 0;
+    if (!g_power_valid || fabsf(g_voltage_v - sample.voltage_v) >= 0.01f) {
+        g_voltage_v = sample.voltage_v;
+        changed |= METRICS_VOLTAGE_CHANGED_BIT;
+    }
+    if (!g_power_valid || fabsf(g_current_ma - sample.current_ma) >= 0.1f) {
+        g_current_ma = sample.current_ma;
+        changed |= METRICS_CURRENT_CHANGED_BIT;
+    }
+    g_power_valid = true;
+    return changed;
 }
 
 static bool metrics_snapshot_read(metrics_snapshot_t *out) {

@@ -42,6 +42,10 @@ def decode_fan_speed(data: bytes) -> float | None:
     return decode_temp_value(data)
 
 
+def decode_power_metric(data: bytes) -> float | None:
+    return decode_temp_value(data)
+
+
 def encode_params(params: DeviceParams, mask: int = 0x03FF) -> bytes:
     return struct.pack(
         PARAMS_FORMAT,

@@ -299,8 +299,13 @@ class BleWorkerFlowMixin:
         except Exception as exc:
             self.log.emit(f"Failed to send parameters: {exc}")
 
-    async def apply_params(self) -> None:
+    async def apply_params(self, params: DeviceParams) -> None:
         try:
+            await self._with_timeout(
+                self.core.write_params(params, timeout=self.config.metrics_timeout_s),
+                "write_params",
+                timeout=self.config.metrics_timeout_s,
+            )
             await self._with_timeout(
                 self.core.apply_params(timeout=self.config.metrics_timeout_s),
                 "apply_params",

@@ -31,26 +31,36 @@ class DeviceParams:
 class MetricsSnapshot:
     temperatures: tuple[Optional[float], Optional[float], Optional[float], Optional[float]]
     fan_speeds: tuple[Optional[float], Optional[float], Optional[float], Optional[float]]
+    voltage_v: Optional[float] = None
+    current_ma: Optional[float] = None
 
     def with_temperature(self, channel: int, value: Optional[float]) -> "MetricsSnapshot":
         if channel < 0 or channel >= len(self.temperatures):
             return self
         temperatures = list(self.temperatures)
         temperatures[channel] = value
-        return MetricsSnapshot(tuple(temperatures), self.fan_speeds)
+        return MetricsSnapshot(tuple(temperatures), self.fan_speeds, self.voltage_v, self.current_ma)
 
     def with_fan_speed(self, channel: int, value: Optional[float]) -> "MetricsSnapshot":
         if channel < 0 or channel >= len(self.fan_speeds):
             return self
         fan_speeds = list(self.fan_speeds)
         fan_speeds[channel] = value
-        return MetricsSnapshot(self.temperatures, tuple(fan_speeds))
+        return MetricsSnapshot(self.temperatures, tuple(fan_speeds), self.voltage_v, self.current_ma)
+
+    def with_voltage(self, value: Optional[float]) -> "MetricsSnapshot":
+        return MetricsSnapshot(self.temperatures, self.fan_speeds, value, self.current_ma)
+
+    def with_current(self, value: Optional[float]) -> "MetricsSnapshot":
+        return MetricsSnapshot(self.temperatures, self.fan_speeds, self.voltage_v, value)
 
     @classmethod
     def empty(cls) -> "MetricsSnapshot":
         return cls(
             temperatures=(None, None, None, None),
             fan_speeds=(None, None, None, None),
+            voltage_v=None,
+            current_ma=None,
         )
 
 

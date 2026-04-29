@@ -1,5 +1,6 @@
 set(SRCS
     "ads1115.c"
+    "ina226.c"
     "metrics.c")
 
 if(DEFINED PAIR_RUN_TESTS)

@@ -144,7 +144,7 @@ bool trust_store_match_auth(const uint8_t auth_nonce[16],
         if (slot->used != 1) {
             continue;
         }
-        if (hmac_sha256(slot->key, sizeof(slot->key), msg, sizeof(msg), expect) != 0) {
+        if (pair_hmac_sha256(slot->key, sizeof(slot->key), msg, sizeof(msg), expect) != 0) {
             continue;
         }
         if (memcmp(expect, proof, sizeof(expect)) != 0) {

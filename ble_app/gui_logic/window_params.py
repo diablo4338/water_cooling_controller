@@ -146,12 +146,9 @@ class MainWindowParamsMixin:
     def _on_params_changed(self, _) -> None:
         if self._params_update_lock:
             return
-        params = self._current_params()
         device = self.model.state.connected_device
         if device is None or self.model.state.conn != self.ConnState.CONNECTED:
             return
-        save_device_params(device.address, params)
-        fut = self.worker.submit(self.worker.write_params(params))
-        if fut is None:
-            self.on_log("Failed to send parameters (worker not ready).")
+        self.model.set_status("Parameters changed. Press Apply to write them.")
+        self._apply_ui()
         self._refresh_temp_indicators()

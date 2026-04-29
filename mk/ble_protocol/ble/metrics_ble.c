@@ -11,6 +11,7 @@
 #include "state.h"
 
 #include "device_status.h"
+#include "ina226.h"
 #include "metrics.h"
 
 static const char *METRICS_TAG = "metrics";
@@ -19,9 +20,13 @@ static const char *METRICS_TAG = "metrics";
 
 uint16_t g_temp_attr_handles[METRICS_TEMP_CHANNELS] = {0};
 uint16_t g_fan_attr_handles[METRICS_FAN_CHANNELS] = {0};
+uint16_t g_voltage_attr_handle = 0;
+uint16_t g_current_attr_handle = 0;
 
 static bool g_temp_notify_enabled[METRICS_TEMP_CHANNELS] = {false};
 static bool g_fan_notify_enabled[METRICS_FAN_CHANNELS] = {false};
+static bool g_voltage_notify_enabled = false;
+static bool g_current_notify_enabled = false;
 
 void metrics_ble_init(void) {
     for (int i = 0; i < METRICS_TEMP_CHANNELS; i++) {
@@ -32,6 +37,10 @@ void metrics_ble_init(void) {
         g_fan_attr_handles[i] = 0;
         g_fan_notify_enabled[i] = false;
     }
+    g_voltage_attr_handle = 0;
+    g_current_attr_handle = 0;
+    g_voltage_notify_enabled = false;
+    g_current_notify_enabled = false;
 }
 
 void metrics_set_notify(uint16_t attr_handle, bool enabled) {
@@ -48,6 +57,14 @@ void metrics_set_notify(uint16_t attr_handle, bool enabled) {
             return;
         }
     }
+    if (attr_handle == g_voltage_attr_handle) {
+        g_voltage_notify_enabled = enabled;
+        return;
+    }
+    if (attr_handle == g_current_attr_handle) {
+        g_current_notify_enabled = enabled;
+        return;
+    }
 }
 
 void metrics_reset_notify(void) {
@@ -57,6 +74,8 @@ void metrics_reset_notify(void) {
     for (int i = 0; i < METRICS_FAN_CHANNELS; i++) {
         g_fan_notify_enabled[i] = false;
     }
+    g_voltage_notify_enabled = false;
+    g_current_notify_enabled = false;
 }
 
 static bool metrics_can_notify(uint16_t conn_handle) {
@@ -96,25 +115,45 @@ static void metrics_notify_fan(uint16_t conn_handle, uint8_t channel) {
     }
 }
 
+static void metrics_notify_float(uint16_t conn_handle, uint16_t attr_handle, bool enabled, float value, const char *name) {
+    if (!enabled) return;
+    if (!metrics_can_notify(conn_handle)) return;
+    if (attr_handle == 0) return;
+
+    struct os_mbuf *om = ble_hs_mbuf_from_flat(&value, sizeof(value));
+    if (!om) return;
+    int rc = ble_gatts_notify_custom(conn_handle, attr_handle, om);
+    if (rc != 0) {
+        ESP_LOGW(METRICS_TAG, "notify %s rc=%d", name, rc);
+    }
+}
+
 void metrics_task(void *param) {
     (void)param;
 
     while (1) {
         TickType_t start = xTaskGetTickCount();
 
-        uint8_t changed = metrics_sample_all();
+        uint16_t changed = metrics_sample_all();
         device_status_set_error_flag(DEVICE_ERROR_ADC_OFFLINE, metrics_has_error());
+        device_status_set_error_flag(DEVICE_ERROR_OVERCURRENT, ina226_overcurrent_active());
         if (changed != 0) {
             uint16_t conn = fsm_get_conn_handle();
             for (uint8_t ch = 0; ch < METRICS_TEMP_CHANNELS; ch++) {
-                if (changed & (uint8_t)(1U << ch)) {
+                if (changed & (uint16_t)(1U << ch)) {
                     metrics_notify_channel(conn, ch);
                 }
             }
             for (uint8_t ch = 0; ch < METRICS_FAN_CHANNELS; ch++) {
-                if (changed & (uint8_t)METRICS_FAN_CHANGED_BIT(ch)) {
+                if (changed & (uint16_t)METRICS_FAN_CHANGED_BIT(ch)) {
                     metrics_notify_fan(conn, ch);
                 }
+            }
+            if (changed & METRICS_VOLTAGE_CHANGED_BIT) {
+                metrics_notify_float(conn, g_voltage_attr_handle, g_voltage_notify_enabled, metrics_get_voltage_v(), "voltage");
+            }
+            if (changed & METRICS_CURRENT_CHANGED_BIT) {
+                metrics_notify_float(conn, g_current_attr_handle, g_current_notify_enabled, metrics_get_current_ma(), "current");
             }
         }
 

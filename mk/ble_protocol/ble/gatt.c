@@ -111,7 +111,7 @@ static int gatt_write_pair_confirm(uint16_t conn_handle, uint16_t attr_handle,
     memcpy(msg + off, dev_nonce_local, sizeof(dev_nonce_local)); off += sizeof(dev_nonce_local);
 
     uint8_t expect[32];
-    if (hmac_sha256(K_local, sizeof(K_local), msg, off, expect) != 0) return BLE_ATT_ERR_UNLIKELY;
+    if (pair_hmac_sha256(K_local, sizeof(K_local), msg, off, expect) != 0) return BLE_ATT_ERR_UNLIKELY;
 
     if (memcmp(got, expect, 32) != 0) {
         ESP_LOGW(TAG, "PAIR_CONFIRM failed");
@@ -227,6 +227,28 @@ static int gatt_read_fan_speed(uint16_t conn_handle, uint16_t attr_handle,
     uint8_t channel = (uint8_t)(uintptr_t)arg;
     float rpm = metrics_get_fan_speed_rpm_channel(channel);
     os_mbuf_append(ctxt->om, &rpm, sizeof(rpm));
+    return 0;
+}
+
+static int gatt_read_voltage(uint16_t conn_handle, uint16_t attr_handle,
+                             struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    (void)attr_handle;
+    (void)arg;
+    if (!can_access_data()) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    if (!auth_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    float voltage = metrics_get_voltage_v();
+    os_mbuf_append(ctxt->om, &voltage, sizeof(voltage));
+    return 0;
+}
+
+static int gatt_read_current(uint16_t conn_handle, uint16_t attr_handle,
+                             struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    (void)attr_handle;
+    (void)arg;
+    if (!can_access_data()) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    if (!auth_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    float current = metrics_get_current_ma();
+    os_mbuf_append(ctxt->om, &current, sizeof(current));
     return 0;
 }
 
@@ -512,6 +534,18 @@ static struct ble_gatt_chr_def metrics_chrs[] = {
         .val_handle = &g_fan_attr_handles[3],
         .arg = (void *)(uintptr_t)3,
     },
+    {
+        .uuid = NULL,
+        .access_cb = gatt_read_voltage,
+        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+        .val_handle = &g_voltage_attr_handle,
+    },
+    {
+        .uuid = NULL,
+        .access_cb = gatt_read_current,
+        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+        .val_handle = &g_current_attr_handle,
+    },
     { 0 }
 };
 
@@ -564,6 +598,8 @@ void gatt_init_uuids_and_services(void) {
     parse_uuid_or_abort(UUID_FAN2_SPEED_VALUE_STR, &UUID_FAN2_SPEED_VALUE);
     parse_uuid_or_abort(UUID_FAN3_SPEED_VALUE_STR, &UUID_FAN3_SPEED_VALUE);
     parse_uuid_or_abort(UUID_FAN4_SPEED_VALUE_STR, &UUID_FAN4_SPEED_VALUE);
+    parse_uuid_or_abort(UUID_VOLTAGE_VALUE_STR, &UUID_VOLTAGE_VALUE);
+    parse_uuid_or_abort(UUID_CURRENT_VALUE_STR, &UUID_CURRENT_VALUE);
 
     gatt_svcs[0].uuid = &UUID_PAIR_SVC.u;
     gatt_svcs[1].uuid = &UUID_MAIN_SVC.u;
@@ -595,4 +631,6 @@ void gatt_init_uuids_and_services(void) {
     metrics_chrs[5].uuid = &UUID_FAN2_SPEED_VALUE.u;
     metrics_chrs[6].uuid = &UUID_FAN3_SPEED_VALUE.u;
     metrics_chrs[7].uuid = &UUID_FAN4_SPEED_VALUE.u;
+    metrics_chrs[8].uuid = &UUID_VOLTAGE_VALUE.u;
+    metrics_chrs[9].uuid = &UUID_CURRENT_VALUE.u;
 }

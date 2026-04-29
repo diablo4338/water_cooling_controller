@@ -71,7 +71,7 @@ class MainWindowActionMixin:
                 use_timeout=False,
             )
         elif command.action == self.Action.APPLY:
-            self._start_action(self.Action.APPLY, self.worker.apply_params())
+            self._start_action(self.Action.APPLY, self.worker.apply_params(self._current_params()))
         elif command.action == self.Action.DISCARD:
             self._start_action(self.Action.DISCARD, self.worker.read_params_snapshot())
         elif command.action == self.Action.CALIBRATE:

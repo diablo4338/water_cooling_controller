@@ -89,6 +89,15 @@ class MainWindowUpdateMixin:
         if append_data:
             self.data_view.append(f"Fan {channel + 1}: {text}")
 
+    def _apply_power_value(self, field, label: str, value: Optional[float], unit: str, decimals: int, append_data: bool) -> None:
+        if field is None:
+            return
+        is_nc = value is None or not math.isfinite(value)
+        text = "NC" if is_nc else f"{value:.{decimals}f}"
+        field.setText(text)
+        if append_data:
+            self.data_view.append(f"{label}: {text} {unit}")
+
     @Slot(object)
     def on_metrics_received(self, snapshot: MetricsSnapshot) -> None:
         prev_snapshot = self.metrics_snapshot
@@ -97,6 +106,22 @@ class MainWindowUpdateMixin:
             self._apply_temp_value(channel, value, append_data=prev_snapshot.temperatures[channel] != value)
         for channel, value in enumerate(snapshot.fan_speeds):
             self._apply_fan_value(channel, value, append_data=prev_snapshot.fan_speeds[channel] != value)
+        self._apply_power_value(
+            self.voltage_field,
+            "Voltage",
+            snapshot.voltage_v,
+            "V",
+            2,
+            append_data=prev_snapshot.voltage_v != snapshot.voltage_v,
+        )
+        self._apply_power_value(
+            self.current_field,
+            "Current",
+            snapshot.current_ma,
+            "mA",
+            1,
+            append_data=prev_snapshot.current_ma != snapshot.current_ma,
+        )
         self._refresh_temp_indicators()
 
     @Slot(object)
@@ -255,6 +280,10 @@ class MainWindowUpdateMixin:
         self._temp_is_nc = [None] * len(self.temp_fields)
         for field in self.fan_fields:
             field.setText("—")
+        if self.voltage_field is not None:
+            self.voltage_field.setText("—")
+        if self.current_field is not None:
+            self.current_field.setText("—")
         self._fan_is_nc = [None] * len(self.fan_fields)
         for channel in range(len(self.fan_status_indicators)):
             self._set_fan_status_indicator(channel, "#6b7280")
