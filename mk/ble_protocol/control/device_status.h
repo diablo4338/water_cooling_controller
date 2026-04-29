@@ -25,6 +25,7 @@ typedef enum {
     DEVICE_ERROR_NTC_DISCONNECTED = 1u << 1,
     DEVICE_ERROR_OVERHEAT = 1u << 2,
     DEVICE_ERROR_OVERCURRENT = 1u << 3,
+    DEVICE_ERROR_INA_OFFLINE = 1u << 4,
 } device_error_flag_t;
 
 void device_status_init(void);

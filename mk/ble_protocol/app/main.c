@@ -31,6 +31,7 @@
 #include "fan_status_ble.h"
 #include "operation_manager.h"
 #include "operation_status_ble.h"
+#include "overcurrent_monitor.h"
 #include "pair_mode.h"
 #include "status_led.h"
 
@@ -64,6 +65,7 @@ void app_main(void) {
     device_status_ble_init();
     params_init();
     device_status_init();
+    overcurrent_monitor_init();
     fan_status_ble_init();
     operation_status_ble_init();
     operation_manager_init();

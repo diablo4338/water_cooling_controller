@@ -11,7 +11,6 @@
 #include "state.h"
 
 #include "device_status.h"
-#include "ina226.h"
 #include "metrics.h"
 
 static const char *METRICS_TAG = "metrics";
@@ -135,8 +134,8 @@ void metrics_task(void *param) {
         TickType_t start = xTaskGetTickCount();
 
         uint16_t changed = metrics_sample_all();
-        device_status_set_error_flag(DEVICE_ERROR_ADC_OFFLINE, metrics_has_error());
-        device_status_set_error_flag(DEVICE_ERROR_OVERCURRENT, ina226_overcurrent_active());
+        device_status_set_error_flag(DEVICE_ERROR_ADC_OFFLINE, metrics_has_ads_error());
+        device_status_set_error_flag(DEVICE_ERROR_INA_OFFLINE, metrics_has_ina_error());
         if (changed != 0) {
             uint16_t conn = fsm_get_conn_handle();
             for (uint8_t ch = 0; ch < METRICS_TEMP_CHANNELS; ch++) {

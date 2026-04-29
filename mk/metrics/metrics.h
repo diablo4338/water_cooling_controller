@@ -29,5 +29,7 @@ float metrics_get_voltage_v(void);
 float metrics_get_current_ma(void);
 void metrics_get_snapshot(metrics_snapshot_t *out);
 bool metrics_has_error(void);
+bool metrics_has_ads_error(void);
+bool metrics_has_ina_error(void);
 
 #endif

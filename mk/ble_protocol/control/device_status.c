@@ -33,7 +33,13 @@ static void device_status_refresh_locked(bool *changed) {
 
 void device_status_init(void) {
     state_lock();
-    g_status.error_mask = metrics_has_error() ? DEVICE_ERROR_ADC_OFFLINE : DEVICE_ERROR_NONE;
+    g_status.error_mask = DEVICE_ERROR_NONE;
+    if (metrics_has_ads_error()) {
+        g_status.error_mask |= DEVICE_ERROR_ADC_OFFLINE;
+    }
+    if (metrics_has_ina_error()) {
+        g_status.error_mask |= DEVICE_ERROR_INA_OFFLINE;
+    }
     bool changed = false;
     device_status_refresh_locked(&changed);
     state_unlock();

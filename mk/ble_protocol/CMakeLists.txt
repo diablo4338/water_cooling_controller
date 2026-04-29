@@ -13,6 +13,7 @@ set(SRCS
     "control/fan_control.c"
     "control/operation_manager.c"
     "control/params.c"
+    "hw/overcurrent_monitor.c"
     "hw/status_led.c"
     "pairing/conn_guard.c"
     "pairing/crypto.c"

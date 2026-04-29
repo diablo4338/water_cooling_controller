@@ -2,7 +2,12 @@ import struct
 
 from ble_app.core_logic.codec import PARAMS_PAYLOAD_LEN, decode_device_status, decode_params, encode_params
 from ble_app.core_logic.models import DeviceParams
-from ble_app.core_logic.protocol import DEVICE_ERROR_OVERCURRENT, DEVICE_ERROR_OVERHEAT, DEVICE_STATE_ERROR
+from ble_app.core_logic.protocol import (
+    DEVICE_ERROR_INA_OFFLINE,
+    DEVICE_ERROR_OVERCURRENT,
+    DEVICE_ERROR_OVERHEAT,
+    DEVICE_STATE_ERROR,
+)
 
 
 def test_params_round_trip_uses_full_payload_length() -> None:
@@ -43,3 +48,13 @@ def test_decode_device_status_exposes_overcurrent_flag() -> None:
     assert status.error_mask == DEVICE_ERROR_OVERCURRENT
     assert status.errors == (DEVICE_ERROR_OVERCURRENT,)
     assert status.error_labels == ("OVERCURRENT",)
+
+
+def test_decode_device_status_exposes_ina_offline_flag() -> None:
+    payload = struct.pack("<BBI", 2, DEVICE_STATE_ERROR, DEVICE_ERROR_INA_OFFLINE)
+
+    status = decode_device_status(payload)
+
+    assert status.error_mask == DEVICE_ERROR_INA_OFFLINE
+    assert status.errors == (DEVICE_ERROR_INA_OFFLINE,)
+    assert status.error_labels == ("INA_OFFLINE",)

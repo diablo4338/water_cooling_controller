@@ -19,7 +19,7 @@ static const char *METRICS_TAG = "metrics";
 static float g_temp_values[METRICS_TEMP_CHANNELS] = {NAN, NAN, NAN, NAN};
 static bool g_temp_valid[METRICS_TEMP_CHANNELS] = {false};
 static uint8_t g_temp_failures[METRICS_TEMP_CHANNELS] = {0};
-static bool g_metrics_error = false;
+static bool g_ads_error = false;
 static float g_voltage_v = NAN;
 static float g_current_ma = NAN;
 static bool g_power_valid = false;
@@ -100,7 +100,8 @@ void metrics_init(void) {
     g_power_valid = false;
     bool ads_ok = ads1115_init();
     bool ina_ok = ina226_init();
-    g_metrics_error = !ads_ok || !ina_ok;
+    g_ads_error = !ads_ok;
+    (void)ina_ok;
     fan_pcnt_init();
     metrics_snapshot_write_from_state();
 }
@@ -385,7 +386,7 @@ uint16_t metrics_sample_all(void) {
     for (uint8_t ch = 0; ch < METRICS_TEMP_CHANNELS; ch++) {
         int16_t raw = 0;
         if (ads1115_read_raw(ch, &raw)) {
-            g_metrics_error = false;
+            g_ads_error = false;
             float temp_c = ads1115_raw_to_temp(raw);
             if (raw < METRICS_RAW_NO_SENSOR_THRESHOLD || !isfinite(temp_c)) {
                 bool was_offline = g_temp_failures[ch] >= METRICS_FAIL_THRESHOLD;
@@ -410,7 +411,7 @@ uint16_t metrics_sample_all(void) {
             }
         } else {
             if (ads1115_has_error()) {
-                g_metrics_error = true;
+                g_ads_error = true;
                 for (uint8_t i = 0; i < METRICS_TEMP_CHANNELS; i++) {
                     if (metrics_mark_invalid(i)) {
                         changed_mask |= (uint16_t)(1U << i);
@@ -452,7 +453,15 @@ uint16_t metrics_sample_all(void) {
 }
 
 bool metrics_has_error(void) {
-    return g_metrics_error || ina226_has_error();
+    return metrics_has_ads_error() || metrics_has_ina_error();
+}
+
+bool metrics_has_ads_error(void) {
+    return g_ads_error;
+}
+
+bool metrics_has_ina_error(void) {
+    return ina226_has_error();
 }
 
 static void metrics_snapshot_write_from_state(void) {

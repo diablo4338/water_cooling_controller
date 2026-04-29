@@ -19,23 +19,17 @@
 
 #define INA226_I2C_FREQ_HZ 400000
 
-#ifndef INA226_ALERT_GPIO
-#define INA226_ALERT_GPIO 8
-#endif
-
 typedef struct {
     uint16_t bus_raw;
     int16_t current_raw;
     float voltage_v;
     float current_ma;
-    bool overcurrent;
     bool valid;
 } ina226_sample_t;
 
 bool ina226_init(void);
 bool ina226_has_error(void);
 bool ina226_get_sample(ina226_sample_t *out);
-bool ina226_overcurrent_active(void);
 float ina226_bus_raw_to_v(uint16_t raw);
 float ina226_current_raw_to_ma(int16_t raw);
 
