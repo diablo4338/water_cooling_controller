@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from .constants import APP_TITLE, PARAM_FIELDS
+from .metrics_chart import MetricsHistoryChart
 
 
 class MainWindowSetupMixin:
@@ -47,6 +48,7 @@ class MainWindowSetupMixin:
         self.op_log_view.setReadOnly(True)
         self.debug_log_view = QTextEdit()
         self.debug_log_view.setReadOnly(True)
+        self.metrics_chart = MetricsHistoryChart()
         self.status_label = QLabel(self.model.state.status)
 
     def _init_view_state(self) -> None:
@@ -106,6 +108,8 @@ class MainWindowSetupMixin:
         main_content_layout.addLayout(self._build_power_layout())
         main_content_layout.addWidget(QLabel("Fan speed"))
         main_content_layout.addLayout(self._build_fan_layout())
+        main_content_layout.addWidget(QLabel("History"))
+        main_content_layout.addWidget(self.metrics_chart)
 
         body_layout = QHBoxLayout()
         body_layout.addLayout(main_content_layout, 3)
