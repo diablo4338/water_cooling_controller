@@ -102,12 +102,16 @@ class MainWindowSetupMixin:
         main_content_layout.addLayout(lists_layout)
         main_content_layout.addWidget(QLabel("Device parameters"))
         main_content_layout.addWidget(self._build_params_layout())
-        main_content_layout.addWidget(QLabel("Temperatures"))
-        main_content_layout.addLayout(self._build_temp_layout())
+
+        sensors_layout = QHBoxLayout()
+        sensors_layout.addWidget(self._wrap_section("Temperatures", self._build_temp_widget()))
+        sensors_layout.addWidget(self._wrap_section("Fan speed", self._build_fan_widget()))
+        main_content_layout.addLayout(sensors_layout)
+
         main_content_layout.addWidget(QLabel("Power"))
         main_content_layout.addLayout(self._build_power_layout())
-        main_content_layout.addWidget(QLabel("Fan speed"))
-        main_content_layout.addLayout(self._build_fan_layout())
+        main_content_layout.addWidget(self._build_device_status_widget())
+        main_content_layout.addLayout(self._build_operation_buttons_layout())
         main_content_layout.addWidget(QLabel("History"))
         main_content_layout.addWidget(self.metrics_chart)
 
@@ -172,6 +176,16 @@ class MainWindowSetupMixin:
         wrapper.setLayout(layout)
         return wrapper
 
+    def _build_temp_widget(self) -> QWidget:
+        wrapper = QWidget()
+        wrapper.setLayout(self._build_temp_layout())
+        return wrapper
+
+    def _build_fan_widget(self) -> QWidget:
+        wrapper = QWidget()
+        wrapper.setLayout(self._build_fan_layout())
+        return wrapper
+
     def _build_debug_panel(self) -> QWidget:
         wrapper = QWidget()
         layout = QVBoxLayout()
@@ -184,6 +198,7 @@ class MainWindowSetupMixin:
     def _build_params_layout(self) -> QWidget:
         wrapper = QWidget()
         layout = QVBoxLayout()
+        groups_layout = QHBoxLayout()
         self.param_fields.clear()
         for group_key, group_title in (("control", "Control"), ("fan", "Fan")):
             box = QGroupBox(group_title)
@@ -224,7 +239,9 @@ class MainWindowSetupMixin:
                 self.param_fields.append({"spec": spec, "widget": field})
                 row += 1
             box.setLayout(grid)
-            layout.addWidget(box)
+            groups_layout.addWidget(box)
+
+        layout.addLayout(groups_layout)
 
         button_row = QHBoxLayout()
         button_row.addStretch(1)
@@ -242,21 +259,25 @@ class MainWindowSetupMixin:
         self._temp_is_nc = [None] * 4
         for idx in range(4):
             label = QLabel(f"Temp {idx + 1}")
+            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             field = QLineEdit("—")
             field.setReadOnly(True)
             field.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             field.setCursor(Qt.CursorShape.ArrowCursor)
             field.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-            field.setAlignment(Qt.AlignmentFlag.AlignRight)
+            field.setAlignment(Qt.AlignmentFlag.AlignCenter)
             indicator = QFrame()
             indicator.setFixedSize(16, 16)
             indicator.setStyleSheet("background:#6b7280; border:1px solid #111827;")
             indicator.setToolTip("—")
-            row = idx // 2
-            col = (idx % 2) * 3
-            grid.addWidget(label, row, col)
-            grid.addWidget(field, row, col + 1)
-            grid.addWidget(indicator, row, col + 2)
+            value_row = QHBoxLayout()
+            value_row.addWidget(field)
+            value_row.addWidget(indicator)
+
+            column = QVBoxLayout()
+            column.addWidget(label)
+            column.addLayout(value_row)
+            grid.addLayout(column, 0, idx)
             self.temp_fields.append(field)
             self.temp_indicators.append(indicator)
         return grid
@@ -287,6 +308,42 @@ class MainWindowSetupMixin:
         self.current_field = current_field
         return grid
 
+    def _build_operation_buttons_layout(self) -> QHBoxLayout:
+        layout = QHBoxLayout()
+        layout.addWidget(self.setup_fans_button)
+        layout.addWidget(self.calibrate_button)
+        layout.addStretch(1)
+        return layout
+
+    def _build_device_status_widget(self) -> QWidget:
+        wrapper = QWidget()
+        layout = QHBoxLayout()
+
+        device_status_label = QLabel("Device status")
+
+        device_status_field = QLineEdit("â€”")
+        device_status_field.setReadOnly(True)
+        device_status_field.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        device_status_field.setCursor(Qt.CursorShape.ArrowCursor)
+        device_status_field.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        device_status_field.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.device_status_field = device_status_field
+
+        device_indicator = QFrame()
+        device_indicator.setFixedSize(16, 16)
+        device_indicator.setStyleSheet("background:#6b7280; border:1px solid #111827;")
+        self.device_status_indicator = device_indicator
+
+        value_row = QHBoxLayout()
+        value_row.addWidget(device_status_label)
+        value_row.addWidget(device_status_field)
+        value_row.addWidget(device_indicator)
+        value_row.addStretch(1)
+
+        layout.addLayout(value_row)
+        wrapper.setLayout(layout)
+        return wrapper
+
     def _build_fan_layout(self) -> QGridLayout:
         grid = QGridLayout()
         self.fan_fields = []
@@ -294,12 +351,13 @@ class MainWindowSetupMixin:
         self.fan_monitor_checkboxes = []
         for idx in range(4):
             label = QLabel(f"Fan{idx + 1}")
+            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             rpm_field = QLineEdit("—")
             rpm_field.setReadOnly(True)
             rpm_field.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             rpm_field.setCursor(Qt.CursorShape.ArrowCursor)
             rpm_field.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-            rpm_field.setAlignment(Qt.AlignmentFlag.AlignRight)
+            rpm_field.setAlignment(Qt.AlignmentFlag.AlignCenter)
             indicator = QFrame()
             indicator.setFixedSize(16, 16)
             indicator.setStyleSheet("background:#6b7280; border:1px solid #111827;")
@@ -309,32 +367,17 @@ class MainWindowSetupMixin:
             monitor.setEnabled(False)
             if idx > 0:
                 monitor.stateChanged.connect(self._on_params_changed)
-            grid.addWidget(label, idx, 0)
-            grid.addWidget(rpm_field, idx, 1)
-            grid.addWidget(indicator, idx, 2)
-            grid.addWidget(monitor, idx, 3)
+            value_row = QHBoxLayout()
+            value_row.addWidget(rpm_field)
+            value_row.addWidget(indicator)
+            value_row.addWidget(monitor)
+
+            column = QVBoxLayout()
+            column.addWidget(label)
+            column.addLayout(value_row)
+            grid.addLayout(column, 0, idx)
             self.fan_fields.append(rpm_field)
             self.fan_status_indicators.append(indicator)
             self.fan_monitor_checkboxes.append(monitor)
-
-        device_status_field = QLineEdit("—")
-        device_status_field.setReadOnly(True)
-        device_status_field.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        device_status_field.setCursor(Qt.CursorShape.ArrowCursor)
-        device_status_field.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        device_status_field.setAlignment(Qt.AlignmentFlag.AlignRight)
-        grid.addWidget(QLabel("Device status"), 4, 0)
-        grid.addWidget(device_status_field, 4, 1, 1, 2)
-        self.device_status_field = device_status_field
-        device_indicator = QFrame()
-        device_indicator.setFixedSize(16, 16)
-        device_indicator.setStyleSheet("background:#6b7280; border:1px solid #111827;")
-        grid.addWidget(device_indicator, 4, 3)
-        self.device_status_indicator = device_indicator
-
-        setup_row = QHBoxLayout()
-        setup_row.addWidget(self.setup_fans_button)
-        setup_row.addWidget(self.calibrate_button)
-        grid.addLayout(setup_row, 5, 0, 1, 4)
         self._fan_is_nc = [None] * 4
         return grid
