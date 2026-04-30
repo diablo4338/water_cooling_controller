@@ -13,6 +13,7 @@
 #include "fan_control.h"
 #include "metrics.h"
 #include "operation_status_ble.h"
+#include "operation_preflight.h"
 #include "params.h"
 #include "state.h"
 
@@ -22,10 +23,9 @@
 #define OP_CALIB_STEP_DELTA 5
 #define OP_CALIB_RPM_DELTA 50.0f
 #define OP_CALIB_START_SPEED 10
-#define OP_CALIB_MAX_SPEED 70
+#define OP_CALIB_MAX_SPEED_OFFSET 30.0f
 #define OP_SETUP_WAIT_US (6 * 1000000LL)
-#define OP_SETUP_DC_TARGET 100.0f
-#define OP_SETUP_PWM_TARGET 70.0f
+#define OP_SETUP_PWM_TARGET_OFFSET 30.0f
 #define OP_SETUP_RPM_DROP 50.0f
 
 typedef enum {
@@ -80,11 +80,37 @@ static float g_setup_dc_rpm[METRICS_FAN_CHANNELS] = {0};
 static bool g_setup_active[METRICS_FAN_CHANNELS] = {false};
 static operation_state_t g_state = OP_STATE_IDLE;
 static operation_type_t g_active = OP_TYPE_NONE;
+static float g_preflight_dc_max_percent = 100.0f;
+static float g_preflight_pwm_max_percent = 100.0f;
+static bool g_operation_started = false;
+static uint8_t g_calib_control_type = PARAM_FAN_CONTROL_DC;
 
 static float op_calib_read_rpm(void) {
     float rpm = metrics_get_fan_speed_rpm_channel(0);
     if (!isfinite(rpm)) return 0.0f;
     return rpm;
+}
+
+static float op_clamp_percent(float value) {
+    if (value < 0.0f) return 0.0f;
+    if (value > 100.0f) return 100.0f;
+    return value;
+}
+
+static float op_max_percent_for_control(uint8_t control_type) {
+    return control_type == PARAM_FAN_CONTROL_PWM ? g_preflight_pwm_max_percent : g_preflight_dc_max_percent;
+}
+
+static float op_percent_from_control_max(uint8_t control_type, float offset_percent) {
+    return op_clamp_percent(op_max_percent_for_control(control_type) - offset_percent);
+}
+
+static uint8_t op_calib_max_speed(void) {
+    float max_speed = op_percent_from_control_max(g_calib_control_type, OP_CALIB_MAX_SPEED_OFFSET);
+    if (max_speed < (float)OP_CALIB_START_SPEED) {
+        max_speed = (float)OP_CALIB_START_SPEED;
+    }
+    return (uint8_t)lroundf(max_speed);
 }
 
 static bool op_calib_fan_monitoring_enabled(const params_t *params, uint8_t channel) {
@@ -117,11 +143,12 @@ static bool op_calib_monitored_fans_spinning(const params_t *params) {
 }
 
 static bool op_calib_apply_target(uint8_t target, const char **err_text) {
+    uint8_t calib_max_speed = op_calib_max_speed();
     if (target < OP_CALIB_START_SPEED) {
         target = OP_CALIB_START_SPEED;
     }
-    if (target > OP_CALIB_MAX_SPEED) {
-        target = OP_CALIB_MAX_SPEED;
+    if (target > calib_max_speed) {
+        target = calib_max_speed;
     }
     if (!fan_control_override_set(OP_TYPE_FAN_CALIBRATION, (float)target)) {
         if (err_text) *err_text = "fan busy";
@@ -133,6 +160,12 @@ static bool op_calib_apply_target(uint8_t target, const char **err_text) {
 }
 
 static bool op_calibration_start(const char **err_text) {
+    params_t current;
+    if (!(params_cache_get(&current) || params_read(&current))) {
+        if (err_text) *err_text = "params read";
+        return false;
+    }
+    g_calib_control_type = current.fan_control_type;
     if (!fan_control_override_set(OP_TYPE_FAN_CALIBRATION, 0.0f)) {
         if (err_text) *err_text = "fan busy";
         return false;
@@ -211,13 +244,14 @@ static op_step_result_t op_calibration_step(int64_t now_us, const char **err_tex
             }
             return OP_STEP_DONE;
         }
-        if (g_calib_target >= OP_CALIB_MAX_SPEED) {
+        uint8_t calib_max_speed = op_calib_max_speed();
+        if (g_calib_target >= calib_max_speed) {
             if (err_text) *err_text = fan1_gap_ok ? "fan not spinning" : "no rpm change";
             return OP_STEP_ERROR;
         }
         uint8_t next = g_calib_target + OP_CALIB_STEP_DELTA;
-        if (next > OP_CALIB_MAX_SPEED) {
-            next = OP_CALIB_MAX_SPEED;
+        if (next > calib_max_speed) {
+            next = calib_max_speed;
         }
         if (!op_calib_apply_target(next, err_text)) {
             return OP_STEP_ERROR;
@@ -269,7 +303,7 @@ static bool op_setup_start(const char **err_text) {
     op_setup_reset();
     if (!fan_control_override_set_output(OP_TYPE_SETUP_FANS,
                                          PARAM_FAN_CONTROL_DC,
-                                         OP_SETUP_DC_TARGET)) {
+                                         op_max_percent_for_control(PARAM_FAN_CONTROL_DC))) {
         if (err_text) *err_text = "fan busy";
         return false;
     }
@@ -315,7 +349,8 @@ static op_step_result_t op_setup_step(int64_t now_us, const char **err_text) {
 
         if (!fan_control_override_set_output(OP_TYPE_SETUP_FANS,
                                              PARAM_FAN_CONTROL_PWM,
-                                             OP_SETUP_PWM_TARGET)) {
+                                             op_percent_from_control_max(PARAM_FAN_CONTROL_PWM,
+                                                                         OP_SETUP_PWM_TARGET_OFFSET))) {
             if (err_text) *err_text = "fan busy";
             return OP_STEP_ERROR;
         }
@@ -515,6 +550,11 @@ static bool operation_manager_needs_override(operation_type_t type) {
 void operation_manager_init(void) {
     g_state = OP_STATE_IDLE;
     g_active = OP_TYPE_NONE;
+    g_preflight_dc_max_percent = 100.0f;
+    g_preflight_pwm_max_percent = 100.0f;
+    g_operation_started = false;
+    g_calib_control_type = PARAM_FAN_CONTROL_DC;
+    operation_preflight_reset();
     operation_manager_clear_error_locked();
     if (!g_op_cmd_q) {
         g_op_cmd_q = xQueueCreate(4, sizeof(op_cmd_t));
@@ -606,6 +646,10 @@ void operation_manager_finish_success(operation_type_t type) {
     bool call_finish = false;
     if (g_active == type && g_state == OP_STATE_IN_SERVICE) {
         g_state = OP_STATE_DONE;
+        g_preflight_dc_max_percent = 100.0f;
+        g_preflight_pwm_max_percent = 100.0f;
+        g_operation_started = false;
+        operation_preflight_reset();
         operation_manager_clear_error_locked();
         clear_override = operation_manager_needs_override(type);
         call_finish = true;
@@ -631,6 +675,10 @@ void operation_manager_finish_error(operation_type_t type, const char *err_text)
     bool call_finish = false;
     if (g_active == type && g_state == OP_STATE_IN_SERVICE) {
         g_state = OP_STATE_ERROR;
+        g_preflight_dc_max_percent = 100.0f;
+        g_preflight_pwm_max_percent = 100.0f;
+        g_operation_started = false;
+        operation_preflight_reset();
         operation_manager_set_error_locked(err_text);
         clear_override = operation_manager_needs_override(type);
         call_finish = true;
@@ -662,18 +710,49 @@ void operation_manager_tick(int64_t now_us) {
             }
             g_state = OP_STATE_IN_SERVICE;
             g_active = cmd.type;
+            g_preflight_dc_max_percent = 100.0f;
+            g_preflight_pwm_max_percent = 100.0f;
+            g_operation_started = false;
+            operation_preflight_reset();
             operation_manager_clear_error_locked();
             operation_manager_notify_state(OP_STATE_IN_SERVICE);
-
             const char *err_text = NULL;
-            bool started = operation_manager_start_impl(cmd.type, &err_text);
-            if (!started) {
-                operation_manager_finish_error(cmd.type, err_text ? err_text : "start failed");
-                return;
+            if (operation_manager_needs_override(cmd.type)) {
+                if (!operation_preflight_start(cmd.type, now_us, &err_text)) {
+                    operation_manager_finish_error(cmd.type, err_text ? err_text : "preflight start");
+                    return;
+                }
             }
         } else {
             return;
         }
+    }
+
+    if (operation_preflight_is_active()) {
+        const char *err_text = NULL;
+        operation_preflight_result_t preflight_res = operation_preflight_step(now_us, &err_text);
+        if (preflight_res == OP_PREFLIGHT_RESULT_CONTINUE) {
+            return;
+        }
+        if (preflight_res == OP_PREFLIGHT_RESULT_ERROR) {
+            operation_manager_finish_error(g_active, err_text ? err_text : "preflight failed");
+            return;
+        }
+        operation_preflight_caps_t caps;
+        if (operation_preflight_get_caps(&caps)) {
+            g_preflight_dc_max_percent = caps.dc_max_percent;
+            g_preflight_pwm_max_percent = caps.pwm_max_percent;
+        }
+    }
+
+    if (!g_operation_started) {
+        const char *err_text = NULL;
+        bool started = operation_manager_start_impl(g_active, &err_text);
+        if (!started) {
+            operation_manager_finish_error(g_active, err_text ? err_text : "start failed");
+            return;
+        }
+        g_operation_started = true;
     }
 
     operation_type_t type = g_active;

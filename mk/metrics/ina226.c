@@ -8,8 +8,10 @@
 static const char *INA_TAG = "ina226";
 
 #define INA226_CONFIG_VALUE      0x4D37
-#define INA226_ALERT_LIMIT_VALUE 0x24B7  // ~500 mA with CAL=2179 and 50 uA current LSB
+#define INA226_ALERT_LIMIT_VALUE ((uint16_t)((INA226_ALERT_THRESHOLD_MA * 1000U) / INA226_CURRENT_LSB_UA))
 #define INA226_MASK_SOL_BIT      (1U << 15)
+#define INA226_MASK_LEN_BIT      (1U << 0)
+#define INA226_MASK_ENABLE_VALUE (INA226_MASK_SOL_BIT | INA226_MASK_LEN_BIT)
 #define INA226_I2C_TIMEOUT_MS    100
 
 static bool s_i2c_inited = false;
@@ -86,12 +88,12 @@ static bool ina226_configure_device(void) {
     }
     if (!ina226_verify_reg(REG_ALERT_LIMIT, INA226_ALERT_LIMIT_VALUE, "alert_limit")) return false;
 
-    err = ina226_write_reg(REG_MASK_ENABLE, INA226_MASK_SOL_BIT);
+    err = ina226_write_reg(REG_MASK_ENABLE, INA226_MASK_ENABLE_VALUE);
     if (err != ESP_OK) {
         ina226_recover("write mask/enable", err);
         return false;
     }
-    if (!ina226_verify_reg(REG_MASK_ENABLE, INA226_MASK_SOL_BIT, "mask_enable")) return false;
+    if (!ina226_verify_reg(REG_MASK_ENABLE, INA226_MASK_ENABLE_VALUE, "mask_enable")) return false;
 
     return true;
 }
@@ -168,6 +170,21 @@ bool ina226_get_sample(ina226_sample_t *out) {
         .current_ma = ina226_current_raw_to_ma((int16_t)current_raw_u),
         .valid = true,
     };
+    s_ina_error = false;
+    return true;
+}
+
+bool ina226_read_mask_enable(uint16_t *out) {
+    if (!out) return false;
+    if ((!s_started || s_ina_error) && !ina226_init()) return false;
+    if (!s_i2c_dev) return false;
+
+    esp_err_t err = ina226_read_reg(REG_MASK_ENABLE, out);
+    if (err != ESP_OK) {
+        ina226_recover("read mask/enable", err);
+        return false;
+    }
+
     s_ina_error = false;
     return true;
 }

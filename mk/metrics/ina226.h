@@ -16,6 +16,8 @@
 #define REG_ALERT_LIMIT    0x07
 
 #define CAL_VALUE  2179  // 0x0883
+#define INA226_ALERT_THRESHOLD_MA 500U
+#define INA226_CURRENT_LSB_UA 50U
 
 #define INA226_I2C_FREQ_HZ 400000
 
@@ -30,6 +32,7 @@ typedef struct {
 bool ina226_init(void);
 bool ina226_has_error(void);
 bool ina226_get_sample(ina226_sample_t *out);
+bool ina226_read_mask_enable(uint16_t *out);
 float ina226_bus_raw_to_v(uint16_t raw);
 float ina226_current_raw_to_ma(int16_t raw);
 

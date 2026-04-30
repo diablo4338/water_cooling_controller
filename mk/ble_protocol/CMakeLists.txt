@@ -12,6 +12,7 @@ set(SRCS
     "control/device_status.c"
     "control/fan_control.c"
     "control/operation_manager.c"
+    "control/operation_preflight.c"
     "control/params.c"
     "hw/overcurrent_monitor.c"
     "hw/status_led.c"

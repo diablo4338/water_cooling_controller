@@ -17,6 +17,8 @@ typedef enum {
     FAN_STATE_STARTING = 1,
     FAN_STATE_RUNNING = 2,
     FAN_STATE_STALL = 3,
+
+
     FAN_STATE_IN_SERVICE = 4,
 } fan_state_t;
 
@@ -27,6 +29,10 @@ void fan_control_get_status_payload(uint8_t *out, size_t len);
 bool fan_control_override_set(uint8_t op_type, float target_rpm);
 bool fan_control_override_set_output(uint8_t op_type, uint8_t control_type, float target_percent);
 void fan_control_override_clear(uint8_t op_type);
+void fan_control_cycle_limit_reset(void);
+bool fan_control_overcurrent_recovery_active(void);
+float fan_control_cycle_max_percent(void);
+bool fan_control_force_overcurrent_recovery(float applied_percent);
 
 #ifdef __cplusplus
 }

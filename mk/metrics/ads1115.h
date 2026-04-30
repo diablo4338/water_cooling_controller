@@ -17,4 +17,8 @@ bool ads1115_has_error(void);
 float ads1115_raw_to_v(int16_t raw);
 float ads1115_raw_to_temp(int16_t raw);
 
+#ifdef PAIR_RUN_TESTS
+void ads1115_test_force_recoverable_error(void);
+#endif
+
 #endif

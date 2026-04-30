@@ -13,20 +13,17 @@
 #include "device_status.h"
 #include "metrics.h"
 #include "operation_manager.h"
+#include "overcurrent_monitor.h"
 #include "params.h"
 #include "state.h"
 
 #define FAN_TAG "fan-ctl"
 
-#define FAN_RPM_THRESHOLD 300.0f
 #define FAN_CHANNEL_SCAN_TIMEOUT_US (METRICS_FAN_CHANNELS * 1000000LL)
 #define FAN_START_TIMEOUT_US FAN_CHANNEL_SCAN_TIMEOUT_US
 #define FAN_FAIL_TIMEOUT_US FAN_CHANNEL_SCAN_TIMEOUT_US
-#define FAN_OVERCURRENT_RECOVERY_START_PERCENT 50.0f
-#define FAN_OVERCURRENT_RECOVERY_STEP_PERCENT 5.0f
-#define FAN_OVERCURRENT_RECOVERY_WAIT_US (3 * 1000000LL)
-#define FAN_OVERCURRENT_TARGET_MIN_MA 450.0f
-#define FAN_OVERCURRENT_TARGET_MAX_MA 500.0f
+#define FAN_OVERCURRENT_RECOVERY_STEP_PERCENT 3.0f
+#define FAN_OVERCURRENT_RECOVERY_WAIT_US (1 * 1000000LL)
 #define FAN_HIGHSIDE_GPIO 3
 #define FAN_PWM_GPIO_DC 10
 #define FAN_PWM_GPIO_PWM 2
@@ -83,20 +80,26 @@ static void fan_control_cycle_start(void) {
     g_recovery_next_check_us = 0;
 }
 
-static void fan_control_begin_overcurrent_recovery(int64_t now_us) {
+static void fan_control_begin_overcurrent_recovery(float applied_percent, int64_t now_us) {
+    float next_percent = applied_percent - FAN_OVERCURRENT_RECOVERY_STEP_PERCENT;
+    if (next_percent < 0.0f) {
+        next_percent = 0.0f;
+    }
     g_cycle_active = true;
     g_cycle_limit_locked = false;
-    g_cycle_max_percent = FAN_OVERCURRENT_RECOVERY_START_PERCENT;
     g_recovery_active = true;
-    g_recovery_probe_percent = FAN_OVERCURRENT_RECOVERY_START_PERCENT;
+    g_cycle_max_percent = next_percent;
+    g_recovery_probe_percent = next_percent;
     g_recovery_next_check_us = now_us + FAN_OVERCURRENT_RECOVERY_WAIT_US;
-    ESP_LOGW(FAN_TAG, "Overcurrent recovery start: clamp=%.1f%%",
-             (double)g_recovery_probe_percent);
+    ESP_LOGW(FAN_TAG, "Overcurrent recovery start: applied=%.1f%% next=%.1f%% wait=%lld ms",
+             (double)applied_percent,
+             (double)g_recovery_probe_percent,
+             FAN_OVERCURRENT_RECOVERY_WAIT_US / 1000LL);
 }
 
-static void fan_control_finish_overcurrent_recovery(float locked_percent, float current_ma) {
-    if (locked_percent < FAN_OVERCURRENT_RECOVERY_START_PERCENT) {
-        locked_percent = FAN_OVERCURRENT_RECOVERY_START_PERCENT;
+static void fan_control_finish_overcurrent_recovery(float locked_percent, bool alert_active) {
+    if (locked_percent < 0.0f) {
+        locked_percent = 0.0f;
     }
     if (locked_percent > 100.0f) {
         locked_percent = 100.0f;
@@ -106,12 +109,13 @@ static void fan_control_finish_overcurrent_recovery(float locked_percent, float 
     g_recovery_active = false;
     g_recovery_probe_percent = locked_percent;
     g_recovery_next_check_us = 0;
-    ESP_LOGW(FAN_TAG, "Overcurrent recovery locked max=%.1f%% current=%.1fmA",
-             (double)g_cycle_max_percent, (double)current_ma);
+    overcurrent_monitor_clear_latched();
+    ESP_LOGW(FAN_TAG, "Overcurrent recovery locked max=%.1f%% alert=%d",
+             (double)g_cycle_max_percent, alert_active ? 1 : 0);
 }
 
 static float fan_control_apply_cycle_limit(float requested_percent, int64_t now_us) {
-    if (requested_percent <= 0.0f) {
+    if (!g_recovery_active && requested_percent <= 0.0f) {
         fan_control_cycle_reset();
         return 0.0f;
     }
@@ -120,36 +124,50 @@ static float fan_control_apply_cycle_limit(float requested_percent, int64_t now_
         fan_control_cycle_start();
     }
 
-    if (device_status_has_error_flag(DEVICE_ERROR_OVERCURRENT) && !g_recovery_active) {
-        fan_control_begin_overcurrent_recovery(now_us);
+    float applied_percent = requested_percent;
+    if (g_cycle_limit_locked) {
+        applied_percent = fminf(applied_percent, g_cycle_max_percent);
+    }
+
+    bool alert_active = overcurrent_monitor_latched_active();
+    if (alert_active && !g_recovery_active && applied_percent > 0.0f) {
+        ESP_LOGW(FAN_TAG, "Overcurrent latched: requested=%.1f%% applied=%.1f%% locked=%d max=%.1f%%",
+                 (double)requested_percent,
+                 (double)applied_percent,
+                 g_cycle_limit_locked ? 1 : 0,
+                 (double)g_cycle_max_percent);
+        fan_control_begin_overcurrent_recovery(applied_percent, now_us);
     }
 
     if (g_recovery_active && now_us >= g_recovery_next_check_us) {
-        float current_ma = metrics_get_current_ma();
-        if (isfinite(current_ma)) {
-            if (current_ma >= FAN_OVERCURRENT_TARGET_MIN_MA &&
-                current_ma <= FAN_OVERCURRENT_TARGET_MAX_MA) {
-                fan_control_finish_overcurrent_recovery(g_recovery_probe_percent, current_ma);
-            } else if (current_ma > FAN_OVERCURRENT_TARGET_MAX_MA) {
-                fan_control_finish_overcurrent_recovery(
-                    g_recovery_probe_percent - FAN_OVERCURRENT_RECOVERY_STEP_PERCENT, current_ma);
-            } else if (g_recovery_probe_percent >= 100.0f) {
-                fan_control_finish_overcurrent_recovery(g_recovery_probe_percent, current_ma);
+        alert_active = overcurrent_monitor_alert_active();
+        ESP_LOGW(FAN_TAG, "Overcurrent recovery check: probe=%.1f%% raw_alert=%d",
+                 (double)g_recovery_probe_percent,
+                 alert_active ? 1 : 0);
+        if (alert_active) {
+            uint16_t mask_enable = 0;
+            if (overcurrent_monitor_read_alert_status(&mask_enable)) {
+                ESP_LOGW(FAN_TAG, "Overcurrent recovery sample: mask=0x%04X", mask_enable);
             } else {
-                g_recovery_probe_percent += FAN_OVERCURRENT_RECOVERY_STEP_PERCENT;
-                if (g_recovery_probe_percent > 100.0f) {
-                    g_recovery_probe_percent = 100.0f;
-                }
-                g_recovery_next_check_us = now_us + FAN_OVERCURRENT_RECOVERY_WAIT_US;
-                g_cycle_max_percent = g_recovery_probe_percent;
-                ESP_LOGI(FAN_TAG, "Overcurrent recovery probe=%.1f%% current=%.1fmA",
-                         (double)g_recovery_probe_percent, (double)current_ma);
+                ESP_LOGW(FAN_TAG, "Overcurrent recovery sample: mask/enable read failed");
             }
+            if (g_recovery_probe_percent > 0.0f) {
+                g_recovery_probe_percent -= FAN_OVERCURRENT_RECOVERY_STEP_PERCENT;
+                if (g_recovery_probe_percent < 0.0f) {
+                    g_recovery_probe_percent = 0.0f;
+                }
+            }
+            g_cycle_max_percent = g_recovery_probe_percent;
+            g_recovery_next_check_us = now_us + FAN_OVERCURRENT_RECOVERY_WAIT_US;
+            ESP_LOGW(FAN_TAG, "Overcurrent recovery backoff=%.1f%% alert=1",
+                     (double)g_recovery_probe_percent);
+        } else {
+            fan_control_finish_overcurrent_recovery(g_recovery_probe_percent, false);
         }
     }
 
     if (g_recovery_active) {
-        return fminf(requested_percent, g_recovery_probe_percent);
+        return g_recovery_probe_percent;
     }
     if (g_cycle_limit_locked) {
         return fminf(requested_percent, g_cycle_max_percent);
@@ -438,6 +456,32 @@ void fan_control_override_clear(uint8_t op_type) {
     }
 }
 
+void fan_control_cycle_limit_reset(void) {
+    fan_control_cycle_reset();
+}
+
+bool fan_control_overcurrent_recovery_active(void) {
+    return g_recovery_active;
+}
+
+float fan_control_cycle_max_percent(void) {
+    if (g_recovery_active || g_cycle_limit_locked) {
+        return g_cycle_max_percent;
+    }
+    return 100.0f;
+}
+
+bool fan_control_force_overcurrent_recovery(float applied_percent) {
+    if (!(applied_percent > 0.0f)) {
+        return false;
+    }
+    if (g_recovery_active) {
+        return true;
+    }
+    fan_control_begin_overcurrent_recovery(applied_percent, esp_timer_get_time());
+    return true;
+}
+
 static operation_type_t fan_control_current_operation(void) {
     if (!operation_manager_is_active()) {
         return OP_TYPE_NONE;
@@ -613,7 +657,7 @@ void fan_control_task(void *param) {
         for (uint8_t ch = 0; ch < METRICS_FAN_CHANNELS; ch++) {
             fan_state_t state = fan_control_get_state(ch);
             float fan_rpm = metrics_get_fan_speed_rpm_channel(ch);
-            bool rpm_ok = isfinite(fan_rpm) && fan_rpm >= FAN_RPM_THRESHOLD;
+            bool rpm_ok = isfinite(fan_rpm) && fan_rpm > 0.0f;
 
             if (!fan_control_monitoring_enabled(&params, ch)) {
                 fan_state_t next = rpm_ok ? FAN_STATE_RUNNING : FAN_STATE_IDLE;

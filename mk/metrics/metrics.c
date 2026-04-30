@@ -62,6 +62,9 @@ static volatile int64_t g_fan_ignore_edges_until_us = 0;
 static uint32_t g_snapshot_seq = 0;
 static metrics_snapshot_t g_snapshot = {0};
 
+static const uint8_t g_ads_input_by_temp_channel[METRICS_TEMP_CHANNELS] = {1, 0, 3, 2};
+static const uint8_t g_tach_select_by_fan_channel[METRICS_FAN_CHANNELS] = {0, 2, 3, 1};
+
 static void fan_pcnt_init(void);
 static uint8_t fan_tach_get_active_channel(void);
 static void fan_tach_select_channel(uint8_t channel);
@@ -69,6 +72,7 @@ static void fan_tach_isr(void *arg);
 static void metrics_snapshot_write_from_state(void);
 static bool metrics_snapshot_read(metrics_snapshot_t *out);
 static uint16_t metrics_update_power_sample(void);
+static float metrics_round_temp_for_buffer(float temp_c);
 
 #define METRICS_FAIL_THRESHOLD 3
 #define METRICS_RAW_NO_SENSOR_THRESHOLD 500
@@ -176,8 +180,9 @@ static uint8_t fan_tach_get_active_channel(void) {
 static void fan_tach_select_channel(uint8_t channel) {
     if (channel >= METRICS_FAN_CHANNELS) return;
 
-    gpio_set_level(FAN_TACH_SEL_GPIO0, channel & 0x01U);
-    gpio_set_level(FAN_TACH_SEL_GPIO1, (channel >> 1) & 0x01U);
+    uint8_t select = g_tach_select_by_fan_channel[channel];
+    gpio_set_level(FAN_TACH_SEL_GPIO0, select & 0x01U);
+    gpio_set_level(FAN_TACH_SEL_GPIO1, (select >> 1) & 0x01U);
 
     int64_t ignore_until = esp_timer_get_time() + FAN_TACH_SWITCH_DELAY_US;
     portENTER_CRITICAL(&g_fan_mux);
@@ -191,12 +196,18 @@ static bool metrics_update_value(uint8_t channel, float temp_c) {
     if (channel >= METRICS_TEMP_CHANNELS) return false;
     if (!isfinite(temp_c)) return false;
 
+    temp_c = metrics_round_temp_for_buffer(temp_c);
+
     if (!g_temp_valid[channel] || fabsf(g_temp_values[channel] - temp_c) >= TEMP_NOTIFY_EPS) {
         g_temp_values[channel] = temp_c;
         g_temp_valid[channel] = true;
         return true;
     }
     return false;
+}
+
+static float metrics_round_temp_for_buffer(float temp_c) {
+    return roundf(temp_c * 10.0f) / 10.0f;
 }
 
 static bool metrics_mark_invalid(uint8_t channel) {
@@ -385,7 +396,8 @@ uint16_t metrics_sample_all(void) {
 
     for (uint8_t ch = 0; ch < METRICS_TEMP_CHANNELS; ch++) {
         int16_t raw = 0;
-        if (ads1115_read_raw(ch, &raw)) {
+        uint8_t ads_input = g_ads_input_by_temp_channel[ch];
+        if (ads1115_read_raw(ads_input, &raw)) {
             g_ads_error = false;
             float temp_c = ads1115_raw_to_temp(raw);
             if (raw < METRICS_RAW_NO_SENSOR_THRESHOLD || !isfinite(temp_c)) {

@@ -29,3 +29,16 @@ TEST_CASE("ads1115 read from channel A0", "[metrics]") {
     bool ok = ads1115_read_raw(0, &raw);
     TEST_ASSERT_TRUE(ok);
 }
+
+TEST_CASE("ads1115 reinitializes after recoverable i2c error", "[metrics]") {
+    TEST_ASSERT_EQUAL(ESP_OK, shared_i2c_bus_init());
+    TEST_ASSERT_TRUE(ads1115_init());
+
+    ads1115_test_force_recoverable_error();
+    TEST_ASSERT_TRUE(ads1115_has_error());
+    TEST_ASSERT_TRUE(ads1115_init());
+
+    int16_t raw = 0;
+    TEST_ASSERT_TRUE(ads1115_read_raw(0, &raw));
+    TEST_ASSERT_FALSE(ads1115_has_error());
+}
