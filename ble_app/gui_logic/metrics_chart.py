@@ -17,6 +17,7 @@ class MetricsChartPoint:
     timestamp: float
     fan1_rpm: Optional[float]
     temp4_c: Optional[float]
+    temp3_c: Optional[float]
 
 
 class MetricsHistoryChart(QWidget):
@@ -32,6 +33,7 @@ class MetricsHistoryChart(QWidget):
         self,
         fan1_rpm: Optional[float],
         temp4_c: Optional[float],
+        temp3_c: Optional[float],
         timestamp: Optional[float] = None,
     ) -> None:
         now = time.time() if timestamp is None else timestamp
@@ -40,6 +42,7 @@ class MetricsHistoryChart(QWidget):
                 timestamp=now,
                 fan1_rpm=self._finite_or_none(fan1_rpm),
                 temp4_c=self._finite_or_none(temp4_c),
+                temp3_c=self._finite_or_none(temp3_c),
             )
         )
         self._prune(now)
@@ -79,7 +82,12 @@ class MetricsHistoryChart(QWidget):
         end_ts = now
 
         rpm_values = [p.fan1_rpm for p in self._points if p.fan1_rpm is not None]
-        temp_values = [p.temp4_c for p in self._points if p.temp4_c is not None]
+        temp_values = [
+            value
+            for p in self._points
+            for value in (p.temp4_c, p.temp3_c)
+            if value is not None
+        ]
         rpm_min, rpm_max = self._range_for(rpm_values, floor_zero=True)
         temp_min, temp_max = self._range_for(temp_values, floor_zero=False)
 
@@ -106,6 +114,16 @@ class MetricsHistoryChart(QWidget):
             value_min=temp_min,
             value_max=temp_max,
             color=QColor("#dc2626"),
+        )
+        self._draw_series(
+            painter,
+            rect,
+            start_ts,
+            end_ts,
+            value_getter=lambda p: p.temp3_c,
+            value_min=temp_min,
+            value_max=temp_max,
+            color=QColor("#f6ad55"),
         )
         self._draw_legend(painter, rect)
 
@@ -210,7 +228,7 @@ class MetricsHistoryChart(QWidget):
             painter.drawPoint(current_segment[0])
 
     def _draw_legend(self, painter: QPainter, rect: QRectF) -> None:
-        items = (("Fan 1", QColor("#2563eb")), ("Temp 4", QColor("#dc2626")))
+        items = (("Fan 1", QColor("#2563eb")), ("Temp 4", QColor("#dc2626")), ("Temp 3", QColor("#f6ad55")))
         x = rect.left()
         y = rect.top() - 6
         metrics = QFontMetrics(painter.font())

@@ -106,7 +106,7 @@ class MainWindowUpdateMixin:
             self._apply_temp_value(channel, value, append_data=prev_snapshot.temperatures[channel] != value)
         for channel, value in enumerate(snapshot.fan_speeds):
             self._apply_fan_value(channel, value, append_data=prev_snapshot.fan_speeds[channel] != value)
-        self.metrics_chart.add_sample(snapshot.fan_speeds[0], snapshot.temperatures[3])
+        self.metrics_chart.add_sample(snapshot.fan_speeds[0], snapshot.temperatures[3], snapshot.temperatures[2])
         self._apply_power_value(
             self.voltage_field,
             "Voltage",
