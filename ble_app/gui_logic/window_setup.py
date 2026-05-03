@@ -49,6 +49,11 @@ class MainWindowSetupMixin:
         self.debug_log_view = QTextEdit()
         self.debug_log_view.setReadOnly(True)
         self.metrics_chart = MetricsHistoryChart()
+        self.metrics_history_mode_label = QLabel("OFFLINE")
+        self.metrics_history_mode_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.metrics_history_mode_label.setStyleSheet(
+            "background:#6b7280; color:#ffffff; padding:2px 8px; border-radius:4px;"
+        )
         self.status_label = QLabel(self.model.state.status)
 
     def _init_view_state(self) -> None:
@@ -57,6 +62,7 @@ class MainWindowSetupMixin:
         self.temp_values = [None] * 4
         self._temp_is_nc = [None] * 4
         self.fan_fields = []
+        self.fan_percent_field = None
         self._fan_is_nc = [None] * 4
         self.fan_status_indicators = []
         self.fan_monitor_checkboxes = []
@@ -112,7 +118,11 @@ class MainWindowSetupMixin:
         main_content_layout.addLayout(self._build_power_layout())
         main_content_layout.addWidget(self._build_device_status_widget())
         main_content_layout.addLayout(self._build_operation_buttons_layout())
-        main_content_layout.addWidget(QLabel("History"))
+        history_header = QHBoxLayout()
+        history_header.addWidget(QLabel("History"))
+        history_header.addWidget(self.metrics_history_mode_label)
+        history_header.addStretch(1)
+        main_content_layout.addLayout(history_header)
         main_content_layout.addWidget(self.metrics_chart)
 
         body_layout = QHBoxLayout()
@@ -157,6 +167,7 @@ class MainWindowSetupMixin:
 
     def closeEvent(self, event) -> None:
         self.worker.stop_auto()
+        self._save_metrics_chart_history()
         fut = self.worker.submit(self.worker.disconnect_device())
         if fut is not None:
             try:
@@ -347,6 +358,7 @@ class MainWindowSetupMixin:
     def _build_fan_layout(self) -> QGridLayout:
         grid = QGridLayout()
         self.fan_fields = []
+        self.fan_percent_field = None
         self.fan_status_indicators = []
         self.fan_monitor_checkboxes = []
         for idx in range(4):
@@ -379,5 +391,18 @@ class MainWindowSetupMixin:
             self.fan_fields.append(rpm_field)
             self.fan_status_indicators.append(indicator)
             self.fan_monitor_checkboxes.append(monitor)
+        label = QLabel("Speed(%)")
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        percent_field = QLineEdit("â€”")
+        percent_field.setReadOnly(True)
+        percent_field.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        percent_field.setCursor(Qt.CursorShape.ArrowCursor)
+        percent_field.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        percent_field.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        column = QVBoxLayout()
+        column.addWidget(label)
+        column.addWidget(percent_field)
+        grid.addLayout(column, 0, 4)
+        self.fan_percent_field = percent_field
         self._fan_is_nc = [None] * 4
         return grid

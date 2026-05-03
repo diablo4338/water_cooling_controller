@@ -32,6 +32,7 @@ const char *UUID_FAN3_SPEED_VALUE_STR = "a1b2c3d4-0b1c-4a2b-9c3d-4e5f60718297";
 const char *UUID_FAN4_SPEED_VALUE_STR = "a1b2c3d4-0b1c-4a2b-9c3d-4e5f60718298";
 const char *UUID_VOLTAGE_VALUE_STR    = "a1b2c3d4-0b1c-4a2b-9c3d-4e5f60718299";
 const char *UUID_CURRENT_VALUE_STR    = "a1b2c3d4-0b1c-4a2b-9c3d-4e5f6071829a";
+const char *UUID_FAN_PERCENT_VALUE_STR = "a1b2c3d4-0b1c-4a2b-9c3d-4e5f6071829b";
 
 ble_uuid_any_t UUID_PAIR_SVC;
 ble_uuid_any_t UUID_MAIN_SVC;
@@ -64,3 +65,4 @@ ble_uuid_any_t UUID_FAN3_SPEED_VALUE;
 ble_uuid_any_t UUID_FAN4_SPEED_VALUE;
 ble_uuid_any_t UUID_VOLTAGE_VALUE;
 ble_uuid_any_t UUID_CURRENT_VALUE;
+ble_uuid_any_t UUID_FAN_PERCENT_VALUE;

@@ -33,6 +33,7 @@ void fan_control_cycle_limit_reset(void);
 bool fan_control_overcurrent_recovery_active(void);
 float fan_control_cycle_max_percent(void);
 bool fan_control_force_overcurrent_recovery(float applied_percent);
+float fan_control_get_output_percent(void);
 
 #ifdef __cplusplus
 }

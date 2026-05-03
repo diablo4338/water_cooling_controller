@@ -252,6 +252,17 @@ static int gatt_read_current(uint16_t conn_handle, uint16_t attr_handle,
     return 0;
 }
 
+static int gatt_read_fan_percent(uint16_t conn_handle, uint16_t attr_handle,
+                                 struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    (void)attr_handle;
+    (void)arg;
+    if (!can_access_data()) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    if (!auth_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    float percent = fan_control_get_output_percent();
+    os_mbuf_append(ctxt->om, &percent, sizeof(percent));
+    return 0;
+}
+
 // ====== Config params ======
 static int gatt_read_params(uint16_t conn_handle, uint16_t attr_handle,
                             struct ble_gatt_access_ctxt *ctxt, void *arg) {
@@ -546,6 +557,12 @@ static struct ble_gatt_chr_def metrics_chrs[] = {
         .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
         .val_handle = &g_current_attr_handle,
     },
+    {
+        .uuid = NULL,
+        .access_cb = gatt_read_fan_percent,
+        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+        .val_handle = &g_fan_percent_attr_handle,
+    },
     { 0 }
 };
 
@@ -600,6 +617,7 @@ void gatt_init_uuids_and_services(void) {
     parse_uuid_or_abort(UUID_FAN4_SPEED_VALUE_STR, &UUID_FAN4_SPEED_VALUE);
     parse_uuid_or_abort(UUID_VOLTAGE_VALUE_STR, &UUID_VOLTAGE_VALUE);
     parse_uuid_or_abort(UUID_CURRENT_VALUE_STR, &UUID_CURRENT_VALUE);
+    parse_uuid_or_abort(UUID_FAN_PERCENT_VALUE_STR, &UUID_FAN_PERCENT_VALUE);
 
     gatt_svcs[0].uuid = &UUID_PAIR_SVC.u;
     gatt_svcs[1].uuid = &UUID_MAIN_SVC.u;
@@ -633,4 +651,5 @@ void gatt_init_uuids_and_services(void) {
     metrics_chrs[7].uuid = &UUID_FAN4_SPEED_VALUE.u;
     metrics_chrs[8].uuid = &UUID_VOLTAGE_VALUE.u;
     metrics_chrs[9].uuid = &UUID_CURRENT_VALUE.u;
+    metrics_chrs[10].uuid = &UUID_FAN_PERCENT_VALUE.u;
 }

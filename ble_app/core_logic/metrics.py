@@ -5,7 +5,13 @@ from typing import Callable, Optional
 
 from .codec import decode_fan_speed, decode_power_metric, decode_temp_value
 from .models import MetricsSnapshot
-from .protocol import FAN_SPEED_UUIDS, TEMP_CHAR_UUIDS, UUID_CURRENT_VALUE, UUID_VOLTAGE_VALUE
+from .protocol import (
+    FAN_SPEED_UUIDS,
+    TEMP_CHAR_UUIDS,
+    UUID_CURRENT_VALUE,
+    UUID_FAN_PERCENT_VALUE,
+    UUID_VOLTAGE_VALUE,
+)
 
 
 class BleCoreMetricsMixin:
@@ -53,6 +59,22 @@ class BleCoreMetricsMixin:
             return None, None
         return voltage, current
 
+    async def _read_fan_percent(self, timeout: Optional[float] = None) -> float | None:
+        if not self.client:
+            raise RuntimeError("Not connected")
+        if timeout is None:
+            timeout = self._config.metrics_timeout_s
+        try:
+            data = await self._read_char(UUID_FAN_PERCENT_VALUE, timeout=timeout)
+        except Exception as exc:
+            self._emit(f"Fan percent unavailable: {exc}")
+            return None
+        value = decode_power_metric(bytes(data))
+        if value is None:
+            self._emit("Fan percent returned bad payload length")
+            return None
+        return value
+
     async def read_metrics_snapshot(
         self, timeout: Optional[float] = None, retries: Optional[int] = None
     ) -> MetricsSnapshot:
@@ -81,11 +103,13 @@ class BleCoreMetricsMixin:
         temperatures = await self._read_temperatures_once(timeout)
         fan_speeds = await self._read_fan_speeds(timeout=timeout)
         voltage, current = await self._read_power_metrics(timeout=timeout)
+        fan_percent = await self._read_fan_percent(timeout=timeout)
         return MetricsSnapshot(
             temperatures=temperatures,
             fan_speeds=fan_speeds,
             voltage_v=voltage,
             current_ma=current,
+            fan_percent=fan_percent,
         )
 
     async def _reconnect_for_metrics(self, timeout: float) -> None:
@@ -146,6 +170,13 @@ class BleCoreMetricsMixin:
             )
         except Exception as exc:
             self._emit(f"Current notify unavailable: {exc}")
+        try:
+            await self._start_notify(
+                UUID_FAN_PERCENT_VALUE,
+                lambda _, data: self._emit_fan_percent(callback, state, data),
+            )
+        except Exception as exc:
+            self._emit(f"Fan percent notify unavailable: {exc}")
 
     async def stop_metrics_notify(self) -> None:
         if not self.client:
@@ -157,7 +188,7 @@ class BleCoreMetricsMixin:
                 await self._stop_notify(uuid)
             except Exception:
                 pass
-        for uuid in (UUID_VOLTAGE_VALUE, UUID_CURRENT_VALUE):
+        for uuid in (UUID_VOLTAGE_VALUE, UUID_CURRENT_VALUE, UUID_FAN_PERCENT_VALUE):
             try:
                 await self._stop_notify(uuid)
             except Exception:
@@ -211,4 +242,16 @@ class BleCoreMetricsMixin:
         if value is None:
             return
         state["snapshot"] = state["snapshot"].with_current(value)
+        callback(state["snapshot"])
+
+    @staticmethod
+    def _emit_fan_percent(
+        callback: Callable[[MetricsSnapshot], None],
+        state: dict[str, MetricsSnapshot],
+        data: bytearray,
+    ) -> None:
+        value = decode_power_metric(bytes(data))
+        if value is None:
+            return
+        state["snapshot"] = state["snapshot"].with_fan_percent(value)
         callback(state["snapshot"])

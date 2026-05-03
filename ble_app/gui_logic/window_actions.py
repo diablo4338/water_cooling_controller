@@ -55,6 +55,7 @@ class MainWindowActionMixin:
         elif command.action == self.Action.PAIR and command.device:
             self._start_action(self.Action.PAIR, self.worker.pair(command.device), use_timeout=False)
         elif command.action == self.Action.CONNECT and command.device:
+            self._load_metrics_chart_history(command.device)
             self.model.start_connecting()
             self._apply_ui()
             self._start_action(
@@ -64,6 +65,7 @@ class MainWindowActionMixin:
                 use_timeout=False,
             )
         elif command.action == self.Action.DISCONNECT:
+            self._save_metrics_chart_history()
             self._start_action(
                 self.Action.DISCONNECT,
                 self.worker.disconnect_device(),

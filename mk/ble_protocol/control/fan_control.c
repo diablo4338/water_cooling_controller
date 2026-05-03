@@ -56,6 +56,7 @@ static float g_cycle_max_percent = 100.0f;
 static bool g_recovery_active = false;
 static float g_recovery_probe_percent = 100.0f;
 static int64_t g_recovery_next_check_us = 0;
+static float g_output_percent = 0.0f;
 static uint32_t g_status_seq = 0;
 typedef struct {
     fan_state_t state[METRICS_FAN_CHANNELS];
@@ -272,6 +273,7 @@ static void fan_control_apply_output(uint8_t control_type, float target_percent)
 
     if (target_percent < 0.0f) target_percent = 0.0f;
     if (target_percent > 100.0f) target_percent = 100.0f;
+    g_output_percent = target_percent;
 
     int highside_level = (target_percent > 0.0f) ? 1 : 0;
     if (!highside_ready) {
@@ -482,6 +484,10 @@ bool fan_control_force_overcurrent_recovery(float applied_percent) {
     return true;
 }
 
+float fan_control_get_output_percent(void) {
+    return g_output_percent;
+}
+
 static operation_type_t fan_control_current_operation(void) {
     if (!operation_manager_is_active()) {
         return OP_TYPE_NONE;
@@ -557,6 +563,7 @@ void fan_control_init(void) {
     g_override_rpm = 0.0f;
     g_override_has_control_type = false;
     g_override_control_type = PARAM_FAN_CONTROL_DC;
+    g_output_percent = 0.0f;
     fan_control_cycle_reset();
     device_status_set_error_flag(DEVICE_ERROR_OVERHEAT, false);
     fan_status_cache_write(OP_TYPE_NONE);

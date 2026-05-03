@@ -31,6 +31,9 @@ from ..core import (
     MetricsSnapshot,
     OperationStatus,
     ParamsStatus,
+    load_metrics_history,
+    load_metrics_history_all,
+    save_metrics_history,
     update_paired_last_connected,
 )
 from .constants import PARAM_ERROR_MESSAGES, PARAM_LABELS_BY_ID, USER_ROLE
@@ -40,6 +43,56 @@ class MainWindowUpdateMixin:
     def _clear_op_log(self) -> None:
         if self.op_log_view is not None:
             self.op_log_view.clear()
+
+    def _set_metrics_history_mode(self, mode: str) -> None:
+        if mode == "ONLINE":
+            color = "#16a34a"
+        else:
+            mode = "OFFLINE"
+            color = "#6b7280"
+        self.metrics_history_mode_label.setText(mode)
+        self.metrics_history_mode_label.setStyleSheet(
+            f"background:{color}; color:#ffffff; padding:2px 8px; border-radius:4px;"
+        )
+
+    def _save_metrics_chart_history(self, device: Optional[DeviceInfo] = None) -> None:
+        target = device or self.model.state.connected_device
+        if target is None:
+            return
+        try:
+            save_metrics_history(target.address, self.metrics_chart.export_points())
+        except Exception as exc:
+            self.on_log(f"Metrics history save failed: {exc}")
+
+    def _load_metrics_chart_history(self, device: DeviceInfo) -> None:
+        try:
+            self.metrics_chart.set_online_mode()
+            self._set_metrics_history_mode("ONLINE")
+            self.metrics_chart.set_points(load_metrics_history(device.address))
+        except Exception as exc:
+            self.metrics_chart.clear()
+            self.on_log(f"Metrics history load failed: {exc}")
+
+    def _load_offline_metrics_chart_history(self, device: DeviceInfo) -> None:
+        try:
+            self.metrics_chart.set_offline_mode()
+            self._set_metrics_history_mode("OFFLINE")
+            self.metrics_chart.set_points(
+                load_metrics_history_all(device.address),
+                display_full_history=True,
+            )
+        except Exception as exc:
+            self.metrics_chart.clear()
+            self.on_log(f"Offline metrics history load failed: {exc}")
+
+    @staticmethod
+    def _snapshot_has_chart_data(snapshot: MetricsSnapshot) -> bool:
+        values = (
+            snapshot.fan_percent,
+            snapshot.temperatures[3],
+            snapshot.temperatures[2],
+        )
+        return any(value is not None and math.isfinite(value) for value in values)
 
     @Slot(list)
     def on_scan_results(self, devices: list) -> None:
@@ -89,6 +142,15 @@ class MainWindowUpdateMixin:
         if append_data:
             self.data_view.append(f"Fan {channel + 1}: {text}")
 
+    def _apply_fan_percent_value(self, value: Optional[float]) -> None:
+        if self.fan_percent_field is None:
+            return
+        is_nc = value is None or not math.isfinite(value)
+        if not is_nc and value is not None:
+            value = min(100.0, max(0.0, value))
+        text = "NC" if is_nc else f"{value:.0f}%"
+        self.fan_percent_field.setText(text)
+
     def _apply_power_value(self, field, label: str, value: Optional[float], unit: str, decimals: int, append_data: bool) -> None:
         if field is None:
             return
@@ -106,7 +168,8 @@ class MainWindowUpdateMixin:
             self._apply_temp_value(channel, value, append_data=prev_snapshot.temperatures[channel] != value)
         for channel, value in enumerate(snapshot.fan_speeds):
             self._apply_fan_value(channel, value, append_data=prev_snapshot.fan_speeds[channel] != value)
-        self.metrics_chart.add_sample(snapshot.fan_speeds[0], snapshot.temperatures[3], snapshot.temperatures[2])
+        self._apply_fan_percent_value(snapshot.fan_percent)
+        self.metrics_chart.add_sample(snapshot.fan_percent, snapshot.temperatures[3], snapshot.temperatures[2])
         self._apply_power_value(
             self.voltage_field,
             "Voltage",
@@ -253,12 +316,20 @@ class MainWindowUpdateMixin:
         if connected and device:
             self.model.set_connected(True, device)
             update_paired_last_connected(device.address)
+            self._load_metrics_chart_history(device)
+            if self._snapshot_has_chart_data(self.metrics_snapshot):
+                self.metrics_chart.add_sample(
+                    self.metrics_snapshot.fan_percent,
+                    self.metrics_snapshot.temperatures[3],
+                    self.metrics_snapshot.temperatures[2],
+                )
             self._lock_selection_to_connected()
             if self.model.state.active_action == self.Action.CONNECT:
                 self._finish_action(self.Action.CONNECT)
             self.on_log(f"Connected to {device.name}")
             return
         already_disconnected = self.model.state.conn == self.ConnState.DISCONNECTED
+        self._save_metrics_chart_history()
         self.model.set_connected(False, None)
         self._clear_paired_selection()
         self._device_params_snapshot = None
@@ -281,6 +352,8 @@ class MainWindowUpdateMixin:
         self._temp_is_nc = [None] * len(self.temp_fields)
         for field in self.fan_fields:
             field.setText("—")
+        if self.fan_percent_field is not None:
+            self.fan_percent_field.setText("—")
         if self.voltage_field is not None:
             self.voltage_field.setText("—")
         if self.current_field is not None:

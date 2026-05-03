@@ -5,7 +5,7 @@ import time
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
+from typing import Iterable, Optional
 
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QFontMetrics, QPainter, QPen
@@ -15,7 +15,7 @@ from PySide6.QtWidgets import QSizePolicy, QWidget
 @dataclass(frozen=True)
 class MetricsChartPoint:
     timestamp: float
-    fan1_rpm: Optional[float]
+    fan_percent: Optional[float]
     temp4_c: Optional[float]
     temp3_c: Optional[float]
 
@@ -26,12 +26,22 @@ class MetricsHistoryChart(QWidget):
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._points: deque[MetricsChartPoint] = deque()
+        self._display_full_history = False
         self.setMinimumHeight(180)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
+    def set_online_mode(self) -> None:
+        self._display_full_history = False
+        self._prune(time.time())
+        self.update()
+
+    def set_offline_mode(self) -> None:
+        self._display_full_history = True
+        self.update()
+
     def add_sample(
         self,
-        fan1_rpm: Optional[float],
+        fan_percent: Optional[float],
         temp4_c: Optional[float],
         temp3_c: Optional[float],
         timestamp: Optional[float] = None,
@@ -40,13 +50,46 @@ class MetricsHistoryChart(QWidget):
         self._points.append(
             MetricsChartPoint(
                 timestamp=now,
-                fan1_rpm=self._finite_or_none(fan1_rpm),
+                fan_percent=self._percent_or_none(fan_percent),
                 temp4_c=self._finite_or_none(temp4_c),
                 temp3_c=self._finite_or_none(temp3_c),
             )
         )
         self._prune(now)
         self.update()
+
+    def set_points(self, points: Iterable[dict], display_full_history: bool = False) -> None:
+        self._points.clear()
+        for item in points:
+            try:
+                timestamp = float(item["timestamp"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            self._points.append(
+                MetricsChartPoint(
+                    timestamp=timestamp,
+                    fan_percent=self._percent_or_none(item.get("fan_percent")),
+                    temp4_c=self._finite_or_none(item.get("temp4_c")),
+                    temp3_c=self._finite_or_none(item.get("temp3_c")),
+                )
+            )
+        self._points = deque(sorted(self._points, key=lambda point: point.timestamp))
+        self._display_full_history = display_full_history
+        if not self._display_full_history:
+            self._prune(time.time())
+        self.update()
+
+    def export_points(self) -> list[dict]:
+        self._prune(time.time())
+        return [
+            {
+                "timestamp": point.timestamp,
+                "fan_percent": point.fan_percent,
+                "temp4_c": point.temp4_c,
+                "temp3_c": point.temp3_c,
+            }
+            for point in self._points
+        ]
 
     def clear(self) -> None:
         self._points.clear()
@@ -63,6 +106,13 @@ class MetricsHistoryChart(QWidget):
             return None
         return value
 
+    @classmethod
+    def _percent_or_none(cls, value: Optional[float]) -> Optional[float]:
+        value = cls._finite_or_none(value)
+        if value is None:
+            return None
+        return min(100.0, max(0.0, value))
+
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -77,21 +127,18 @@ class MetricsHistoryChart(QWidget):
             self._draw_empty_state(painter, rect)
             return
 
-        now = self._points[-1].timestamp
-        start_ts = now - self.WINDOW_SECONDS
-        end_ts = now
+        start_ts, end_ts = self._time_bounds()
 
-        rpm_values = [p.fan1_rpm for p in self._points if p.fan1_rpm is not None]
+        percent_min, percent_max = 0.0, 100.0
         temp_values = [
             value
             for p in self._points
             for value in (p.temp4_c, p.temp3_c)
             if value is not None
         ]
-        rpm_min, rpm_max = self._range_for(rpm_values, floor_zero=True)
         temp_min, temp_max = self._range_for(temp_values, floor_zero=False)
 
-        self._draw_y_axis(painter, rect, rpm_min, rpm_max, left=True, label="RPM")
+        self._draw_y_axis(painter, rect, percent_min, percent_max, left=True, label="%")
         self._draw_y_axis(painter, rect, temp_min, temp_max, left=False, label="deg C")
         self._draw_time_axis(painter, rect, start_ts, end_ts)
 
@@ -100,9 +147,9 @@ class MetricsHistoryChart(QWidget):
             rect,
             start_ts,
             end_ts,
-            value_getter=lambda p: p.fan1_rpm,
-            value_min=rpm_min,
-            value_max=rpm_max,
+            value_getter=lambda p: p.fan_percent,
+            value_min=percent_min,
+            value_max=percent_max,
             color=QColor("#2563eb"),
         )
         self._draw_series(
@@ -158,6 +205,19 @@ class MetricsHistoryChart(QWidget):
         for idx in range(1, 4):
             y = rect.top() + rect.height() * idx / 4
             painter.drawLine(QPointF(rect.left(), y), QPointF(rect.right(), y))
+
+    def _time_bounds(self) -> tuple[float, float]:
+        if not self._points:
+            now = time.time()
+            return now - self.WINDOW_SECONDS, now
+        end_ts = self._points[-1].timestamp
+        if self._display_full_history:
+            start_ts = self._points[0].timestamp
+            if math.isclose(start_ts, end_ts):
+                start_ts -= 1.0
+                end_ts += 1.0
+            return start_ts, end_ts
+        return end_ts - self.WINDOW_SECONDS, end_ts
 
     def _draw_empty_state(self, painter: QPainter, rect: QRectF) -> None:
         painter.setPen(QColor("#6b7280"))
@@ -228,7 +288,7 @@ class MetricsHistoryChart(QWidget):
             painter.drawPoint(current_segment[0])
 
     def _draw_legend(self, painter: QPainter, rect: QRectF) -> None:
-        items = (("Fan 1", QColor("#2563eb")), ("Temp 4", QColor("#dc2626")), ("Temp 3", QColor("#f6ad55")))
+        items = (("Fan %", QColor("#2563eb")), ("Temp 4", QColor("#dc2626")), ("Temp 3", QColor("#f6ad55")))
         x = rect.left()
         y = rect.top() - 6
         metrics = QFontMetrics(painter.font())

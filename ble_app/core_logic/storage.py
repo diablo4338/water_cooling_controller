@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from typing import Optional
 
@@ -21,6 +22,103 @@ APP_CONFIG_DIR = _ensure_app_config_dir()
 PAIRED_DB = os.path.join(APP_CONFIG_DIR, "paired_devices.json")
 HOST_KEY_PATH = os.path.join(APP_CONFIG_DIR, "host_key.pem")
 PARAMS_DB = os.path.join(APP_CONFIG_DIR, "params.json")
+METRICS_HISTORY_DIR = os.path.join(APP_CONFIG_DIR, "metrics_history")
+METRICS_HISTORY_WINDOW_SECONDS = 30 * 60
+
+
+def _safe_history_name(address: str) -> str:
+    value = re.sub(r"[^A-Za-z0-9_.-]+", "_", address.strip())
+    return value or "__unknown__"
+
+
+def metrics_history_path(address: str) -> str:
+    return os.path.join(METRICS_HISTORY_DIR, f"{_safe_history_name(address)}.json")
+
+
+def _filter_metric_points(
+    points: list[dict],
+    now: Optional[float] = None,
+    window_seconds: int = METRICS_HISTORY_WINDOW_SECONDS,
+) -> list[dict]:
+    current = time.time() if now is None else now
+    min_ts = current - window_seconds
+    filtered: list[dict] = []
+    for item in points:
+        if not isinstance(item, dict):
+            continue
+        try:
+            timestamp = float(item["timestamp"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if timestamp < min_ts or timestamp > current + 60:
+            continue
+        filtered.append(
+            {
+                "timestamp": timestamp,
+                "fan_percent": item.get("fan_percent"),
+                "temp4_c": item.get("temp4_c"),
+                "temp3_c": item.get("temp3_c"),
+            }
+        )
+    filtered.sort(key=lambda point: point["timestamp"])
+    return filtered
+
+
+def load_metrics_history(address: str, now: Optional[float] = None) -> list[dict]:
+    path = metrics_history_path(address)
+    if not os.path.exists(path):
+        return []
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            raw = json.load(handle)
+        if not isinstance(raw, list):
+            return []
+    except Exception:
+        return []
+    points = _filter_metric_points(raw, now=now)
+    save_metrics_history(address, points, now=now)
+    return points
+
+
+def load_metrics_history_all(address: str) -> list[dict]:
+    path = metrics_history_path(address)
+    if not os.path.exists(path):
+        return []
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            raw = json.load(handle)
+        if not isinstance(raw, list):
+            return []
+    except Exception:
+        return []
+    points: list[dict] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        try:
+            timestamp = float(item["timestamp"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        points.append(
+            {
+                "timestamp": timestamp,
+                "fan_percent": item.get("fan_percent"),
+                "temp4_c": item.get("temp4_c"),
+                "temp3_c": item.get("temp3_c"),
+            }
+        )
+    points.sort(key=lambda point: point["timestamp"])
+    return points
+
+
+def save_metrics_history(address: str, points: list[dict], now: Optional[float] = None) -> None:
+    os.makedirs(METRICS_HISTORY_DIR, exist_ok=True)
+    filtered = _filter_metric_points(points, now=now)
+    path = metrics_history_path(address)
+    tmp_path = f"{path}.tmp"
+    with open(tmp_path, "w", encoding="utf-8") as handle:
+        json.dump(filtered, handle, ensure_ascii=False, indent=2)
+    os.replace(tmp_path, path)
 
 
 def load_paired_records() -> list[dict]:

@@ -112,7 +112,10 @@ class MainWindowListMixin:
             other_list.blockSignals(True)
             other_list.clearSelection()
             other_list.blockSignals(False)
-            self.model.set_selection(source, item.data(USER_ROLE))
+            device = item.data(USER_ROLE)
+            self.model.set_selection(source, device)
+            if source == self.SelectionSource.PAIRED and device is not None:
+                self._load_offline_metrics_chart_history(device)
         else:
             self.model.set_selection(None, None)
         self._apply_ui()
