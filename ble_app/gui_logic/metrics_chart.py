@@ -22,6 +22,7 @@ class MetricsChartPoint:
 
 class MetricsHistoryChart(QWidget):
     WINDOW_SECONDS = 30 * 60
+    SERIES_GAP_SECONDS = 30.0
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -272,16 +273,25 @@ class MetricsHistoryChart(QWidget):
     ) -> None:
         painter.setPen(QPen(color, 2))
         current_segment: list[QPointF] = []
+        previous_timestamp: Optional[float] = None
         for point in self._points:
             value = value_getter(point)
             if value is None:
                 if len(current_segment) > 1:
                     painter.drawPolyline(current_segment)
                 current_segment = []
+                previous_timestamp = None
                 continue
+            if previous_timestamp is not None and point.timestamp - previous_timestamp > self.SERIES_GAP_SECONDS:
+                if len(current_segment) > 1:
+                    painter.drawPolyline(current_segment)
+                elif len(current_segment) == 1:
+                    painter.drawPoint(current_segment[0])
+                current_segment = []
             x = self._map_x(rect, point.timestamp, start_ts, end_ts)
             y = self._map_y(rect, value, value_min, value_max)
             current_segment.append(QPointF(x, y))
+            previous_timestamp = point.timestamp
         if len(current_segment) > 1:
             painter.drawPolyline(current_segment)
         elif len(current_segment) == 1:
