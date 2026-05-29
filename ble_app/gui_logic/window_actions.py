@@ -112,6 +112,9 @@ class MainWindowActionMixin:
     def on_delete_paired_clicked(self) -> None:
         self._dispatch_action(self.Action.DELETE_PAIRED)
 
+    def on_rename_paired_clicked(self) -> None:
+        self._rename_selected_paired()
+
     def on_auto_toggled(self, enabled: bool) -> None:
         if enabled:
             if not self.model.set_auto_enabled(True):

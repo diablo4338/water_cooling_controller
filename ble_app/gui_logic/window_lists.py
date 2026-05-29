@@ -1,9 +1,15 @@
 from __future__ import annotations
 
 from PySide6.QtGui import QBrush
-from PySide6.QtWidgets import QListWidget, QListWidgetItem
+from PySide6.QtWidgets import QInputDialog, QListWidget, QListWidgetItem
 
-from ..core import DeviceInfo, add_or_update_paired, load_paired_records, save_paired_records
+from ..core import (
+    DeviceInfo,
+    add_or_update_paired,
+    load_paired_records,
+    rename_paired_record,
+    save_paired_records,
+)
 from .constants import PAIRED_HIGHLIGHT_BRUSH, USER_ROLE
 
 
@@ -28,6 +34,15 @@ class MainWindowListMixin:
             (self.auto_checkbox, self.Action.AUTO_CONNECT),
         ):
             widget.setEnabled(action in ui.enabled_actions)
+
+        can_rename_paired = (
+            self.model.state.conn == self.ConnState.DISCONNECTED
+            and not self.model.state.busy
+            and self.model.state.selected_source == self.SelectionSource.PAIRED
+            and self.model.state.selected_device is not None
+            and not self.model.state.auto_enabled
+        )
+        self.rename_button.setEnabled(can_rename_paired)
 
         params_enabled = (
             self.model.state.conn == self.ConnState.CONNECTED
@@ -184,3 +199,33 @@ class MainWindowListMixin:
             self.on_log(f"Removed: {device.name}")
         else:
             self.on_log("Failed to delete entry.")
+
+    def _rename_selected_paired(self) -> None:
+        item = self.paired_list.currentItem()
+        if item is None:
+            self.on_log("Select a saved device first")
+            return
+        device = item.data(USER_ROLE)
+        if device is None:
+            self.on_log("Failed to resolve selected device")
+            return
+        new_name, accepted = QInputDialog.getText(
+            self,
+            "Rename saved device",
+            "Device name:",
+            text=device.name,
+        )
+        if not accepted:
+            return
+        normalized = new_name.strip()
+        if not normalized:
+            self.on_log("Name cannot be empty")
+            return
+        if normalized == device.name:
+            return
+        if not rename_paired_record(device.address, normalized):
+            self.on_log("Failed to rename entry.")
+            return
+        self._refresh_paired_list()
+        self._select_paired_device(DeviceInfo(name=normalized, address=device.address))
+        self.on_log(f"Renamed: {device.name} -> {normalized}")

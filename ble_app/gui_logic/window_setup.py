@@ -35,6 +35,7 @@ class MainWindowSetupMixin:
         self.connect_button = QPushButton("Connect")
         self.disconnect_button = QPushButton("Disconnect")
         self.delete_button = QPushButton("Delete saved")
+        self.rename_button = QPushButton("Rename saved")
         self.auto_checkbox = QCheckBox("Auto-connect (saved)")
         self.apply_button = QPushButton("Apply")
         self.discard_button = QPushButton("Discard")
@@ -97,6 +98,7 @@ class MainWindowSetupMixin:
         buttons.addWidget(self.connect_button)
         buttons.addWidget(self.disconnect_button)
         buttons.addWidget(self.delete_button)
+        buttons.addWidget(self.rename_button)
         buttons.addWidget(self.auto_checkbox)
 
         lists_layout = QHBoxLayout()
@@ -144,6 +146,7 @@ class MainWindowSetupMixin:
         self.connect_button.clicked.connect(self.on_connect)
         self.disconnect_button.clicked.connect(self.on_disconnect)
         self.delete_button.clicked.connect(self.on_delete_paired_clicked)
+        self.rename_button.clicked.connect(self.on_rename_paired_clicked)
         self.auto_checkbox.toggled.connect(self.on_auto_toggled)
         self.apply_button.clicked.connect(self.on_apply)
         self.discard_button.clicked.connect(self.on_discard)

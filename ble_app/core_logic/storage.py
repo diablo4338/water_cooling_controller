@@ -180,6 +180,19 @@ def add_or_update_paired(device: DeviceInfo, k_hex: str) -> None:
     save_paired_records(raw)
 
 
+def rename_paired_record(address: str, name: str) -> bool:
+    normalized = name.strip()
+    if not normalized:
+        return False
+    raw = load_paired_records()
+    for item in raw:
+        if item.get("address") == address:
+            item["name"] = normalized
+            save_paired_records(raw)
+            return True
+    return False
+
+
 def _params_from_dict(raw: dict) -> Optional[DeviceParams]:
     try:
         return DeviceParams(

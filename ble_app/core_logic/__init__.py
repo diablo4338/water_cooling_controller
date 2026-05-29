@@ -112,6 +112,7 @@ from .storage import (
     load_paired_records,
     load_params,
     metrics_history_path,
+    rename_paired_record,
     save_device_params,
     save_metrics_history,
     save_paired_records,
@@ -233,5 +234,6 @@ __all__ = [
     "find_paired_record",
     "update_paired_last_connected",
     "add_or_update_paired",
+    "rename_paired_record",
     "BleAppCore",
 ]

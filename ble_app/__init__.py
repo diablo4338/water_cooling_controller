@@ -112,6 +112,7 @@ from .core import (
     find_paired_record,
     update_paired_last_connected,
     add_or_update_paired,
+    rename_paired_record,
     BleAppCore,
 )
 
@@ -228,6 +229,7 @@ __all__ = [
     "find_paired_record",
     "update_paired_last_connected",
     "add_or_update_paired",
+    "rename_paired_record",
     "BleAppCore",
     "BleConfig",
     "DEFAULT_CONFIG",
