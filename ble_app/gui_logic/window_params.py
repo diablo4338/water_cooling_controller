@@ -75,6 +75,7 @@ class MainWindowParamsMixin:
 
     def _reset_params_fields(self) -> None:
         params = self._default_device_params()
+        self._device_params_snapshot = None
         self._params_update_lock = True
         try:
             for item in self.param_fields:
@@ -92,8 +93,15 @@ class MainWindowParamsMixin:
                 self.fan_monitor_checkboxes[idx].setEnabled(False)
         finally:
             self._params_update_lock = False
+        self._clear_apply_status()
 
-    def _set_params_fields(self, params: DeviceParams, save: bool = True) -> None:
+    def _set_params_fields(
+        self,
+        params: DeviceParams,
+        save: bool = True,
+        apply_status: str | None = None,
+        apply_status_text: str | None = None,
+    ) -> None:
         if len(self.param_fields) != len(PARAM_FIELDS) or len(self.fan_monitor_checkboxes) != 4:
             return
         self._device_params_snapshot = params
@@ -116,6 +124,8 @@ class MainWindowParamsMixin:
             self._params_update_lock = False
         if save and self.model.state.connected_device:
             save_device_params(self.model.state.connected_device.address, params)
+        if apply_status is not None and apply_status_text is not None:
+            self._set_apply_status(apply_status, apply_status_text)
         self._refresh_temp_indicators()
 
     def _current_params(self) -> DeviceParams:
@@ -152,3 +162,28 @@ class MainWindowParamsMixin:
         self.model.set_status("Parameters changed. Press Apply to write them.")
         self._apply_ui()
         self._refresh_temp_indicators()
+
+    def _set_apply_status(self, kind: str, text: str) -> None:
+        self._apply_status_kind = kind
+        self._apply_status_text = text
+        color = {
+            "idle": "#6b7280",
+            "ok": "#16a34a",
+            "error": "#dc2626",
+        }.get(kind, "#6b7280")
+        if self.apply_status_label is not None:
+            self.apply_status_label.setStyleSheet(f"color:{color};")
+            self.apply_status_label.setText(text)
+            self.apply_status_label.setToolTip(text)
+
+    def _show_apply_result(self, kind: str, text: str) -> None:
+        self._set_apply_status(kind, text)
+        if hasattr(self, "_apply_status_timer") and self._apply_status_timer is not None:
+            self._apply_status_timer.stop()
+        self._apply_status_timer.start(5000)
+        self._apply_ui()
+
+    def _clear_apply_status(self) -> None:
+        if hasattr(self, "_apply_status_timer") and self._apply_status_timer is not None:
+            self._apply_status_timer.stop()
+        self._set_apply_status("idle", "")

@@ -35,6 +35,8 @@ class MainWindowActionMixin:
         if fut and not fut.done():
             fut.cancel()
         self.on_log(f"Operation '{action.name}' exceeded send timeout.")
+        if action == self.Action.APPLY:
+            self._show_apply_result("error", "Error: apply timed out")
         self._finish_action(action)
 
     def _finish_action(self, action) -> None:

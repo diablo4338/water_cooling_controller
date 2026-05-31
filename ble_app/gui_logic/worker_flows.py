@@ -300,6 +300,8 @@ class BleWorkerFlowMixin:
             self.log.emit(f"Failed to send parameters: {exc}")
 
     async def apply_params(self, params: DeviceParams) -> None:
+        ok = False
+        error = ""
         try:
             await self._with_timeout(
                 self.core.write_params(params, timeout=self.config.metrics_timeout_s),
@@ -311,10 +313,12 @@ class BleWorkerFlowMixin:
                 "apply_params",
                 timeout=self.config.metrics_timeout_s,
             )
+            ok = True
         except Exception as exc:
-            self.log.emit(f"Apply failed: {exc}")
+            error = f"Apply failed: {exc}"
+            self.log.emit(error)
         finally:
-            self.apply_done.emit()
+            self.apply_done.emit(ok, error)
 
     async def start_fan_calibration(self) -> None:
         try:

@@ -4,7 +4,7 @@ import asyncio
 import sys
 from typing import Optional
 
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import QThread, Signal, QTimer
 from PySide6.QtWidgets import QApplication, QMainWindow
 
 from ..config import DEFAULT_CONFIG
@@ -36,7 +36,7 @@ class BleWorker(BleWorkerRuntimeMixin, BleWorkerFlowMixin, QThread):
     metrics_received = Signal(object)
     params_received = Signal(object)
     params_status = Signal(object)
-    apply_done = Signal()
+    apply_done = Signal(bool, str)
     fan_status_received = Signal(object)
     device_status_received = Signal(object)
     operation_status_received = Signal(object)
@@ -90,6 +90,7 @@ class MainWindow(
         self._action_timers = {}
         self._action_futures = {}
         self.metrics_snapshot = MetricsSnapshot.empty()
+        self._startup_auto_connect_device: Optional[DeviceInfo] = None
         self._create_widgets()
         self._init_view_state()
         self._configure_action_properties()
@@ -98,6 +99,8 @@ class MainWindow(
         self._refresh_paired_list()
         self._reset_params_fields()
         self._apply_ui()
+        if self._auto_connect_address():
+            QTimer.singleShot(0, self._start_saved_auto_connect)
 
 
 def main() -> int:

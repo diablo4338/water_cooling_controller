@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -49,6 +49,9 @@ class MainWindowSetupMixin:
         self.op_log_view.setReadOnly(True)
         self.debug_log_view = QTextEdit()
         self.debug_log_view.setReadOnly(True)
+        self.clear_op_log_button = QPushButton("Clear")
+        self.clear_debug_log_button = QPushButton("Clear")
+        self.clear_data_log_button = QPushButton("Clear")
         self.metrics_chart = MetricsHistoryChart()
         self.metrics_history_mode_label = QLabel("OFFLINE")
         self.metrics_history_mode_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -56,6 +59,13 @@ class MainWindowSetupMixin:
             "background:#6b7280; color:#ffffff; padding:2px 8px; border-radius:4px;"
         )
         self.status_label = QLabel(self.model.state.status)
+        self.apply_status_label = QLabel("")
+        self.apply_status_label.setMinimumWidth(220)
+        self.apply_status_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+        self.apply_status_label.setStyleSheet("color:#6b7280;")
+        self._apply_status_timer = QTimer(self)
+        self._apply_status_timer.setSingleShot(True)
+        self._apply_status_timer.timeout.connect(self._clear_apply_status)
 
     def _init_view_state(self) -> None:
         self.temp_fields = []
@@ -75,6 +85,8 @@ class MainWindowSetupMixin:
         self.param_fields = []
         self._params_update_lock = False
         self._device_params_snapshot = None
+        self._apply_status_kind = "idle"
+        self._apply_status_text = ""
 
     def _configure_action_properties(self) -> None:
         for widget, action in (
@@ -99,7 +111,6 @@ class MainWindowSetupMixin:
         buttons.addWidget(self.disconnect_button)
         buttons.addWidget(self.delete_button)
         buttons.addWidget(self.rename_button)
-        buttons.addWidget(self.auto_checkbox)
 
         lists_layout = QHBoxLayout()
         lists_layout.addWidget(self._wrap_section("Devices for pairing", self.found_list))
@@ -152,6 +163,9 @@ class MainWindowSetupMixin:
         self.discard_button.clicked.connect(self.on_discard)
         self.calibrate_button.clicked.connect(self.on_calibrate)
         self.setup_fans_button.clicked.connect(self.on_setup_fans)
+        self.clear_op_log_button.clicked.connect(self._clear_op_log)
+        self.clear_debug_log_button.clicked.connect(self._clear_debug_log)
+        self.clear_data_log_button.clicked.connect(self._clear_data_log)
 
         self.worker.log.connect(self.on_log)
         self.worker.scan_results.connect(self.on_scan_results)
@@ -167,6 +181,7 @@ class MainWindowSetupMixin:
 
         self.found_list.itemSelectionChanged.connect(self._on_found_selected)
         self.paired_list.itemSelectionChanged.connect(self._on_paired_selected)
+        self.paired_list.itemChanged.connect(self._on_paired_item_changed)
 
     def closeEvent(self, event) -> None:
         self.worker.stop_auto()
@@ -182,10 +197,15 @@ class MainWindowSetupMixin:
         super().closeEvent(event)
 
     @staticmethod
-    def _wrap_section(title: str, widget: QWidget) -> QWidget:
+    def _wrap_section(title: str, widget: QWidget, action_button: QPushButton | None = None) -> QWidget:
         wrapper = QWidget()
         layout = QVBoxLayout()
-        layout.addWidget(QLabel(title))
+        header = QHBoxLayout()
+        header.addWidget(QLabel(title))
+        header.addStretch(1)
+        if action_button is not None:
+            header.addWidget(action_button)
+        layout.addLayout(header)
         layout.addWidget(widget)
         wrapper.setLayout(layout)
         return wrapper
@@ -203,9 +223,10 @@ class MainWindowSetupMixin:
     def _build_debug_panel(self) -> QWidget:
         wrapper = QWidget()
         layout = QVBoxLayout()
-        layout.addWidget(self._wrap_section("Operations (log)", self.op_log_view))
-        layout.addWidget(self._wrap_section("Debug log", self.debug_log_view))
-        layout.addWidget(self._wrap_section("Real-time data", self.data_view))
+        layout.addWidget(self.auto_checkbox)
+        layout.addWidget(self._wrap_section("Operations (log)", self.op_log_view, self.clear_op_log_button))
+        layout.addWidget(self._wrap_section("Debug log", self.debug_log_view, self.clear_debug_log_button))
+        layout.addWidget(self._wrap_section("Real-time data", self.data_view, self.clear_data_log_button))
         wrapper.setLayout(layout)
         return wrapper
 
@@ -259,6 +280,7 @@ class MainWindowSetupMixin:
 
         button_row = QHBoxLayout()
         button_row.addStretch(1)
+        button_row.addWidget(self.apply_status_label)
         button_row.addWidget(self.apply_button)
         button_row.addWidget(self.discard_button)
         layout.addLayout(button_row)

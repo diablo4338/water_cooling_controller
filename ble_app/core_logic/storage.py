@@ -159,6 +159,34 @@ def update_paired_last_connected(address: str) -> None:
         save_paired_records(raw)
 
 
+def get_auto_connect_address() -> Optional[str]:
+    for item in load_paired_records():
+        if item.get("auto_connect") and item.get("address"):
+            return str(item["address"])
+    return None
+
+
+def set_paired_auto_connect(address: str, enabled: bool) -> bool:
+    raw = load_paired_records()
+    changed = False
+    found = False
+    for item in raw:
+        item_address = item.get("address")
+        if not item_address:
+            continue
+        should_enable = bool(enabled and item_address == address)
+        if item_address == address:
+            found = True
+        if bool(item.get("auto_connect", False)) != should_enable:
+            item["auto_connect"] = should_enable
+            changed = True
+    if not found:
+        return False
+    if changed:
+        save_paired_records(raw)
+    return True
+
+
 def add_or_update_paired(device: DeviceInfo, k_hex: str) -> None:
     raw = load_paired_records()
     for item in raw:
@@ -167,6 +195,8 @@ def add_or_update_paired(device: DeviceInfo, k_hex: str) -> None:
             item["k_hex"] = k_hex
             if "last_connected" not in item:
                 item["last_connected"] = 0
+            if "auto_connect" not in item:
+                item["auto_connect"] = False
             break
     else:
         raw.append(
@@ -175,6 +205,7 @@ def add_or_update_paired(device: DeviceInfo, k_hex: str) -> None:
                 "address": device.address,
                 "k_hex": k_hex,
                 "last_connected": 0,
+                "auto_connect": False,
             }
         )
     save_paired_records(raw)

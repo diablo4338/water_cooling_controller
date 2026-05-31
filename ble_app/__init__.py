@@ -110,9 +110,11 @@ from .core import (
     load_paired_records,
     save_paired_records,
     find_paired_record,
+    get_auto_connect_address,
     update_paired_last_connected,
     add_or_update_paired,
     rename_paired_record,
+    set_paired_auto_connect,
     BleAppCore,
 )
 
@@ -227,9 +229,11 @@ __all__ = [
     "load_paired_records",
     "save_paired_records",
     "find_paired_record",
+    "get_auto_connect_address",
     "update_paired_last_connected",
     "add_or_update_paired",
     "rename_paired_record",
+    "set_paired_auto_connect",
     "BleAppCore",
     "BleConfig",
     "DEFAULT_CONFIG",

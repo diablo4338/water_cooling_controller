@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 from typing import Optional
 
-from PySide6.QtCore import QTimer, Slot
+from PySide6.QtCore import Slot
 from PySide6.QtWidgets import QListWidgetItem
 
 from ..core import (
@@ -43,6 +43,14 @@ class MainWindowUpdateMixin:
     def _clear_op_log(self) -> None:
         if self.op_log_view is not None:
             self.op_log_view.clear()
+
+    def _clear_debug_log(self) -> None:
+        if self.debug_log_view is not None:
+            self.debug_log_view.clear()
+
+    def _clear_data_log(self) -> None:
+        if self.data_view is not None:
+            self.data_view.clear()
 
     def _set_metrics_history_mode(self, mode: str) -> None:
         if mode == "ONLINE":
@@ -196,21 +204,28 @@ class MainWindowUpdateMixin:
 
     @Slot(object)
     def on_params_status(self, status: ParamsStatus) -> None:
-        if self.model.state.active_action == self.Action.APPLY:
-            QTimer.singleShot(1000, lambda: self._finish_action(self.Action.APPLY))
         if status.ok:
             self.on_log("Parameters applied")
+            self._show_apply_result("ok", "Applied")
+            if self.model.state.active_action == self.Action.APPLY:
+                self._finish_action(self.Action.APPLY)
             self.worker.submit(self.worker.read_params_snapshot())
             return
         if status.status == self.PARAM_STATUS_BUSY:
+            message = "Error: device busy"
             self.on_log("Parameters not applied: device busy")
-            return
-        field_label = (
-            PARAM_LABELS_BY_ID.get(status.field_id, "unknown field")
-            if status.field_id is not None
-            else "unknown field"
-        )
-        self.on_log(f"Parameter error: {PARAM_ERROR_MESSAGES.get(status.field_id, field_label)}")
+        else:
+            field_label = (
+                PARAM_LABELS_BY_ID.get(status.field_id, "unknown field")
+                if status.field_id is not None
+                else "unknown field"
+            )
+            detail = PARAM_ERROR_MESSAGES.get(status.field_id, field_label)
+            message = f"Error: {detail}"
+            self.on_log(f"Parameter error: {detail}")
+        self._show_apply_result("error", message)
+        if self.model.state.active_action == self.Action.APPLY:
+            self._finish_action(self.Action.APPLY)
 
     @Slot(object)
     def on_fan_status(self, status: FanStatus) -> None:
@@ -295,9 +310,13 @@ class MainWindowUpdateMixin:
             self.on_log(f"Operation {op_label}: {state_label}")
         self._apply_ui()
 
-    @Slot()
-    def on_apply_done(self) -> None:
-        pass
+    @Slot(bool, str)
+    def on_apply_done(self, ok: bool, message: str) -> None:
+        if ok:
+            return
+        self._show_apply_result("error", message or "Error: apply failed")
+        if self.model.state.active_action == self.Action.APPLY:
+            self._finish_action(self.Action.APPLY)
 
     @Slot(bool, str, object, object)
     def on_pairing_result(self, ok: bool, message: str, device: DeviceInfo, k_hex: Optional[str]) -> None:
@@ -314,6 +333,7 @@ class MainWindowUpdateMixin:
     @Slot(bool, object)
     def on_connection_state(self, connected: bool, device: Optional[DeviceInfo]) -> None:
         if connected and device:
+            self._startup_auto_connect_device = None
             self.model.set_connected(True, device)
             update_paired_last_connected(device.address)
             self._load_metrics_chart_history(device)
@@ -329,16 +349,28 @@ class MainWindowUpdateMixin:
             self.on_log(f"Connected to {device.name}")
             return
         already_disconnected = self.model.state.conn == self.ConnState.DISCONNECTED
-        self._save_metrics_chart_history()
+        disconnected_device = self.model.state.connected_device
+        self._save_metrics_chart_history(disconnected_device)
         self.model.set_connected(False, None)
         self._clear_paired_selection()
         self._device_params_snapshot = None
         self._reset_temp_fields()
         self._reset_params_fields()
+        if disconnected_device is not None:
+            self._load_offline_metrics_chart_history(disconnected_device)
+        else:
+            self.metrics_chart.set_offline_mode()
+            self._set_metrics_history_mode("OFFLINE")
         if self.model.state.active_action == self.Action.DISCONNECT:
             self._finish_action(self.Action.DISCONNECT)
         elif self.model.state.active_action == self.Action.CONNECT:
             self._finish_action(self.Action.CONNECT)
+        startup_auto_failed = self._startup_auto_connect_device is not None
+        failed_device = self._startup_auto_connect_device
+        self._startup_auto_connect_device = None
+        if startup_auto_failed and failed_device is not None:
+            self.on_log(f"Auto-connect failed: {failed_device.name}")
+            return
         if not already_disconnected:
             self.on_log("Disconnected")
 
@@ -367,3 +399,5 @@ class MainWindowUpdateMixin:
         self._set_device_status_indicator("#6b7280")
         self._operation_active = False
         self.metrics_chart.clear()
+        self.metrics_chart.set_offline_mode()
+        self._set_metrics_history_mode("OFFLINE")

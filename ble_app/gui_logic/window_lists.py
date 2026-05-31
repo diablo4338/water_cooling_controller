@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QBrush
 from PySide6.QtWidgets import QInputDialog, QListWidget, QListWidgetItem
 
 from ..core import (
     DeviceInfo,
     add_or_update_paired,
+    get_auto_connect_address,
     load_paired_records,
     rename_paired_record,
+    set_paired_auto_connect,
     save_paired_records,
 )
 from .constants import PAIRED_HIGHLIGHT_BRUSH, USER_ROLE
@@ -63,6 +66,8 @@ class MainWindowListMixin:
         self.auto_checkbox.blockSignals(True)
         self.auto_checkbox.setChecked(ui.auto_enabled)
         self.auto_checkbox.blockSignals(False)
+        self.auto_checkbox.setVisible(self.debug_enabled)
+        self.apply_status_label.setText(self._apply_status_text)
         self._apply_paired_highlight()
 
     def _apply_paired_highlight(self) -> None:
@@ -145,6 +150,10 @@ class MainWindowListMixin:
         return devices
 
     @staticmethod
+    def _auto_connect_address() -> str | None:
+        return get_auto_connect_address()
+
+    @staticmethod
     def _remove_paired(address: str) -> bool:
         raw = load_paired_records()
         new_raw = [item for item in raw if item.get("address") != address]
@@ -158,12 +167,21 @@ class MainWindowListMixin:
         add_or_update_paired(device, k_hex)
 
     def _refresh_paired_list(self) -> None:
+        auto_connect_address = self._auto_connect_address()
+        self.paired_list.blockSignals(True)
         self.paired_list.clear()
         devices = self._load_paired()
         for dev in devices:
             item = QListWidgetItem(f"{dev.name} ({dev.address})")
             item.setData(USER_ROLE, dev)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(
+                Qt.CheckState.Checked
+                if auto_connect_address == dev.address
+                else Qt.CheckState.Unchecked
+            )
             self.paired_list.addItem(item)
+        self.paired_list.blockSignals(False)
         self.model.set_paired_devices(devices)
         if self.model.state.conn == self.ConnState.CONNECTED:
             self._lock_selection_to_connected()
@@ -176,6 +194,41 @@ class MainWindowListMixin:
             self.model.set_selection(None, None)
             self.paired_list.clearSelection()
         self._apply_ui()
+
+    def _on_paired_item_changed(self, item: QListWidgetItem) -> None:
+        device = item.data(USER_ROLE)
+        if device is None:
+            return
+        current_auto_connect_address = self._auto_connect_address()
+        enabled = item.checkState() == Qt.CheckState.Checked
+        if enabled and current_auto_connect_address == device.address:
+            return
+        if not enabled and current_auto_connect_address != device.address:
+            return
+        if not set_paired_auto_connect(device.address, enabled):
+            return
+        if enabled:
+            self.on_log(f"Auto-connect device set: {device.name}")
+        else:
+            self.on_log(f"Auto-connect device cleared: {device.name}")
+        self._refresh_paired_list()
+
+    def _start_saved_auto_connect(self) -> None:
+        if self.debug_enabled and self.auto_checkbox.isChecked():
+            return
+        auto_connect_address = self._auto_connect_address()
+        if not auto_connect_address:
+            return
+        for device in self.model.state.paired_devices:
+            if device.address != auto_connect_address:
+                continue
+            self._startup_auto_connect_device = device
+            self.model.set_selection(self.SelectionSource.PAIRED, device)
+            self._select_paired_device(device)
+            self._apply_ui()
+            self.on_log(f"Auto-connecting to {device.name}...")
+            self.on_connect()
+            return
 
     def _select_paired_device(self, device: DeviceInfo) -> None:
         for idx in range(self.paired_list.count()):
