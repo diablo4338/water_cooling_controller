@@ -1,9 +1,12 @@
 #ifndef SHARED_I2C_BUS_H
 #define SHARED_I2C_BUS_H
 
+#include <stdbool.h>
+
 #include "driver/i2c_master.h"
 #include "driver/i2c_types.h"
 #include "esp_err.h"
+#include "freertos/FreeRTOS.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -15,6 +18,8 @@ extern "C" {
 
 esp_err_t shared_i2c_bus_init(void);
 i2c_master_bus_handle_t shared_i2c_bus_get_handle(void);
+bool shared_i2c_bus_lock(TickType_t timeout_ticks);
+void shared_i2c_bus_unlock(void);
 
 #ifdef __cplusplus
 }

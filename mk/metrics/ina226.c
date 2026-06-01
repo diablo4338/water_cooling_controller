@@ -22,19 +22,28 @@ static i2c_master_dev_handle_t s_i2c_dev = NULL;
 
 static esp_err_t ina226_write_reg(uint8_t reg, uint16_t value) {
     if (!s_i2c_dev) return ESP_ERR_INVALID_STATE;
+    if (!shared_i2c_bus_lock(pdMS_TO_TICKS(INA226_I2C_TIMEOUT_MS))) {
+        return ESP_ERR_TIMEOUT;
+    }
     uint8_t buf[3] = {
         reg,
         (uint8_t)(value >> 8),
         (uint8_t)(value & 0xFF),
     };
-    return i2c_master_transmit(s_i2c_dev, buf, sizeof(buf), INA226_I2C_TIMEOUT_MS);
+    esp_err_t err = i2c_master_transmit(s_i2c_dev, buf, sizeof(buf), INA226_I2C_TIMEOUT_MS);
+    shared_i2c_bus_unlock();
+    return err;
 }
 
 static esp_err_t ina226_read_reg(uint8_t reg, uint16_t *out) {
     if (!s_i2c_dev || !out) return ESP_ERR_INVALID_ARG;
+    if (!shared_i2c_bus_lock(pdMS_TO_TICKS(INA226_I2C_TIMEOUT_MS))) {
+        return ESP_ERR_TIMEOUT;
+    }
     uint8_t data[2] = {0};
     esp_err_t err = i2c_master_transmit_receive(
         s_i2c_dev, &reg, 1, data, sizeof(data), INA226_I2C_TIMEOUT_MS);
+    shared_i2c_bus_unlock();
     if (err != ESP_OK) return err;
     *out = (uint16_t)((data[0] << 8) | data[1]);
     return ESP_OK;
@@ -44,7 +53,12 @@ static void ina226_recover(const char *stage, esp_err_t err) {
     ESP_LOGW(INA_TAG, "%s err=%s", stage, esp_err_to_name(err));
     s_ina_error = true;
     if (s_i2c_bus) {
+        if (!shared_i2c_bus_lock(pdMS_TO_TICKS(INA226_I2C_TIMEOUT_MS))) {
+            ESP_LOGW(INA_TAG, "i2c reset lock timeout");
+            return;
+        }
         esp_err_t reset_err = i2c_master_bus_reset(s_i2c_bus);
+        shared_i2c_bus_unlock();
         if (reset_err != ESP_OK) {
             ESP_LOGW(INA_TAG, "i2c bus reset err=%s", esp_err_to_name(reset_err));
         }
@@ -122,7 +136,13 @@ bool ina226_init(void) {
                 .disable_ack_check = 0,
             },
         };
+        if (!shared_i2c_bus_lock(pdMS_TO_TICKS(INA226_I2C_TIMEOUT_MS))) {
+            ESP_LOGW(INA_TAG, "i2c add device lock timeout");
+            s_ina_error = true;
+            return false;
+        }
         esp_err_t err = i2c_master_bus_add_device(s_i2c_bus, &dev_cfg, &s_i2c_dev);
+        shared_i2c_bus_unlock();
         if (err != ESP_OK) {
             ESP_LOGW(INA_TAG, "i2c add device err=%s", esp_err_to_name(err));
             s_ina_error = true;
