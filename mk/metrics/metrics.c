@@ -5,7 +5,6 @@
 
 #include "esp_err.h"
 #include "esp_log.h"
-#include "esp_rom_sys.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -24,20 +23,28 @@ static float g_voltage_v = NAN;
 static float g_current_ma = NAN;
 static bool g_power_valid = false;
 
+volatile uint32_t dbg_fall = 0;
+volatile uint32_t dbg_rise = 0;
+volatile uint32_t dbg_low_reject = 0;
+volatile uint32_t dbg_period_reject = 0;
+volatile uint32_t dbg_period_ok = 0;
+volatile uint32_t dbg_low_min_us = 0;
+volatile uint32_t dbg_low_max_us = 0;
+volatile uint32_t dbg_period_min_us = 0;
+volatile uint32_t dbg_period_max_us = 0;
+
 #define FAN_TACH_GPIO 18
 #define FAN_TACH_SEL_GPIO0 6
 #define FAN_TACH_SEL_GPIO1 7
 #define FAN_TACH_PULSES_PER_REV 2
 #define FAN_TACH_MIN_VALID_DT_US 10000U
+#define FAN_TACH_MAX_VALID_DT_US 150000U
 #define FAN_TACH_DT_BUF_SIZE 16
-#define FAN_TACH_MIN_CALC_SAMPLES 2
+#define FAN_TACH_MIN_CALC_SAMPLES 3
 #define FAN_TACH_TRIM_SAMPLES 0
-#define FAN_TACH_RATIO_SCALE 10U
-#define FAN_TACH_MIN_RATIO_X10 6U
-#define FAN_TACH_MAX_RATIO_X10 22U
 #define FAN_TACH_STOP_TIMEOUT_US (METRICS_FAN_CHANNELS * 1000000LL)
 #define FAN_TACH_SWITCH_DELAY_US 1000u
-#define FAN_TACH_LOW_GLITCH_CHECK_US 10u
+#define FAN_TACH_MIN_LOW_WIDTH_US 50u
 #define METRICS_ADC_TASK_PERIOD_MS 250
 #define METRICS_INA_TASK_PERIOD_MS 250
 #define METRICS_TACH_CHANNEL_SETTLE_MS 500
@@ -52,9 +59,9 @@ typedef struct {
     volatile uint32_t dt_buf[FAN_TACH_DT_BUF_SIZE];
     volatile uint32_t dt_count;
     volatile uint32_t dt_idx;
-    volatile int64_t last_edge_us;
+    volatile int64_t last_falling_us;
     volatile int64_t last_valid_edge_us;
-    volatile uint32_t last_good_dt_us;
+    volatile int64_t low_start_us;
     volatile uint8_t skip_edges;
     float rpm;
     bool valid;
@@ -100,9 +107,9 @@ void metrics_init(void) {
         g_fan_channels[ch].valid = false;
         g_fan_channels[ch].filtered_rpm = 0.0f;
         g_fan_channels[ch].filter_valid = false;
-        g_fan_channels[ch].last_edge_us = 0;
+        g_fan_channels[ch].last_falling_us = 0;
         g_fan_channels[ch].last_valid_edge_us = 0;
-        g_fan_channels[ch].last_good_dt_us = 0;
+        g_fan_channels[ch].low_start_us = 0;
         g_fan_channels[ch].skip_edges = 0;
         g_fan_channels[ch].dt_count = 0;
         g_fan_channels[ch].dt_idx = 0;
@@ -172,7 +179,7 @@ static void fan_pcnt_init(void) {
         .mode = GPIO_MODE_INPUT,
         .pull_up_en = GPIO_PULLUP_ENABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_NEGEDGE,
+        .intr_type = GPIO_INTR_ANYEDGE,
     };
     ESP_ERROR_CHECK(gpio_config(&io));
     esp_err_t err = gpio_install_isr_service(0);
@@ -196,7 +203,8 @@ static void fan_tach_select_channel(uint8_t channel) {
     portENTER_CRITICAL(&g_fan_mux);
     g_fan_active_channel = channel;
     g_fan_ignore_edges_until_us = ignore_until;
-    g_fan_channels[channel].last_edge_us = 0;
+    g_fan_channels[channel].last_falling_us = 0;
+    g_fan_channels[channel].low_start_us = 0;
     g_fan_channels[channel].skip_edges = 2;
     portEXIT_CRITICAL(&g_fan_mux);
 }
@@ -250,8 +258,8 @@ static bool metrics_calc_fan_rpm(uint8_t channel, float *out_rpm) {
         stopped = true;
         fan->dt_count = 0;
         fan->dt_idx = 0;
-        fan->last_edge_us = 0;
-        fan->last_good_dt_us = 0;
+        fan->last_falling_us = 0;
+        fan->low_start_us = 0;
         for (uint32_t i = 0; i < FAN_TACH_DT_BUF_SIZE; i++) {
             fan->dt_buf[i] = 0;
         }
@@ -330,6 +338,7 @@ static bool metrics_calc_fan_rpm(uint8_t channel, float *out_rpm) {
 static void IRAM_ATTR fan_tach_isr(void *arg) {
     (void)arg;
     int64_t now = esp_timer_get_time();
+    int level = gpio_get_level(FAN_TACH_GPIO);
     portENTER_CRITICAL_ISR(&g_fan_mux);
     if (now < g_fan_ignore_edges_until_us) {
         portEXIT_CRITICAL_ISR(&g_fan_mux);
@@ -341,49 +350,70 @@ static void IRAM_ATTR fan_tach_isr(void *arg) {
         return;
     }
 
-    esp_rom_delay_us(FAN_TACH_LOW_GLITCH_CHECK_US);
-    if (gpio_get_level(FAN_TACH_GPIO) != 0) {
-        portEXIT_CRITICAL_ISR(&g_fan_mux);
-        return;
-    }
-
     fan_tach_channel_t *fan = &g_fan_channels[channel];
     if (fan->skip_edges > 0) {
-        fan->skip_edges--;
-        fan->last_edge_us = 0;
-        portEXIT_CRITICAL_ISR(&g_fan_mux);
-        return;
-    }
-
-    int64_t last = fan->last_edge_us;
-    fan->last_edge_us = now;
-    if (last == 0) {
-        portEXIT_CRITICAL_ISR(&g_fan_mux);
-        return;
-    }
-    int64_t dt64 = now - last;
-    if (dt64 <= 0) {
-        portEXIT_CRITICAL_ISR(&g_fan_mux);
-        return;
-    }
-    uint32_t dt_us = (uint32_t)dt64;
-    if (dt_us < FAN_TACH_MIN_VALID_DT_US) {
-        portEXIT_CRITICAL_ISR(&g_fan_mux);
-        return;
-    }
-
-    uint32_t last_good_dt_us = fan->last_good_dt_us;
-    if (last_good_dt_us != 0) {
-        uint64_t dt_scaled = (uint64_t)dt_us * FAN_TACH_RATIO_SCALE;
-        if (dt_scaled < (uint64_t)last_good_dt_us * FAN_TACH_MIN_RATIO_X10 ||
-            dt_scaled > (uint64_t)last_good_dt_us * FAN_TACH_MAX_RATIO_X10) {
-            portEXIT_CRITICAL_ISR(&g_fan_mux);
-            return;
+        if (level == 0) {
+            dbg_fall++;
+            fan->skip_edges--;
+        } else {
+            dbg_rise++;
         }
+        fan->last_falling_us = 0;
+        fan->low_start_us = 0;
+        portEXIT_CRITICAL_ISR(&g_fan_mux);
+        return;
     }
 
+    if (level == 0) {
+        dbg_fall++;
+        fan->low_start_us = now;
+        portEXIT_CRITICAL_ISR(&g_fan_mux);
+        return;
+    }
+
+    dbg_rise++;
+    int64_t low_start_us = fan->low_start_us;
+    fan->low_start_us = 0;
+    if (low_start_us == 0) {
+        portEXIT_CRITICAL_ISR(&g_fan_mux);
+        return;
+    }
+    int64_t low_width64 = now - low_start_us;
+    if (low_width64 < FAN_TACH_MIN_LOW_WIDTH_US) {
+        dbg_low_reject++;
+        portEXIT_CRITICAL_ISR(&g_fan_mux);
+        return;
+    }
+    uint32_t low_width_us = (uint32_t)low_width64;
+    if (dbg_low_min_us == 0 || low_width_us < dbg_low_min_us) {
+        dbg_low_min_us = low_width_us;
+    }
+    if (low_width_us > dbg_low_max_us) {
+        dbg_low_max_us = low_width_us;
+    }
+
+    int64_t last_falling_us = fan->last_falling_us;
+    fan->last_falling_us = low_start_us;
+    if (last_falling_us == 0) {
+        portEXIT_CRITICAL_ISR(&g_fan_mux);
+        return;
+    }
+    int64_t period64 = low_start_us - last_falling_us;
+    if (period64 < FAN_TACH_MIN_VALID_DT_US || period64 > FAN_TACH_MAX_VALID_DT_US) {
+        dbg_period_reject++;
+        portEXIT_CRITICAL_ISR(&g_fan_mux);
+        return;
+    }
+
+    uint32_t dt_us = (uint32_t)period64;
+    dbg_period_ok++;
+    if (dbg_period_min_us == 0 || dt_us < dbg_period_min_us) {
+        dbg_period_min_us = dt_us;
+    }
+    if (dt_us > dbg_period_max_us) {
+        dbg_period_max_us = dt_us;
+    }
     fan->last_valid_edge_us = now;
-    fan->last_good_dt_us = dt_us;
     uint32_t idx = fan->dt_idx;
     fan->dt_buf[idx] = dt_us;
     fan->dt_idx = (idx + 1) % FAN_TACH_DT_BUF_SIZE;
