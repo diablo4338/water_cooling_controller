@@ -1,5 +1,6 @@
 import os
 import struct
+from datetime import datetime
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("XDG_CONFIG_HOME", "/tmp")
@@ -24,6 +25,7 @@ from ble_app.core import (
     UUID_VOLTAGE_VALUE,
 )
 from ble_app import gui as gui_module
+from ble_app.gui_logic import window_updates as window_updates_module
 
 
 class _FakeClient:
@@ -199,6 +201,81 @@ def test_debug_panels_are_rendered_in_right_column(monkeypatch: pytest.MonkeyPat
         titles.append(section_layout.itemAt(0).widget().text())
 
     assert titles == ["Operations (log)", "Debug log", "Real-time data"]
+
+    window.close()
+    app.processEvents()
+
+
+def test_metrics_log_does_not_repeat_invalid_nan_values(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("ble_app.core.load_or_create_host_key", lambda: object())
+    monkeypatch.setattr(gui_module.BleWorker, "start", lambda self: None)
+    monkeypatch.setattr(gui_module.BleWorker, "stop", lambda self: None)
+
+    def _submit_noop(self, coro):
+        coro.close()
+        return None
+
+    monkeypatch.setattr(gui_module.BleWorker, "submit", _submit_noop)
+
+    app = QApplication.instance() or QApplication([])
+    window = gui_module.MainWindow(debug=True)
+
+    nan_value = float("nan")
+    snapshot = MetricsSnapshot(
+        temperatures=(nan_value, None, 35.6, 37.5),
+        fan_speeds=(nan_value, None, None, None),
+        voltage_v=0.1,
+        current_ma=0.1,
+    )
+
+    window.on_metrics_received(snapshot)
+    first_log = window.data_view.toPlainText()
+    window.on_metrics_received(snapshot)
+    second_log = window.data_view.toPlainText()
+
+    assert first_log.count("Temp 1: NC") == 1
+    assert first_log.count("Fan 1: NC") == 1
+    assert second_log == first_log
+
+    window.close()
+    app.processEvents()
+
+
+def test_logs_include_timestamp_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("ble_app.core.load_or_create_host_key", lambda: object())
+    monkeypatch.setattr(gui_module.BleWorker, "start", lambda self: None)
+    monkeypatch.setattr(gui_module.BleWorker, "stop", lambda self: None)
+
+    def _submit_noop(self, coro):
+        coro.close()
+        return None
+
+    class _FakeDateTime:
+        @staticmethod
+        def now() -> datetime:
+            return datetime(2026, 6, 1, 12, 34, 56)
+
+    monkeypatch.setattr(gui_module.BleWorker, "submit", _submit_noop)
+    monkeypatch.setattr(window_updates_module, "datetime", _FakeDateTime)
+
+    app = QApplication.instance() or QApplication([])
+    window = gui_module.MainWindow(debug=True)
+
+    window.on_log("hello")
+    window.on_operation_status(gui_module.OperationStatus(op_type=1, state=1, error=""))
+    window.on_metrics_received(
+        MetricsSnapshot(
+            temperatures=(38.0, None, None, None),
+            fan_speeds=(500.0, None, None, None),
+            voltage_v=12.0,
+            current_ma=25.0,
+        )
+    )
+
+    prefix = "[2026-06-01 12:34:56]"
+    assert window.debug_log_view.toPlainText().splitlines()[-1] == f"{prefix} hello"
+    assert prefix in window.op_log_view.toPlainText()
+    assert prefix in window.data_view.toPlainText()
 
     window.close()
     app.processEvents()
