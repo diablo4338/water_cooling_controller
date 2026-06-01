@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 import math
 from typing import Optional
 
@@ -40,6 +41,21 @@ from .constants import PARAM_ERROR_MESSAGES, PARAM_LABELS_BY_ID, USER_ROLE
 
 
 class MainWindowUpdateMixin:
+    @staticmethod
+    def _timestamp() -> str:
+        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    def _format_log_entry(self, message: str) -> str:
+        return f"[{self._timestamp()}] {message}"
+
+    @staticmethod
+    def _metric_value_changed(previous: Optional[float], current: Optional[float]) -> bool:
+        prev_invalid = previous is None or not math.isfinite(previous)
+        curr_invalid = current is None or not math.isfinite(current)
+        if prev_invalid or curr_invalid:
+            return prev_invalid != curr_invalid
+        return previous != current
+
     def _clear_op_log(self) -> None:
         if self.op_log_view is not None:
             self.op_log_view.clear()
@@ -120,8 +136,8 @@ class MainWindowUpdateMixin:
     def on_log(self, message: str) -> None:
         self.model.set_status(message)
         if self.debug_enabled and self.debug_log_view is not None:
-            self.debug_log_view.append(message)
-        print(message, flush=True)
+            self.debug_log_view.append(self._format_log_entry(message))
+        print(self._format_log_entry(message), flush=True)
         self._apply_ui()
 
     def _apply_temp_value(self, channel: int, value: Optional[float], append_data: bool) -> None:
@@ -136,7 +152,7 @@ class MainWindowUpdateMixin:
         text = f"{value:.2f}" if not is_nc and value is not None else "NC"
         self.temp_fields[channel].setText(text)
         if append_data:
-            self.data_view.append(f"Temp {channel + 1}: {text}")
+            self.data_view.append(self._format_log_entry(f"Temp {channel + 1}: {text}"))
 
     def _apply_fan_value(self, channel: int, value: Optional[float], append_data: bool) -> None:
         if channel >= len(self.fan_fields):
@@ -148,7 +164,7 @@ class MainWindowUpdateMixin:
         text = "NC" if is_nc or value is None else f"{value:.0f}"
         self.fan_fields[channel].setText(text)
         if append_data:
-            self.data_view.append(f"Fan {channel + 1}: {text}")
+            self.data_view.append(self._format_log_entry(f"Fan {channel + 1}: {text}"))
 
     def _apply_fan_percent_value(self, value: Optional[float]) -> None:
         if self.fan_percent_field is None:
@@ -166,16 +182,24 @@ class MainWindowUpdateMixin:
         text = "NC" if is_nc else f"{value:.{decimals}f}"
         field.setText(text)
         if append_data:
-            self.data_view.append(f"{label}: {text} {unit}")
+            self.data_view.append(self._format_log_entry(f"{label}: {text} {unit}"))
 
     @Slot(object)
     def on_metrics_received(self, snapshot: MetricsSnapshot) -> None:
         prev_snapshot = self.metrics_snapshot
         self.metrics_snapshot = snapshot
         for channel, value in enumerate(snapshot.temperatures):
-            self._apply_temp_value(channel, value, append_data=prev_snapshot.temperatures[channel] != value)
+            self._apply_temp_value(
+                channel,
+                value,
+                append_data=self._metric_value_changed(prev_snapshot.temperatures[channel], value),
+            )
         for channel, value in enumerate(snapshot.fan_speeds):
-            self._apply_fan_value(channel, value, append_data=prev_snapshot.fan_speeds[channel] != value)
+            self._apply_fan_value(
+                channel,
+                value,
+                append_data=self._metric_value_changed(prev_snapshot.fan_speeds[channel], value),
+            )
         self._apply_fan_percent_value(snapshot.fan_percent)
         self.metrics_chart.add_sample(snapshot.fan_percent, snapshot.temperatures[3], snapshot.temperatures[2])
         self._apply_power_value(
@@ -184,7 +208,7 @@ class MainWindowUpdateMixin:
             snapshot.voltage_v,
             "V",
             2,
-            append_data=prev_snapshot.voltage_v != snapshot.voltage_v,
+            append_data=self._metric_value_changed(prev_snapshot.voltage_v, snapshot.voltage_v),
         )
         self._apply_power_value(
             self.current_field,
@@ -192,7 +216,7 @@ class MainWindowUpdateMixin:
             snapshot.current_ma,
             "mA",
             1,
-            append_data=prev_snapshot.current_ma != snapshot.current_ma,
+            append_data=self._metric_value_changed(prev_snapshot.current_ma, snapshot.current_ma),
         )
         self._refresh_temp_indicators()
 
@@ -276,7 +300,7 @@ class MainWindowUpdateMixin:
         if status.state == OP_STATE_IN_SERVICE and not self._operation_active:
             self._clear_op_log()
         if self.op_log_view is not None and not is_noop_idle:
-            self.op_log_view.append(f"{op_label}: {status.error or state_label}")
+            self.op_log_view.append(self._format_log_entry(f"{op_label}: {status.error or state_label}"))
         op_action = None
         if status.op_type == OP_TYPE_SETUP_FANS:
             op_action = self.Action.SETUP_FANS

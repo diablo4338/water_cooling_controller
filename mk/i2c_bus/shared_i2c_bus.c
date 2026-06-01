@@ -1,13 +1,23 @@
 #include "shared_i2c_bus.h"
 
 #include "esp_log.h"
+#include "freertos/semphr.h"
 
 static const char *TAG = "shared-i2c";
 static i2c_master_bus_handle_t s_bus = NULL;
+static SemaphoreHandle_t s_bus_mutex = NULL;
 
 esp_err_t shared_i2c_bus_init(void) {
     if (s_bus != NULL) {
         return ESP_OK;
+    }
+
+    if (s_bus_mutex == NULL) {
+        s_bus_mutex = xSemaphoreCreateMutex();
+        if (s_bus_mutex == NULL) {
+            ESP_LOGW(TAG, "shared i2c mutex create failed");
+            return ESP_ERR_NO_MEM;
+        }
     }
 
     i2c_master_bus_config_t bus_cfg = {
@@ -37,4 +47,17 @@ esp_err_t shared_i2c_bus_init(void) {
 
 i2c_master_bus_handle_t shared_i2c_bus_get_handle(void) {
     return s_bus;
+}
+
+bool shared_i2c_bus_lock(TickType_t timeout_ticks) {
+    if (s_bus_mutex == NULL) {
+        return false;
+    }
+    return xSemaphoreTake(s_bus_mutex, timeout_ticks) == pdTRUE;
+}
+
+void shared_i2c_bus_unlock(void) {
+    if (s_bus_mutex != NULL) {
+        xSemaphoreGive(s_bus_mutex);
+    }
 }

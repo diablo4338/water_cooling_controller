@@ -58,8 +58,14 @@ static bool ads1115_attach_device(void) {
     if (s_dev_cfg.device_address == 0) {
         ads1115_fill_dev_cfg();
     }
+    if (!shared_i2c_bus_lock(pdMS_TO_TICKS(ADS1115_I2C_TIMEOUT_MS))) {
+        ESP_LOGW(ADS_TAG, "i2c add device lock timeout");
+        s_ads_error = true;
+        return false;
+    }
 
     esp_err_t err = i2c_master_bus_add_device(s_i2c_bus, &s_dev_cfg, &s_i2c_dev);
+    shared_i2c_bus_unlock();
     if (err != ESP_OK) {
         ESP_LOGW(ADS_TAG, "i2c add device err=%s", esp_err_to_name(err));
         s_ads_error = true;
@@ -74,7 +80,12 @@ static void ads1115_recover(const char *stage, esp_err_t err) {
     s_retry_after_us = esp_timer_get_time() + ADS1115_RETRY_COOLDOWN_US;
     if (!s_i2c_bus) return;
 
+    if (!shared_i2c_bus_lock(pdMS_TO_TICKS(ADS1115_I2C_TIMEOUT_MS))) {
+        ESP_LOGW(ADS_TAG, "i2c reset lock timeout");
+        return;
+    }
     esp_err_t reset_err = i2c_master_bus_reset(s_i2c_bus);
+    shared_i2c_bus_unlock();
     if (reset_err != ESP_OK) {
         ESP_LOGW(ADS_TAG, "i2c bus reset err=%s", esp_err_to_name(reset_err));
     }
@@ -123,8 +134,14 @@ bool ads1115_read_raw(uint8_t channel, int16_t *out_raw) {
     buf[1] = (uint8_t)(cfg >> 8);
     buf[2] = (uint8_t)(cfg & 0xFF);
 
+    if (!shared_i2c_bus_lock(pdMS_TO_TICKS(ADS1115_I2C_TIMEOUT_MS))) {
+        ESP_LOGW(ADS_TAG, "i2c write cfg lock timeout");
+        s_ads_error = true;
+        return false;
+    }
     esp_err_t err = i2c_master_transmit(
         s_i2c_dev, buf, sizeof(buf), ADS1115_I2C_TIMEOUT_MS);
+    shared_i2c_bus_unlock();
     if (err != ESP_OK) {
         ads1115_recover("i2c write cfg", err);
         return false;
@@ -134,8 +151,14 @@ bool ads1115_read_raw(uint8_t channel, int16_t *out_raw) {
 
     uint8_t reg = ADS1115_REG_CONVERSION;
     uint8_t data[2] = {0};
+    if (!shared_i2c_bus_lock(pdMS_TO_TICKS(ADS1115_I2C_TIMEOUT_MS))) {
+        ESP_LOGW(ADS_TAG, "i2c read conv lock timeout");
+        s_ads_error = true;
+        return false;
+    }
     err = i2c_master_transmit_receive(
         s_i2c_dev, &reg, 1, data, sizeof(data), ADS1115_I2C_TIMEOUT_MS);
+    shared_i2c_bus_unlock();
     if (err != ESP_OK) {
         ads1115_recover("i2c read conv", err);
         return false;
