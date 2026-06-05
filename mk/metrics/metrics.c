@@ -45,8 +45,7 @@ volatile uint32_t dbg_period_max_us = 0;
 #define FAN_TACH_STOP_TIMEOUT_US (METRICS_FAN_CHANNELS * 1000000LL)
 #define FAN_TACH_SWITCH_DELAY_US 1000u
 #define FAN_TACH_MIN_LOW_WIDTH_US 50u
-#define METRICS_ADC_TASK_PERIOD_MS 250
-#define METRICS_INA_TASK_PERIOD_MS 250
+#define METRICS_POLL_TASK_PERIOD_MS 250
 #define METRICS_TACH_CHANNEL_SETTLE_MS 400
 #define METRICS_TASK_STACK_SIZE 4096
 #define METRICS_TASK_PRIORITY 5
@@ -89,8 +88,7 @@ static bool metrics_snapshot_read(metrics_snapshot_t *out);
 static uint16_t metrics_update_power_sample(void);
 static float metrics_round_temp_for_buffer(float temp_c);
 static void metrics_publish_changes(uint16_t changed_mask);
-static void metrics_adc_task(void *arg);
-static void metrics_ina_task(void *arg);
+static void metrics_poll_task(void *arg);
 static void metrics_tach_task(void *arg);
 
 #define METRICS_FAIL_THRESHOLD 3
@@ -128,8 +126,7 @@ void metrics_init(void) {
     (void)ina_ok;
     fan_pcnt_init();
     metrics_snapshot_write_from_state();
-    xTaskCreate(metrics_adc_task, "metrics_adc", METRICS_TASK_STACK_SIZE, NULL, METRICS_TASK_PRIORITY, NULL);
-    xTaskCreate(metrics_ina_task, "metrics_ina", METRICS_TASK_STACK_SIZE, NULL, METRICS_TASK_PRIORITY, NULL);
+    xTaskCreate(metrics_poll_task, "metrics_poll", METRICS_TASK_STACK_SIZE, NULL, METRICS_TASK_PRIORITY, NULL);
     xTaskCreate(metrics_tach_task, "metrics_tach", METRICS_TASK_STACK_SIZE, NULL, METRICS_TASK_PRIORITY, NULL);
 }
 
@@ -544,7 +541,7 @@ static void metrics_publish_changes(uint16_t changed_mask) {
     portEXIT_CRITICAL(&g_metrics_mux);
 }
 
-static void metrics_adc_task(void *arg) {
+static void metrics_poll_task(void *arg) {
     (void)arg;
 
     while (1) {
@@ -602,18 +599,9 @@ static void metrics_adc_task(void *arg) {
             vTaskDelay(pdMS_TO_TICKS(ADS1115_INTER_CH_DELAY_MS));
         }
 
+        changed_mask |= metrics_update_power_sample();
         metrics_publish_changes(changed_mask);
-        vTaskDelay(pdMS_TO_TICKS(METRICS_ADC_TASK_PERIOD_MS));
-    }
-}
-
-static void metrics_ina_task(void *arg) {
-    (void)arg;
-
-    while (1) {
-        uint16_t changed_mask = metrics_update_power_sample();
-        metrics_publish_changes(changed_mask);
-        vTaskDelay(pdMS_TO_TICKS(METRICS_INA_TASK_PERIOD_MS));
+        vTaskDelay(pdMS_TO_TICKS(METRICS_POLL_TASK_PERIOD_MS));
     }
 }
 

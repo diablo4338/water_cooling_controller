@@ -129,39 +129,44 @@ bool ads1115_read_raw(uint8_t channel, int16_t *out_raw) {
     if (!s_i2c_dev) return false;
 
     uint16_t cfg = ads1115_build_config(channel);
-    uint8_t buf[3];
-    buf[0] = ADS1115_REG_CONFIG;
-    buf[1] = (uint8_t)(cfg >> 8);
-    buf[2] = (uint8_t)(cfg & 0xFF);
-
-    if (!shared_i2c_bus_lock(pdMS_TO_TICKS(ADS1115_I2C_TIMEOUT_MS))) {
-        ESP_LOGW(ADS_TAG, "i2c write cfg lock timeout");
-        s_ads_error = true;
-        return false;
-    }
-    esp_err_t err = i2c_master_transmit(
-        s_i2c_dev, buf, sizeof(buf), ADS1115_I2C_TIMEOUT_MS);
-    shared_i2c_bus_unlock();
-    if (err != ESP_OK) {
-        ads1115_recover("i2c write cfg", err);
-        return false;
-    }
-
-    vTaskDelay(pdMS_TO_TICKS(ADS1115_CONV_DELAY_MS));
-
+    uint8_t buf[3] = {
+        ADS1115_REG_CONFIG,
+        (uint8_t)(cfg >> 8),
+        (uint8_t)(cfg & 0xFF),
+    };
     uint8_t reg = ADS1115_REG_CONVERSION;
     uint8_t data[2] = {0};
-    if (!shared_i2c_bus_lock(pdMS_TO_TICKS(ADS1115_I2C_TIMEOUT_MS))) {
-        ESP_LOGW(ADS_TAG, "i2c read conv lock timeout");
-        s_ads_error = true;
-        return false;
-    }
-    err = i2c_master_transmit_receive(
-        s_i2c_dev, &reg, 1, data, sizeof(data), ADS1115_I2C_TIMEOUT_MS);
-    shared_i2c_bus_unlock();
-    if (err != ESP_OK) {
-        ads1115_recover("i2c read conv", err);
-        return false;
+
+    // The first single-shot after changing MUX can still reflect the previous
+    // input. Trigger and discard one conversion, then read the second one.
+    for (int pass = 0; pass < 2; pass++) {
+        if (!shared_i2c_bus_lock(pdMS_TO_TICKS(ADS1115_I2C_TIMEOUT_MS))) {
+            ESP_LOGW(ADS_TAG, "i2c write cfg lock timeout");
+            s_ads_error = true;
+            return false;
+        }
+        esp_err_t err = i2c_master_transmit(
+            s_i2c_dev, buf, sizeof(buf), ADS1115_I2C_TIMEOUT_MS);
+        shared_i2c_bus_unlock();
+        if (err != ESP_OK) {
+            ads1115_recover("i2c write cfg", err);
+            return false;
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(ADS1115_CONV_DELAY_MS));
+
+        if (!shared_i2c_bus_lock(pdMS_TO_TICKS(ADS1115_I2C_TIMEOUT_MS))) {
+            ESP_LOGW(ADS_TAG, "i2c read conv lock timeout");
+            s_ads_error = true;
+            return false;
+        }
+        err = i2c_master_transmit_receive(
+            s_i2c_dev, &reg, 1, data, sizeof(data), ADS1115_I2C_TIMEOUT_MS);
+        shared_i2c_bus_unlock();
+        if (err != ESP_OK) {
+            ads1115_recover("i2c read conv", err);
+            return false;
+        }
     }
 
     *out_raw = (int16_t)((data[0] << 8) | data[1]);
