@@ -1,0 +1,27 @@
+services:
+  pcwcc-build:
+    image: YOUR-PREBUILD-IMAGE
+    container_name: pcwcc-build
+    working_dir: /work
+
+    volumes:
+      - YOUR-PATH-TO-PROJECT/wc_controller/:/work
+      - YOUR-PATH-TO-PROJECT/wc_controller//docker-cache/esp-idf:/work/.cache/esp-idf
+      - YOUR-PATH-TO-PROJECT/wc_controller//docker-cache/esp-idf-tools:/work/.cache/esp-idf-tools
+      - YOUR-PATH-TO-PROJECT/wc_controller//docker-cache/ccache:/work/.ccache
+      - YOUR-PATH-TO-PROJECT/wc_controller//docker-cache/pip:/work/.cache/pip
+
+    environment:
+      IDF_VERSION: v5.4.1
+      IDF_TOOLS_PATH: /work/.cache/esp-idf-tools
+      IDF_CCACHE_ENABLE: "1"
+      CCACHE_DIR: /work/.ccache
+      PIP_CACHE_DIR: /work/.cache/pip
+      PYTHON_BIN: python3.12
+      PYTHON: python3.12
+      OPENSSL_ROOT_DIR: /opt/openssl-3.2.3
+      OPENSSL_DIR: /opt/openssl-3.2.3
+      LD_LIBRARY_PATH: /opt/openssl-3.2.3/lib64:/opt/python-3.12.8/lib
+
+    tty: true
+    stdin_open: true

@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QTextEdit,
     QVBoxLayout,
@@ -24,6 +25,8 @@ from .metrics_chart import MetricsHistoryChart
 
 
 class MainWindowSetupMixin:
+    _MIN_INPUT_HEIGHT = 30
+
     def _create_widgets(self) -> None:
         self.setWindowTitle(APP_TITLE)
         if self.debug_enabled:
@@ -140,8 +143,16 @@ class MainWindowSetupMixin:
         main_content_layout.addLayout(history_header)
         main_content_layout.addWidget(self.metrics_chart)
 
+        main_content_widget = QWidget()
+        main_content_widget.setLayout(main_content_layout)
+
+        main_scroll = QScrollArea()
+        main_scroll.setWidgetResizable(True)
+        main_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        main_scroll.setWidget(main_content_widget)
+
         body_layout = QHBoxLayout()
-        body_layout.addLayout(main_content_layout, 3)
+        body_layout.addWidget(main_scroll, 3)
         if self.debug_enabled:
             body_layout.addWidget(self._build_debug_panel(), 2)
 
@@ -270,6 +281,7 @@ class MainWindowSetupMixin:
                     field.setCurrentIndex(0)
                 else:
                     continue
+                self._apply_input_sizing(field)
                 field.setEnabled(False)
                 grid.addWidget(field, row, 1)
                 self.param_fields.append({"spec": spec, "widget": field})
@@ -303,6 +315,7 @@ class MainWindowSetupMixin:
             field.setCursor(Qt.CursorShape.ArrowCursor)
             field.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
             field.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self._apply_input_sizing(field)
             indicator = QFrame()
             indicator.setFixedSize(16, 16)
             indicator.setStyleSheet("background:#6b7280; border:1px solid #111827;")
@@ -328,6 +341,7 @@ class MainWindowSetupMixin:
         voltage_field.setCursor(Qt.CursorShape.ArrowCursor)
         voltage_field.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         voltage_field.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self._apply_input_sizing(voltage_field)
 
         current_field = QLineEdit("â€”")
         current_field.setReadOnly(True)
@@ -335,6 +349,7 @@ class MainWindowSetupMixin:
         current_field.setCursor(Qt.CursorShape.ArrowCursor)
         current_field.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         current_field.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self._apply_input_sizing(current_field)
 
         grid.addWidget(QLabel("Voltage, V"), 0, 0)
         grid.addWidget(voltage_field, 0, 1)
@@ -364,6 +379,7 @@ class MainWindowSetupMixin:
         device_status_field.setCursor(Qt.CursorShape.ArrowCursor)
         device_status_field.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         device_status_field.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._apply_input_sizing(device_status_field)
         self.device_status_field = device_status_field
 
         device_indicator = QFrame()
@@ -396,6 +412,7 @@ class MainWindowSetupMixin:
             rpm_field.setCursor(Qt.CursorShape.ArrowCursor)
             rpm_field.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
             rpm_field.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self._apply_input_sizing(rpm_field)
             indicator = QFrame()
             indicator.setFixedSize(16, 16)
             indicator.setStyleSheet("background:#6b7280; border:1px solid #111827;")
@@ -425,6 +442,7 @@ class MainWindowSetupMixin:
         percent_field.setCursor(Qt.CursorShape.ArrowCursor)
         percent_field.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         percent_field.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._apply_input_sizing(percent_field)
         column = QVBoxLayout()
         column.addWidget(label)
         column.addWidget(percent_field)
@@ -432,3 +450,6 @@ class MainWindowSetupMixin:
         self.fan_percent_field = percent_field
         self._fan_is_nc = [None] * 4
         return grid
+
+    def _apply_input_sizing(self, widget: QWidget) -> None:
+        widget.setMinimumHeight(self._MIN_INPUT_HEIGHT)

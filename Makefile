@@ -29,5 +29,3 @@ fw:
 
 fw-test:
 	bash -lc '. $(IDF_EXPORT) && $(IDF_PY) -C $(IDF_DIR) -DPAIR_RUN_TESTS=1 fullclean build flash'
-
-fw-tests: fw-test

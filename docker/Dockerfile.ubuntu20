@@ -1,0 +1,180 @@
+FROM ubuntu:20.04
+
+ARG PYTHON_VERSION=3.12.8
+ARG OPENSSL_VERSION=3.2.3
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=Etc/UTC
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+
+RUN apt-get update
+
+RUN apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    wget \
+    git \
+    zip \
+    unzip \
+    xz-utils \
+    file \
+    libfuse2 \
+    bash \
+    make \
+    build-essential \
+    cmake \
+    ninja-build \
+    ccache \
+    flex \
+    bison \
+    gperf \
+    pkg-config \
+    patchelf \
+    libffi-dev \
+    libssl-dev \
+    libbz2-dev \
+    libreadline-dev \
+    libsqlite3-dev \
+    libncursesw5-dev \
+    libgdbm-dev \
+    liblzma-dev \
+    libexpat1-dev \
+    tk-dev \
+    uuid-dev \
+    zlib1g-dev \
+    dfu-util \
+    libusb-1.0-0 \
+    libglib2.0-0 \
+    libdbus-1-3 \
+    libxcb1 \
+    libx11-6 \
+    libxext6 \
+    libxrender1 \
+    libxkbcommon-x11-0 \
+    libfontconfig1 \
+    libfreetype6 \
+    libxcb-cursor0 \
+    libxcb-icccm4 \
+    libxcb-image0 \
+    libxcb-keysyms1 \
+    libxcb-randr0 \
+    libxcb-render-util0 \
+    libxcb-shape0 \
+    libxcb-xinerama0 \
+    libxcb-xfixes0 \
+    zlib1g \
+    python3 \
+    python3-pip \
+    python3-venv
+
+RUN rm -rf /var/lib/apt/lists/*
+
+# --------------------------------------------------------------------
+# Build OpenSSL 3 from source.
+# Ubuntu 20.04 has OpenSSL 1.1 by default, but modern PySide6/Qt
+# expects OpenSSL 3 runtime.
+# --------------------------------------------------------------------
+
+RUN cd /tmp && \
+    wget -O openssl-${OPENSSL_VERSION}.tar.gz \
+    https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz
+
+RUN cd /tmp && \
+    tar -xzf openssl-${OPENSSL_VERSION}.tar.gz
+
+RUN cd /tmp/openssl-${OPENSSL_VERSION} && \
+    ./Configure linux-x86_64 \
+        --prefix=/opt/openssl-${OPENSSL_VERSION} \
+        --openssldir=/opt/openssl-${OPENSSL_VERSION}/ssl \
+        shared \
+        zlib
+
+RUN cd /tmp/openssl-${OPENSSL_VERSION} && \
+    make -j"$(nproc)"
+
+RUN cd /tmp/openssl-${OPENSSL_VERSION} && \
+    make install_sw
+
+RUN test -f /opt/openssl-${OPENSSL_VERSION}/lib64/libssl.so.3 && \
+    test -f /opt/openssl-${OPENSSL_VERSION}/lib64/libcrypto.so.3 && \
+    test -d /opt/openssl-${OPENSSL_VERSION}/include/openssl
+
+RUN echo "/opt/openssl-${OPENSSL_VERSION}/lib64" > /etc/ld.so.conf.d/openssl-${OPENSSL_VERSION}.conf && \
+    ldconfig
+
+RUN ln -sf /opt/openssl-${OPENSSL_VERSION}/bin/openssl /usr/local/bin/openssl
+
+RUN rm -rf /tmp/openssl-${OPENSSL_VERSION} /tmp/openssl-${OPENSSL_VERSION}.tar.gz
+
+# --------------------------------------------------------------------
+# Build Python 3.12 from source via altinstall.
+# Do not replace Ubuntu system Python 3.8.
+# Explicitly link Python _ssl module against our OpenSSL 3.
+# --------------------------------------------------------------------
+
+RUN cd /tmp && \
+    wget -O Python-${PYTHON_VERSION}.tgz \
+    https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tgz
+
+RUN cd /tmp && \
+    tar -xzf Python-${PYTHON_VERSION}.tgz
+
+RUN cd /tmp/Python-${PYTHON_VERSION} && \
+    PKG_CONFIG_PATH="/opt/openssl-${OPENSSL_VERSION}/lib64/pkgconfig" \
+    CPPFLAGS="-I/opt/openssl-${OPENSSL_VERSION}/include" \
+    LDFLAGS="-L/opt/openssl-${OPENSSL_VERSION}/lib64 -Wl,-rpath,/opt/openssl-${OPENSSL_VERSION}/lib64" \
+    LD_LIBRARY_PATH="/opt/openssl-${OPENSSL_VERSION}/lib64" \
+    ./configure \
+        --prefix=/opt/python-${PYTHON_VERSION} \
+        --enable-shared \
+        --with-ensurepip=install \
+        --with-openssl=/opt/openssl-${OPENSSL_VERSION} \
+        --with-openssl-rpath=auto
+
+RUN cd /tmp/Python-${PYTHON_VERSION} && \
+    PKG_CONFIG_PATH="/opt/openssl-${OPENSSL_VERSION}/lib64/pkgconfig" \
+    CPPFLAGS="-I/opt/openssl-${OPENSSL_VERSION}/include" \
+    LDFLAGS="-L/opt/openssl-${OPENSSL_VERSION}/lib64 -Wl,-rpath,/opt/openssl-${OPENSSL_VERSION}/lib64" \
+    LD_LIBRARY_PATH="/opt/openssl-${OPENSSL_VERSION}/lib64" \
+    make -j"$(nproc)"
+
+RUN cd /tmp/Python-${PYTHON_VERSION} && \
+    LD_LIBRARY_PATH="/opt/openssl-${OPENSSL_VERSION}/lib64" \
+    make altinstall
+
+RUN echo "/opt/python-${PYTHON_VERSION}/lib" > /etc/ld.so.conf.d/python-${PYTHON_VERSION}.conf && \
+    ldconfig
+
+RUN ln -sf /opt/python-${PYTHON_VERSION}/bin/python3.12 /usr/local/bin/python3.12 && \
+    ln -sf /opt/python-${PYTHON_VERSION}/bin/pip3.12 /usr/local/bin/pip3.12 && \
+    ln -sf /opt/python-${PYTHON_VERSION}/bin/python3.12 /usr/local/bin/python && \
+    ln -sf /opt/python-${PYTHON_VERSION}/bin/pip3.12 /usr/local/bin/pip
+
+RUN python3.12 -c "import ssl; print(ssl.OPENSSL_VERSION)"
+
+RUN python3.12 -m pip install --no-cache-dir --upgrade pip wheel setuptools
+
+RUN rm -rf /tmp/Python-${PYTHON_VERSION} /tmp/Python-${PYTHON_VERSION}.tgz
+
+# --------------------------------------------------------------------
+# Build environment.
+# --------------------------------------------------------------------
+
+ENV OPENSSL_VERSION=3.2.3
+ENV OPENSSL_ROOT_DIR=/opt/openssl-3.2.3
+ENV OPENSSL_DIR=/opt/openssl-3.2.3
+ENV LD_LIBRARY_PATH=/opt/openssl-3.2.3/lib64:/opt/python-3.12.8/lib
+ENV PATH=/opt/openssl-3.2.3/bin:/opt/python-3.12.8/bin:$PATH
+
+ENV IDF_VERSION=v5.4.1
+ENV IDF_TOOLS_PATH=/work/.cache/esp-idf-tools
+ENV IDF_CCACHE_ENABLE=1
+ENV CCACHE_DIR=/work/.ccache
+ENV PIP_CACHE_DIR=/work/.cache/pip
+ENV PYTHON_BIN=python3.12
+ENV PYTHON=python3.12
+
+WORKDIR /work
+
+CMD ["sleep", "infinity"]
