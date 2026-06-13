@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 import RPi.GPIO as GPIO
 from fastapi import FastAPI, HTTPException
 
-LOGGER = logging.getLogger("raspberry.app")
+LOGGER = logging.getLogger("tests.raspberry.app")
 
 GPIO_PIN = 17  # BCM pin
 LONG_PRESS_SECONDS = 5.0

@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from ble_app.core import load_paired_records, rename_paired_record, save_paired_records
-from ble_app.core_logic import storage
+from cli.core import load_paired_records, rename_paired_record, save_paired_records
+from cli.core_logic import storage
 
 
 def test_rename_paired_record_updates_name(tmp_path: Path, monkeypatch) -> None:

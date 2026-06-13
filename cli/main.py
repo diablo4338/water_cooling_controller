@@ -1,7 +1,7 @@
 try:
     from .gui import main
 except ImportError:
-    from ble_app.gui import main
+    from cli.gui import main
 
 
 if __name__ == "__main__":

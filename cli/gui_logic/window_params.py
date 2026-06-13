@@ -123,7 +123,9 @@ class MainWindowParamsMixin:
         finally:
             self._params_update_lock = False
         if save and self.model.state.connected_device:
-            save_device_params(self.model.state.connected_device.address, params)
+            from .. import gui as gui_module
+
+            gui_module.save_device_params(self.model.state.connected_device.address, params)
         if apply_status is not None and apply_status_text is not None:
             self._set_apply_status(apply_status, apply_status_text)
         self._refresh_temp_indicators()

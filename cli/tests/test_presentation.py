@@ -1,5 +1,5 @@
-from ble_app.core import DeviceInfo
-from ble_app.presentation import Action, AppModel, AppState, ConnState, SelectionSource, derive_ui
+from cli.core import DeviceInfo
+from cli.presentation import Action, AppModel, AppState, ConnState, SelectionSource, derive_ui
 
 
 def test_derive_ui_basics() -> None:

@@ -9,21 +9,21 @@ Local data:
 - `host_key.pem` - host private key (P-256) used for pairing.
 
 ## Quick start
-1. Install GUI dependencies from `ble_app/requirements.txt`.
-2. Run the app: `python -m ble_app.main` or `make run-app`.
+1. Install GUI dependencies from `cli/requirements.txt`.
+2. Run the app: `python -m cli.main` or `make run-app`.
 3. For extended BLE diagnostics, run with `--debug` to show the in-app debug log.
 
 Buttons service (for integration tests):
-- `make run-buttons` or `uvicorn raspberry.app:app --host 0.0.0.0 --port 8001`.
+- `make run-buttons` or `uvicorn tests.raspberry.app:app --host 0.0.0.0 --port 8001`.
 
 Firmware (ESP-IDF):
 - `make fw` - build/flash.
-- `make fw-tests` - build/flash with `PAIR_RUN_TESTS=1`.
+- `make fw-test` - build/flash with `PAIR_RUN_TESTS=1`.
 
 ## Directory structure
-- `ble_app/` - GUI app and the shared BLE layer used by the GUI and tests.
-- `mk/` - ESP-IDF firmware (NimBLE) with protocol implementation and metrics.
-- `raspberry/` - HTTP service for the GPIO button, used by integration tests.
+- `cli/` - desktop app and the shared BLE layer used by the app and tests.
+- `firmware/` - ESP-IDF firmware (NimBLE) with protocol implementation and metrics.
+- `tests/raspberry/` - HTTP service for the Raspberry Pi GPIO button, used by integration tests.
 - `paired_devices.json` - trusted devices database.
 - `host_key.pem` - host private key.
 - `ARCHITECTURE.md` - architecture details and module relationships.
@@ -154,17 +154,17 @@ TEMP2_VALUE: `a1b2c3d4-0b1c-4a2b-9c3d-4e5f60718293`
 TEMP3_VALUE: `a1b2c3d4-0b1c-4a2b-9c3d-4e5f60718294`
 
 ## Tests
-Integration tests use only the public API from `ble_app`. Unit tests for UI logic live in `ble_app/tests/test_presentation.py` and do not require PySide6.
+Integration tests use only the public API from `cli`. Unit tests for UI logic live in `cli/tests/test_presentation.py` and do not require PySide6.
 
-Test dependencies: `ble_app/tests/requirements.txt`.
+Test dependencies: `cli/tests/requirements.txt`.
 
 Run:
 ```bash
-pytest -c ble_app/pytest.ini -q -m integration
+pytest -c cli/pytest.ini -q -m integration
 ```
 
 ## Environment variables
-Application (GUI/ble_app):
+Application (GUI/cli):
 - `BLE_SCAN_TIMEOUT_S` - scan timeout.
 - `BLE_RESOLVE_TIMEOUT_S` - address resolve timeout.
 - `BLE_CONNECT_TIMEOUT_S` - connect timeout.

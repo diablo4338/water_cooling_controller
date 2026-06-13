@@ -111,6 +111,8 @@ class MainWindowSetupMixin:
         buttons.addWidget(self.disconnect_button)
         buttons.addWidget(self.delete_button)
         buttons.addWidget(self.rename_button)
+        buttons.addStretch(1)
+        buttons.addWidget(self.auto_checkbox)
 
         lists_layout = QHBoxLayout()
         lists_layout.addWidget(self._wrap_section("Devices for pairing", self.found_list))
@@ -200,12 +202,12 @@ class MainWindowSetupMixin:
     def _wrap_section(title: str, widget: QWidget, action_button: QPushButton | None = None) -> QWidget:
         wrapper = QWidget()
         layout = QVBoxLayout()
-        header = QHBoxLayout()
-        header.addWidget(QLabel(title))
-        header.addStretch(1)
+        layout.addWidget(QLabel(title))
         if action_button is not None:
-            header.addWidget(action_button)
-        layout.addLayout(header)
+            action_row = QHBoxLayout()
+            action_row.addStretch(1)
+            action_row.addWidget(action_button)
+            layout.addLayout(action_row)
         layout.addWidget(widget)
         wrapper.setLayout(layout)
         return wrapper
@@ -223,7 +225,6 @@ class MainWindowSetupMixin:
     def _build_debug_panel(self) -> QWidget:
         wrapper = QWidget()
         layout = QVBoxLayout()
-        layout.addWidget(self.auto_checkbox)
         layout.addWidget(self._wrap_section("Operations (log)", self.op_log_view, self.clear_op_log_button))
         layout.addWidget(self._wrap_section("Debug log", self.debug_log_view, self.clear_debug_log_button))
         layout.addWidget(self._wrap_section("Real-time data", self.data_view, self.clear_data_log_button))

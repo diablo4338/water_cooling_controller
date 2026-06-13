@@ -41,6 +41,10 @@ from .constants import PARAM_ERROR_MESSAGES, PARAM_LABELS_BY_ID, USER_ROLE
 
 
 class MainWindowUpdateMixin:
+    def _set_status_message(self, message: str) -> None:
+        self.model.set_status(message)
+        self._apply_ui()
+
     @staticmethod
     def _timestamp() -> str:
         return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -53,7 +57,9 @@ class MainWindowUpdateMixin:
         prev_invalid = previous is None or not math.isfinite(previous)
         curr_invalid = current is None or not math.isfinite(current)
         if prev_invalid or curr_invalid:
-            return prev_invalid != curr_invalid
+            if prev_invalid and curr_invalid:
+                return previous is None and current is not None
+            return True
         return previous != current
 
     def _clear_op_log(self) -> None:
@@ -134,11 +140,10 @@ class MainWindowUpdateMixin:
 
     @Slot(str)
     def on_log(self, message: str) -> None:
-        self.model.set_status(message)
+        self._set_status_message(message)
         if self.debug_enabled and self.debug_log_view is not None:
             self.debug_log_view.append(self._format_log_entry(message))
         print(self._format_log_entry(message), flush=True)
-        self._apply_ui()
 
     def _apply_temp_value(self, channel: int, value: Optional[float], append_data: bool) -> None:
         if not (0 <= channel < len(self.temp_fields)):
@@ -308,10 +313,10 @@ class MainWindowUpdateMixin:
             op_action = self.Action.SETUP_FANS if self.model.state.active_action == self.Action.SETUP_FANS else self.Action.CALIBRATE
         if status.state == OP_STATE_IN_SERVICE:
             if not self._operation_active:
-                self.on_log(f"Operation started: {op_label}")
+                self._set_status_message(f"Operation started: {op_label}")
             self._operation_active = True
         elif status.state == OP_STATE_DONE:
-            self.on_log(f"Operation completed: {op_label}")
+            self._set_status_message(f"Operation completed: {op_label}")
             self._operation_active = False
             if op_action:
                 self._finish_action(op_action)
@@ -319,10 +324,10 @@ class MainWindowUpdateMixin:
         elif status.state == OP_STATE_ERROR:
             err_text = status.error or "unknown error"
             if err_text.strip().lower() == "busy":
-                self.on_log(f"Operation busy: {op_label}")
+                self._set_status_message(f"Operation busy: {op_label}")
                 self._operation_active = True
             else:
-                self.on_log(f"Operation error {op_label}: {err_text}")
+                self._set_status_message(f"Operation error {op_label}: {err_text}")
                 self._operation_active = False
                 if op_action:
                     self._finish_action(op_action)
@@ -331,7 +336,7 @@ class MainWindowUpdateMixin:
             if op_action:
                 self._finish_action(op_action)
         else:
-            self.on_log(f"Operation {op_label}: {state_label}")
+            self._set_status_message(f"Operation {op_label}: {state_label}")
         self._apply_ui()
 
     @Slot(bool, str)

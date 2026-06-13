@@ -1,8 +1,8 @@
 import struct
 
-from ble_app.core_logic.codec import PARAMS_PAYLOAD_LEN, decode_device_status, decode_params, encode_params
-from ble_app.core_logic.models import DeviceParams
-from ble_app.core_logic.protocol import (
+from cli.core_logic.codec import PARAMS_PAYLOAD_LEN, decode_device_status, decode_params, encode_params
+from cli.core_logic.models import DeviceParams
+from cli.core_logic.protocol import (
     DEVICE_ERROR_INA_OFFLINE,
     DEVICE_ERROR_OVERCURRENT,
     DEVICE_ERROR_OVERHEAT,
