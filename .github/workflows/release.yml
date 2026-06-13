@@ -67,7 +67,7 @@ jobs:
             python3-venv
 
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Mark repository as safe
         run: |
@@ -82,12 +82,12 @@ jobs:
           fi
 
       - name: Cache ESP-IDF
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             .cache/esp-idf
             .cache/esp-idf-tools
-          key: esp-idf-${{ runner.os }}-${{ env.IDF_VERSION }}-${{ hashFiles('firmware/sdkconfig.defaults', 'firmware/CMakeLists.txt', 'firmware/**/CMakeLists.txt') }}
+          key: esp-idf-${{ runner.os }}-${{ env.IDF_VERSION }}
           restore-keys: |
             esp-idf-${{ runner.os }}-${{ env.IDF_VERSION }}-
             esp-idf-${{ runner.os }}-
