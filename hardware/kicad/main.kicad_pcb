@@ -51,7 +51,7 @@
 		(capping no)
 		(filling no)
 		(pcbplotparams
-			(layerselection 0x00000000_00000000_55557fdf_ffffffff)
+			(layerselection 0x00000000_00000000_55555555_55555570)
 			(plot_on_all_layers_selection 0x00000000_00000000_00000000_00000000)
 			(disableapertmacros no)
 			(usegerberextensions no)
@@ -19308,8 +19308,8 @@
 			(justify left bottom)
 		)
 	)
-	(gr_text "0.9"
-		(at 136 99.5 0)
+	(gr_text "0.1.6"
+		(at 134.5 100 0)
 		(layer "F.SilkS")
 		(uuid "1752790a-0e50-4764-ad88-f3d3c65338a8")
 		(effects

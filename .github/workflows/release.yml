@@ -24,12 +24,12 @@ jobs:
 
     env:
       DEBIAN_FRONTEND: noninteractive
-      PYTHON_VERSION: 3.12.8
+      PYTHON_VERSION: 3.12.13
       OPENSSL_VERSION: 3.2.3
       OPENSSL_ROOT_DIR: /opt/openssl-3.2.3
       OPENSSL_DIR: /opt/openssl-3.2.3
-      LD_LIBRARY_PATH: /opt/openssl-3.2.3/lib64:/opt/python-3.12.8/lib
-      PATH: /opt/openssl-3.2.3/bin:/opt/python-3.12.8/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      LD_LIBRARY_PATH: /opt/openssl-3.2.3/lib64:/opt/python-3.12.13/lib
+      PATH: /opt/openssl-3.2.3/bin:/opt/python-3.12.13/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
       IDF_VERSION: v5.4.1
       PYTHON_BIN: python3.12
       PYTHON: python3.12
@@ -121,7 +121,7 @@ jobs:
           ln -sf "${OPENSSL_ROOT_DIR}/bin/openssl" /usr/local/bin/openssl
           rm -rf "/tmp/openssl-${OPENSSL_VERSION}" "/tmp/openssl-${OPENSSL_VERSION}.tar.gz"
 
-      - name: Build Python 3.12.8
+      - name: Build Python 3.12.13
         run: |
           cd /tmp
           wget -O "Python-${PYTHON_VERSION}.tgz" \
@@ -153,6 +153,16 @@ jobs:
           python3.12 -c "import ssl; print(ssl.OPENSSL_VERSION)"
           python3.12 -m pip install --no-cache-dir --upgrade pip wheel setuptools
           rm -rf "/tmp/Python-${PYTHON_VERSION}" "/tmp/Python-${PYTHON_VERSION}.tgz"
+
+      - name: Run tests
+        run: |
+          cd pcwcc
+          python3.12 -m venv .venv
+          . .venv/bin/activate
+          python -m pip install --upgrade pip wheel setuptools
+          python -m pip install -r requirements.txt
+          python -m pip install -r tests/requirements.txt
+          pytest -q -m "not integration"
 
       - name: Mark repository as safe
         run: |
@@ -194,6 +204,7 @@ jobs:
         with:
           name: "PC Water Cooling Controller ${{ env.VERSION }}"
           tag_name: ${{ env.VERSION }}
+          prerelease: true
           files: |
             dist/*
           generate_release_notes: true
