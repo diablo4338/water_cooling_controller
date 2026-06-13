@@ -24,6 +24,7 @@ mkdir -p "$DIST_DIR"
 
 ./scripts/build_firmware.sh "$VERSION"
 ./scripts/build_appimage.sh "$VERSION"
+./scripts/build_hardware.sh "$VERSION"
 
 echo "==> Creating checksums"
 (
