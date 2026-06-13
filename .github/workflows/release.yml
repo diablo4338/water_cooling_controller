@@ -1,6 +1,12 @@
 name: Release
 
 on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version, for example v0.1.0-alpha"
+        required: true
+        default: "v0.1.0-alpha"
   push:
     tags:
       - "v*"
@@ -69,7 +75,22 @@ jobs:
 
       - name: Extract version
         run: |
-          echo "VERSION=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "VERSION=${{ github.event.inputs.version }}" >> "$GITHUB_ENV"
+          else
+            echo "VERSION=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Cache ESP-IDF
+        uses: actions/cache@v4
+        with:
+          path: |
+            .cache/esp-idf
+            .cache/esp-idf-tools
+          key: esp-idf-${{ runner.os }}-${{ env.IDF_VERSION }}-${{ hashFiles('firmware/sdkconfig.defaults', 'firmware/CMakeLists.txt', 'firmware/**/CMakeLists.txt') }}
+          restore-keys: |
+            esp-idf-${{ runner.os }}-${{ env.IDF_VERSION }}-
+            esp-idf-${{ runner.os }}-
 
       - name: Make scripts executable
         run: |
