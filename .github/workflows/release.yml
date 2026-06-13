@@ -24,13 +24,21 @@ jobs:
 
     env:
       DEBIAN_FRONTEND: noninteractive
+      PYTHON_VERSION: 3.12.8
+      OPENSSL_VERSION: 3.2.3
+      OPENSSL_ROOT_DIR: /opt/openssl-3.2.3
+      OPENSSL_DIR: /opt/openssl-3.2.3
+      LD_LIBRARY_PATH: /opt/openssl-3.2.3/lib64:/opt/python-3.12.8/lib
+      PATH: /opt/openssl-3.2.3/bin:/opt/python-3.12.8/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
       IDF_VERSION: v5.4.1
+      PYTHON_BIN: python3.12
+      PYTHON: python3.12
 
     steps:
       - name: Install base packages
         run: |
           apt-get update
-          apt-get install -y \
+          apt-get install -y --no-install-recommends \
             ca-certificates \
             curl \
             wget \
@@ -39,6 +47,9 @@ jobs:
             unzip \
             xz-utils \
             file \
+            libfuse2 \
+            bash \
+            make \
             build-essential \
             cmake \
             ninja-build \
@@ -47,8 +58,19 @@ jobs:
             bison \
             gperf \
             pkg-config \
+            patchelf \
             libffi-dev \
             libssl-dev \
+            libbz2-dev \
+            libreadline-dev \
+            libsqlite3-dev \
+            libncursesw5-dev \
+            libgdbm-dev \
+            liblzma-dev \
+            libexpat1-dev \
+            tk-dev \
+            uuid-dev \
+            zlib1g-dev \
             dfu-util \
             libusb-1.0-0 \
             libglib2.0-0 \
@@ -60,14 +82,77 @@ jobs:
             libxkbcommon-x11-0 \
             libfontconfig1 \
             libfreetype6 \
+            libxcb-cursor0 \
+            libxcb-icccm4 \
+            libxcb-image0 \
+            libxcb-keysyms1 \
+            libxcb-randr0 \
+            libxcb-render-util0 \
+            libxcb-shape0 \
+            libxcb-xinerama0 \
+            libxcb-xfixes0 \
             zlib1g \
             python3 \
-            python3-dev \
             python3-pip \
             python3-venv
+          rm -rf /var/lib/apt/lists/*
 
       - name: Checkout repository
         uses: actions/checkout@v6
+
+      - name: Build OpenSSL 3.2.3
+        run: |
+          cd /tmp
+          wget -O "openssl-${OPENSSL_VERSION}.tar.gz" \
+            "https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz"
+          tar -xzf "openssl-${OPENSSL_VERSION}.tar.gz"
+          cd "openssl-${OPENSSL_VERSION}"
+          ./Configure linux-x86_64 \
+            --prefix="${OPENSSL_ROOT_DIR}" \
+            --openssldir="${OPENSSL_ROOT_DIR}/ssl" \
+            shared \
+            zlib
+          make -j"$(nproc)"
+          make install_sw
+          test -f "${OPENSSL_ROOT_DIR}/lib64/libssl.so.3"
+          test -f "${OPENSSL_ROOT_DIR}/lib64/libcrypto.so.3"
+          echo "${OPENSSL_ROOT_DIR}/lib64" > "/etc/ld.so.conf.d/openssl-${OPENSSL_VERSION}.conf"
+          ldconfig
+          ln -sf "${OPENSSL_ROOT_DIR}/bin/openssl" /usr/local/bin/openssl
+          rm -rf "/tmp/openssl-${OPENSSL_VERSION}" "/tmp/openssl-${OPENSSL_VERSION}.tar.gz"
+
+      - name: Build Python 3.12.8
+        run: |
+          cd /tmp
+          wget -O "Python-${PYTHON_VERSION}.tgz" \
+            "https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tgz"
+          tar -xzf "Python-${PYTHON_VERSION}.tgz"
+          cd "Python-${PYTHON_VERSION}"
+          PKG_CONFIG_PATH="${OPENSSL_ROOT_DIR}/lib64/pkgconfig" \
+          CPPFLAGS="-I${OPENSSL_ROOT_DIR}/include" \
+          LDFLAGS="-L${OPENSSL_ROOT_DIR}/lib64 -Wl,-rpath,${OPENSSL_ROOT_DIR}/lib64" \
+          LD_LIBRARY_PATH="${OPENSSL_ROOT_DIR}/lib64" \
+          ./configure \
+            --prefix="/opt/python-${PYTHON_VERSION}" \
+            --enable-shared \
+            --with-ensurepip=install \
+            --with-openssl="${OPENSSL_ROOT_DIR}" \
+            --with-openssl-rpath=auto
+          PKG_CONFIG_PATH="${OPENSSL_ROOT_DIR}/lib64/pkgconfig" \
+          CPPFLAGS="-I${OPENSSL_ROOT_DIR}/include" \
+          LDFLAGS="-L${OPENSSL_ROOT_DIR}/lib64 -Wl,-rpath,${OPENSSL_ROOT_DIR}/lib64" \
+          LD_LIBRARY_PATH="${OPENSSL_ROOT_DIR}/lib64" \
+          make -j"$(nproc)"
+          LD_LIBRARY_PATH="${OPENSSL_ROOT_DIR}/lib64" make altinstall
+          echo "/opt/python-${PYTHON_VERSION}/lib" > "/etc/ld.so.conf.d/python-${PYTHON_VERSION}.conf"
+          ldconfig
+          ln -sf "/opt/python-${PYTHON_VERSION}/bin/python3.12" /usr/local/bin/python3.12
+          ln -sf "/opt/python-${PYTHON_VERSION}/bin/pip3.12" /usr/local/bin/pip3.12
+          ln -sf "/opt/python-${PYTHON_VERSION}/bin/python3.12" /usr/local/bin/python
+          ln -sf "/opt/python-${PYTHON_VERSION}/bin/pip3.12" /usr/local/bin/pip
+          python3.12 -c "import ssl; print(ssl.OPENSSL_VERSION)"
+          python3.12 -m pip install --no-cache-dir --upgrade pip wheel setuptools
+          rm -rf "/tmp/Python-${PYTHON_VERSION}" "/tmp/Python-${PYTHON_VERSION}.tgz"
 
       - name: Mark repository as safe
         run: |
