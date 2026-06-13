@@ -105,8 +105,8 @@ def core(ble_adapter: Optional[str]) -> BleAppCore:
     return BleAppCore(log=LOG.info, adapter=ble_adapter)
 
 
-@pytest.fixture(scope="function", autouse=True)
-def _auto_reset_pairing(
+@pytest.fixture(scope="function")
+def _reset_pairing(
     press_base_url: str,
     press_timeout_s: float,
     press_retries: int,
@@ -132,6 +132,8 @@ def paired_device(
 
 
 @pytest.mark.asyncio
+@pytest.mark.manual
+@pytest.mark.usefixtures("_reset_pairing")
 async def test_pair_button_advertises_pairing_service(
     core: BleAppCore,
     ble_address: Optional[str],
@@ -140,6 +142,8 @@ async def test_pair_button_advertises_pairing_service(
 
 
 @pytest.mark.asyncio
+@pytest.mark.manual
+@pytest.mark.usefixtures("_reset_pairing")
 async def test_pairing_succeeds(paired_device: DeviceInfo) -> None:
     assert paired_device.address
 

@@ -16,10 +16,13 @@ def _str_to_bool(value: str) -> bool:
 
 
 def pytest_sessionstart(session: pytest.Session) -> None:
+    config = session.config
+    run_integration = bool(config.getoption("--runintegration"))
+    run_manual = bool(config.getoption("--runmanual"))
     ble_address_env = os.environ.get("BLE_ADDRESS", "").strip()
-    if not ble_address_env:
+    if (run_integration or run_manual) and not ble_address_env:
         raise pytest.UsageError(
-            "BLE_ADDRESS env var must be set and non-empty to run tests."
+            "BLE_ADDRESS env var must be set and non-empty to run integration/manual tests."
         )
 
 
@@ -70,6 +73,18 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=False,
         help="Run tests marked as slow",
     )
+    parser.addoption(
+        "--runintegration",
+        action="store_true",
+        default=False,
+        help="Run tests marked as integration",
+    )
+    parser.addoption(
+        "--runmanual",
+        action="store_true",
+        default=False,
+        help="Run tests marked as manual",
+    )
 
 
 @pytest.fixture(scope="session")
@@ -118,9 +133,18 @@ def press_no_response(pytestconfig: pytest.Config) -> bool:
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    if config.getoption("--runslow"):
-        return
+    run_slow = bool(config.getoption("--runslow"))
+    run_integration = bool(config.getoption("--runintegration"))
+    run_manual = bool(config.getoption("--runmanual"))
+
     skip_slow = pytest.mark.skip(reason="need --runslow option to run")
+    skip_integration = pytest.mark.skip(reason="need --runintegration option to run")
+    skip_manual = pytest.mark.skip(reason="need --runmanual option to run")
+
     for item in items:
-        if "slow" in item.keywords:
+        if "slow" in item.keywords and not run_slow:
             item.add_marker(skip_slow)
+        if "integration" in item.keywords and not run_integration:
+            item.add_marker(skip_integration)
+        if "manual" in item.keywords and not run_manual:
+            item.add_marker(skip_manual)
