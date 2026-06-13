@@ -6,7 +6,7 @@ from typing import Optional
 import pytest
 import socket
 from urllib.parse import urlparse
-from cli import (
+from pcwcc import (
     BleAppCore,
     DeviceInfo,
     add_or_update_paired,

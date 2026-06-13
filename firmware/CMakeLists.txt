@@ -1,9 +1,9 @@
 set(PROJECT_VER "0.1.0")
 cmake_minimum_required(VERSION 3.16)
 set(EXTRA_COMPONENT_DIRS
-    ${CMAKE_CURRENT_LIST_DIR}/ble_protocol
-    ${CMAKE_CURRENT_LIST_DIR}/i2c_bus
-    ${CMAKE_CURRENT_LIST_DIR}/metrics
+    ${CMAKE_CURRENT_LIST_DIR}/src/ble_protocol
+    ${CMAKE_CURRENT_LIST_DIR}/src/i2c_bus
+    ${CMAKE_CURRENT_LIST_DIR}/src/metrics
 )
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(ble_pair_stack)

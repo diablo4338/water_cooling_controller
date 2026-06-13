@@ -1,5 +1,5 @@
-from cli.core import DeviceInfo
-from cli.presentation import Action, AppModel, AppState, ConnState, SelectionSource, derive_ui
+from pcwcc.core import DeviceInfo
+from pcwcc.presentation import Action, AppModel, AppState, ConnState, SelectionSource, derive_ui
 
 
 def test_derive_ui_basics() -> None:

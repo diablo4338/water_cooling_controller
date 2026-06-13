@@ -4,9 +4,11 @@ from typing import Optional
 
 import pytest
 
-ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-if ROOT_DIR not in sys.path:
-    sys.path.insert(0, ROOT_DIR)
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+APP_SRC_DIR = os.path.join(PROJECT_ROOT, "pcwcc", "src")
+for path in (APP_SRC_DIR, PROJECT_ROOT):
+    if path not in sys.path:
+        sys.path.insert(0, path)
 
 
 def _str_to_bool(value: str) -> bool:

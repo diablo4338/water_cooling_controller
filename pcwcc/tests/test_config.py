@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from cli.config import load_config
+from pcwcc.config import load_config
 
 
 def test_load_config_parses_windows_ble_overrides(monkeypatch) -> None:

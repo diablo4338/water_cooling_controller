@@ -4,7 +4,7 @@ set(SRCS
     "metrics.c")
 
 if(DEFINED PAIR_RUN_TESTS)
-    list(APPEND SRCS "test/test_ads1115.c")
+    list(APPEND SRCS "../../tests/metrics/test_ads1115.c")
 endif()
 
 idf_component_register(

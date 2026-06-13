@@ -1,7 +1,7 @@
 try:
     from .gui import main
 except ImportError:
-    from cli.gui import main
+    from pcwcc.gui import main
 
 
 if __name__ == "__main__":

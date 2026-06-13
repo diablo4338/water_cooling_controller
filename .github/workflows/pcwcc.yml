@@ -1,0 +1,10 @@
+name: pcwcc
+
+on:
+  workflow_dispatch:
+
+jobs:
+  placeholder:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "CLI CI placeholder"

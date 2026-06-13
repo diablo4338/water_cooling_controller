@@ -8,7 +8,7 @@ os.environ.setdefault("XDG_CONFIG_HOME", "/tmp")
 import pytest
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QVBoxLayout
 
-from cli.core import (
+from pcwcc.core import (
     BleAppCore,
     DeviceInfo,
     DeviceParams,
@@ -24,8 +24,8 @@ from cli.core import (
     UUID_TEMP3_VALUE,
     UUID_VOLTAGE_VALUE,
 )
-from cli import gui as gui_module
-from cli.gui_logic import window_updates as window_updates_module
+from pcwcc import gui as gui_module
+from pcwcc.gui_logic import window_updates as window_updates_module
 
 
 class _FakeClient:
@@ -38,7 +38,7 @@ class _FakeClient:
 
 @pytest.mark.asyncio
 async def test_read_metrics_snapshot_reads_temperatures_and_fans(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("cli.core.load_or_create_host_key", lambda: object())
+    monkeypatch.setattr("pcwcc.core.load_or_create_host_key", lambda: object())
     core = BleAppCore()
     core.client = _FakeClient(
         {
@@ -68,7 +68,7 @@ async def test_read_metrics_snapshot_reads_temperatures_and_fans(monkeypatch: py
 def test_temp_indicator_uses_device_params_snapshot_while_form_is_dirty(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("cli.core.load_or_create_host_key", lambda: object())
+    monkeypatch.setattr("pcwcc.core.load_or_create_host_key", lambda: object())
     monkeypatch.setattr(gui_module.BleWorker, "start", lambda self: None)
     monkeypatch.setattr(gui_module.BleWorker, "stop", lambda self: None)
     monkeypatch.setattr(gui_module, "save_device_params", lambda *args, **kwargs: None)
@@ -121,7 +121,7 @@ def test_temp_indicator_uses_device_params_snapshot_while_form_is_dirty(
 
 
 def test_param_field_change_does_not_submit_write(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("cli.core.load_or_create_host_key", lambda: object())
+    monkeypatch.setattr("pcwcc.core.load_or_create_host_key", lambda: object())
     monkeypatch.setattr(gui_module.BleWorker, "start", lambda self: None)
     monkeypatch.setattr(gui_module.BleWorker, "stop", lambda self: None)
     monkeypatch.setattr(gui_module, "save_device_params", lambda *args, **kwargs: None)
@@ -166,7 +166,7 @@ def test_param_field_change_does_not_submit_write(monkeypatch: pytest.MonkeyPatc
 
 
 def test_debug_panels_are_rendered_in_right_column(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("cli.core.load_or_create_host_key", lambda: object())
+    monkeypatch.setattr("pcwcc.core.load_or_create_host_key", lambda: object())
     monkeypatch.setattr(gui_module.BleWorker, "start", lambda self: None)
     monkeypatch.setattr(gui_module.BleWorker, "stop", lambda self: None)
 
@@ -207,7 +207,7 @@ def test_debug_panels_are_rendered_in_right_column(monkeypatch: pytest.MonkeyPat
 
 
 def test_metrics_log_does_not_repeat_invalid_nan_values(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("cli.core.load_or_create_host_key", lambda: object())
+    monkeypatch.setattr("pcwcc.core.load_or_create_host_key", lambda: object())
     monkeypatch.setattr(gui_module.BleWorker, "start", lambda self: None)
     monkeypatch.setattr(gui_module.BleWorker, "stop", lambda self: None)
 
@@ -242,7 +242,7 @@ def test_metrics_log_does_not_repeat_invalid_nan_values(monkeypatch: pytest.Monk
 
 
 def test_logs_include_timestamp_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("cli.core.load_or_create_host_key", lambda: object())
+    monkeypatch.setattr("pcwcc.core.load_or_create_host_key", lambda: object())
     monkeypatch.setattr(gui_module.BleWorker, "start", lambda self: None)
     monkeypatch.setattr(gui_module.BleWorker, "stop", lambda self: None)
 

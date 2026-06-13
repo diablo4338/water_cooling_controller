@@ -26,11 +26,11 @@ set(SRCS
     "pairing/storage.c")
 
 if(DEFINED PAIR_RUN_TESTS)
-    list(APPEND SRCS "test/test_pair_state.c")
-    list(APPEND SRCS "test/test_conn_guard.c")
-    list(APPEND SRCS "test/test_fsm.c")
-    list(APPEND SRCS "test/test_storage.c")
-    list(APPEND SRCS "test/test_status_led.c")
+    list(APPEND SRCS "../../tests/ble_protocol/test_pair_state.c")
+    list(APPEND SRCS "../../tests/ble_protocol/test_conn_guard.c")
+    list(APPEND SRCS "../../tests/ble_protocol/test_fsm.c")
+    list(APPEND SRCS "../../tests/ble_protocol/test_storage.c")
+    list(APPEND SRCS "../../tests/ble_protocol/test_status_led.c")
 endif()
 
 idf_component_register(SRCS ${SRCS}

@@ -1,6 +1,6 @@
 # PC Water Cooling Controller
 
-This repository contains a GUI application and firmware for a BLE-based controller that manages a PC water-cooling loop. The app can pair with the device, connect to it, stream temperature metrics in real time, and apply cooling parameters.
+This repository contains a desktop application and firmware for a BLE-based controller that manages a PC water-cooling loop. The app can pair with the device, connect to it, stream temperature metrics in real time, and apply cooling parameters.
 
 The GUI is built with `PySide6`, the BLE layer uses `bleak`. Pairing and authorization are implemented at the application level over GATT. This is not OS-level bonding.
 
@@ -9,8 +9,8 @@ Local data:
 - `host_key.pem` - host private key (P-256) used for pairing.
 
 ## Quick start
-1. Install GUI dependencies from `cli/requirements.txt`.
-2. Run the app: `python -m cli.main` or `make run-app`.
+1. Install app dependencies from `pcwcc/requirements.txt`.
+2. Run the app: `PYTHONPATH=pcwcc/src python -m pcwcc.main` or `make run-app`.
 3. For extended BLE diagnostics, run with `--debug` to show the in-app debug log.
 
 Buttons service (for integration tests):
@@ -21,12 +21,16 @@ Firmware (ESP-IDF):
 - `make fw-test` - build/flash with `PAIR_RUN_TESTS=1`.
 
 ## Directory structure
-- `cli/` - desktop app and the shared BLE layer used by the app and tests.
-- `firmware/` - ESP-IDF firmware (NimBLE) with protocol implementation and metrics.
+- `docs/` - architecture and module notes.
+- `pcwcc/` - desktop app project with `src/pcwcc`, tests, and packaging stubs.
+- `firmware/` - ESP-IDF firmware project with components under `src/` and firmware-specific tests under `tests/`.
+- `hardware/` - hardware project placeholders and production artifact folders.
+- `enclosure/` - enclosure CAD/export placeholders.
+- `scripts/` - build and release helper scripts.
 - `tests/raspberry/` - HTTP service for the Raspberry Pi GPIO button, used by integration tests.
 - `paired_devices.json` - trusted devices database.
 - `host_key.pem` - host private key.
-- `ARCHITECTURE.md` - architecture details and module relationships.
+- `docs/architecture.md` - architecture details and module relationships.
 
 ## Pairing protocol
 Scanning only shows devices that advertise `PAIR_SVC`. This indicates readiness to pair. In pairing mode the device advertises the name `sensor-pair`; in normal mode it advertises `sensor`.
@@ -154,17 +158,17 @@ TEMP2_VALUE: `a1b2c3d4-0b1c-4a2b-9c3d-4e5f60718293`
 TEMP3_VALUE: `a1b2c3d4-0b1c-4a2b-9c3d-4e5f60718294`
 
 ## Tests
-Integration tests use only the public API from `cli`. Unit tests for UI logic live in `cli/tests/test_presentation.py` and do not require PySide6.
+Integration tests use only the public API from `pcwcc`. Unit tests for UI logic live in `pcwcc/tests/test_presentation.py` and do not require PySide6.
 
-Test dependencies: `cli/tests/requirements.txt`.
+Test dependencies: `pcwcc/tests/requirements.txt`.
 
 Run:
 ```bash
-pytest -c cli/pytest.ini -q -m integration
+PYTHONPATH=pcwcc/src python -m pytest -c pcwcc/pytest.ini -q -m integration
 ```
 
 ## Environment variables
-Application (GUI/cli):
+Application (pcwcc):
 - `BLE_SCAN_TIMEOUT_S` - scan timeout.
 - `BLE_RESOLVE_TIMEOUT_S` - address resolve timeout.
 - `BLE_CONNECT_TIMEOUT_S` - connect timeout.
