@@ -35,30 +35,17 @@ jobs:
       PYTHON: python3.12
 
     steps:
-      - name: Install base packages
+      - name: Install bootstrap packages
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
             ca-certificates \
-            curl \
             wget \
             git \
-            zip \
-            unzip \
             xz-utils \
-            file \
-            libfuse2 \
-            bash \
             make \
             build-essential \
-            cmake \
-            ninja-build \
-            ccache \
-            flex \
-            bison \
-            gperf \
             pkg-config \
-            patchelf \
             libffi-dev \
             libssl-dev \
             libbz2-dev \
@@ -70,35 +57,8 @@ jobs:
             libexpat1-dev \
             tk-dev \
             uuid-dev \
-            zlib1g-dev \
-            dfu-util \
-            libusb-1.0-0 \
-            libglib2.0-0 \
-            libdbus-1-3 \
-            libxcb1 \
-            libx11-6 \
-            libxext6 \
-            libxrender1 \
-            libxkbcommon-x11-0 \
-            libfontconfig1 \
-            libfreetype6 \
-            libxcb-cursor0 \
-            libxcb-icccm4 \
-            libxcb-image0 \
-            libxcb-keysyms1 \
-            libxcb-randr0 \
-            libxcb-render-util0 \
-            libxcb-shape0 \
-            libxcb-xinerama0 \
-            libxcb-xfixes0 \
-            zlib1g \
-            python3 \
-            python3-pip \
-            python3-venv
+            zlib1g-dev
           rm -rf /var/lib/apt/lists/*
-
-      - name: Checkout repository
-        uses: actions/checkout@v6
 
       - name: Build OpenSSL 3.2.3
         run: |
@@ -154,15 +114,52 @@ jobs:
           python3.12 -m pip install --no-cache-dir --upgrade pip wheel setuptools
           rm -rf "/tmp/Python-${PYTHON_VERSION}" "/tmp/Python-${PYTHON_VERSION}.tgz"
 
-      - name: Run tests
+      - name: Install release packages
         run: |
-          cd pcwcc
-          python3.12 -m venv .venv
-          . .venv/bin/activate
-          python -m pip install --upgrade pip wheel setuptools
-          python -m pip install -r requirements.txt
-          python -m pip install -r tests/requirements.txt
-          pytest -q -m "not integration and not manual"
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            curl \
+            zip \
+            unzip \
+            file \
+            libfuse2 \
+            libegl1 \
+            bash \
+            cmake \
+            ninja-build \
+            ccache \
+            flex \
+            bison \
+            gperf \
+            patchelf \
+            dfu-util \
+            libusb-1.0-0 \
+            libglib2.0-0 \
+            libdbus-1-3 \
+            libxcb1 \
+            libx11-6 \
+            libxext6 \
+            libxrender1 \
+            libxkbcommon-x11-0 \
+            libfontconfig1 \
+            libfreetype6 \
+            libxcb-cursor0 \
+            libxcb-icccm4 \
+            libxcb-image0 \
+            libxcb-keysyms1 \
+            libxcb-randr0 \
+            libxcb-render-util0 \
+            libxcb-shape0 \
+            libxcb-xinerama0 \
+            libxcb-xfixes0 \
+            zlib1g \
+            python3 \
+            python3-pip \
+            python3-venv
+          rm -rf /var/lib/apt/lists/*
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
 
       - name: Mark repository as safe
         run: |
