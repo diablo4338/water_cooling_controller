@@ -1,33 +1,33 @@
 # Raspberry button test helper
 
-This folder contains a small FastAPI service for Raspberry Pi that simulates a long button press through a GPIO pin. The integration tests call this service over HTTP to put the controller into pairing mode.
+A small `FastAPI` service for Raspberry Pi that simulates a long hardware-button press over GPIO. It is used by integration tests when the controller must be switched into pairing mode without manual intervention.
 
-## Files
-- `app.py` - exposes `GET /press/reset-long` and drives the GPIO pin.
-- `requirements.txt` - Python dependencies for Raspberry Pi: `fastapi`, `uvicorn`, `RPi.GPIO`.
+## Contents
+- `app.py` - HTTP endpoint `GET /press/reset-long` that drives the GPIO pin.
+- `requirements.txt` - Raspberry Pi dependencies: `fastapi`, `uvicorn`, `RPi.GPIO`.
 
 ## Wiring
-- GPIO mode: `BCM`
-- Output pin in code: `GPIO_PIN = 17`
-- Raspberry Pi physical header pin for `BCM 17`: pin `11`
-- Signal level: `3.3V`
-- Common ground between Raspberry Pi and the target board is required.
+- GPIO mode: `BCM`;
+- output pin in code: `GPIO_PIN = 17`;
+- Raspberry Pi physical header pin for `BCM 17`: `11`;
+- signal level: `3.3V`;
+- common `GND` between the Raspberry Pi and the target board is required.
 
-The script sets `BCM 17` to `HIGH` for `5.0` seconds and then returns it to `LOW`.
+The service holds `BCM 17` at `HIGH` for `5.0` seconds and then returns the line to `LOW`.
 
 ## Run
-Install dependencies from `requirements.txt`, then start the service from the repository root:
+From the repository root:
 
 ```bash
 uvicorn tests.raspberry.app:app --host 0.0.0.0 --port 8001
 ```
 
-Or use:
+or:
 
 ```bash
 make run-buttons
 ```
 
-## Notes
-- `RPi.GPIO` works only on Raspberry Pi with access to GPIO.
-- If the target input is not 3.3V-tolerant, connect through proper level shifting or interface circuitry.
+## Constraints
+- `RPi.GPIO` only works on Raspberry Pi with GPIO access;
+- if the target board input is not `3.3V` tolerant, use proper level shifting or interface circuitry.

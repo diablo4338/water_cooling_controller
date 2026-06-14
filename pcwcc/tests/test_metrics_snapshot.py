@@ -1,9 +1,5 @@
-import os
 import struct
 from datetime import datetime
-
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-os.environ.setdefault("XDG_CONFIG_HOME", "/tmp")
 
 import pytest
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QVBoxLayout

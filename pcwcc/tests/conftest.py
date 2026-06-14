@@ -4,6 +4,9 @@ from typing import Optional
 
 import pytest
 
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+os.environ.setdefault("XDG_CONFIG_HOME", "/tmp")
+
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 APP_SRC_DIR = os.path.join(PROJECT_ROOT, "pcwcc", "src")
 for path in (APP_SRC_DIR, PROJECT_ROOT):
