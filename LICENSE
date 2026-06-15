@@ -1,1 +1,65 @@
-Proprietary - all rights reserved unless stated otherwise.
+PC Water Cooling Controller Non-Commercial License
+
+Copyright (c) 2026 Sergei Kondratev
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software, firmware, hardware design files, documentation, and associated
+materials (the "Project"), to use, copy, modify, merge, publish, distribute,
+and create derivative works from the Project, subject to the following conditions:
+
+1. Non-commercial use only
+
+The Project may be used only for non-commercial purposes.
+
+Commercial use is not permitted without prior written permission from the
+copyright holder.
+
+Commercial use includes, but is not limited to:
+- selling the Project or derivative works;
+- using the Project or derivative works in a product or service sold to customers;
+- using the Project or derivative works for paid installation, integration,
+  consulting, support, or maintenance;
+- manufacturing and selling hardware based on the Project;
+- using the Project in a business, commercial laboratory, production system,
+  or revenue-generating environment.
+
+2. Attribution
+
+The above copyright notice and this license notice shall be included in all
+copies or substantial portions of the Project.
+
+3. No warranty
+
+THE PROJECT IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, SAFETY, RELIABILITY, ELECTRICAL COMPLIANCE,
+REGULATORY COMPLIANCE, AND NON-INFRINGEMENT.
+
+4. Limitation of liability
+
+IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES, FIRE,
+ELECTRICAL DAMAGE, HARDWARE DAMAGE, DATA LOSS, PERSONAL INJURY, DEATH, OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, NEGLIGENCE, STRICT LIABILITY,
+OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE PROJECT OR THE
+USE OF THE PROJECT.
+
+5. User responsibility
+
+The user is solely responsible for verifying the safety, correctness, electrical
+design, firmware behavior, thermal behavior, and suitability of the Project for
+their intended use.
+
+The Project may control fans, pumps, power electronics, sensors, or other
+hardware. Incorrect assembly, wiring, configuration, firmware, or use may cause
+equipment damage, overheating, fire, electric shock, or other hazards.
+
+6. Third-party components
+
+This license applies only to the Project materials provided by the copyright
+holder. Third-party software, libraries, tools, firmware components, hardware
+components, and documentation are governed by their respective licenses.
+
+7. Commercial licensing
+
+Commercial use may be available under a separate written license agreement.
+Contact the copyright holder for permission.

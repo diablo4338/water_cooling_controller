@@ -5,47 +5,73 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 VERSION="${1:-dev}"
-IDF_VERSION="${IDF_VERSION:-v5.4.1}"
-IDF_ROOT="${IDF_ROOT:-$ROOT_DIR/.cache/esp-idf/$IDF_VERSION}"
-IDF_TOOLS_PATH="${IDF_TOOLS_PATH:-$ROOT_DIR/.cache/esp-idf-tools}"
-
-export IDF_TOOLS_PATH
 
 DIST_DIR="$ROOT_DIR/dist"
-FW_DIR="$ROOT_DIR/firmware"
+FW_SRC_DIR="$ROOT_DIR/firmware"
+STAGING_DIR="$(mktemp -d "${TMPDIR:-/tmp}/pcwcc-firmware.XXXXXX")"
+FW_DIR="$STAGING_DIR/firmware"
+
+IDF_PATH="${IDF_PATH:-/opt/esp/idf}"
+IDF_TOOLS_PATH="${IDF_TOOLS_PATH:-/opt/esp/tools}"
+IDF_TARGET="${IDF_TARGET:-esp32c3}"
+IDF_CCACHE_ENABLE="${IDF_CCACHE_ENABLE:-1}"
+
+
+export IDF_PATH
+export IDF_TOOLS_PATH
+export IDF_TARGET
+export IDF_CCACHE_ENABLE
+
+cleanup() {
+    rm -rf "$STAGING_DIR"
+}
+
+trap cleanup EXIT
 
 mkdir -p "$DIST_DIR"
 
 echo "==> Building firmware"
-echo "Version: $VERSION"
-echo "ESP-IDF: $IDF_VERSION"
-echo "Firmware dir: $FW_DIR"
+echo "Version:        $VERSION"
+echo "Firmware src:   $FW_SRC_DIR"
+echo "Firmware dir:   $FW_DIR"
+echo "Staging dir:    $STAGING_DIR"
+echo "IDF_PATH:       $IDF_PATH"
+echo "IDF_TOOLS_PATH: $IDF_TOOLS_PATH"
+echo "IDF_TARGET:     $IDF_TARGET"
 
-if ! command -v git >/dev/null 2>&1; then
-    echo "git is required" >&2
+if [ ! -f "$IDF_PATH/export.sh" ]; then
+    echo "ESP-IDF export.sh not found: $IDF_PATH/export.sh" >&2
+    echo "This script expects ESP-IDF to be already installed in the Docker image." >&2
     exit 1
 fi
 
-if [ ! -d "$IDF_ROOT/.git" ]; then
-    echo "==> Installing ESP-IDF into $IDF_ROOT"
-    mkdir -p "$(dirname "$IDF_ROOT")"
-    git clone --recursive --branch "$IDF_VERSION" --depth 1 \
-        https://github.com/espressif/esp-idf.git "$IDF_ROOT"
+# shellcheck disable=SC1091
+. "$IDF_PATH/export.sh"
+
+echo "==> Tool versions"
+python --version
+idf.py --version
+cmake --version | head -n 1
+ninja --version || true
+ccache --version | head -n 1 || true
+
+if [ ! -d "$FW_SRC_DIR" ]; then
+    echo "Firmware source directory not found: $FW_SRC_DIR" >&2
+    exit 1
 fi
 
-echo "==> Installing ESP-IDF tools if needed"
-"$IDF_ROOT/install.sh" esp32c3
-
-# shellcheck disable=SC1091
-. "$IDF_ROOT/export.sh"
-
-echo "==> Cleaning previous firmware build"
-idf.py -C "$FW_DIR" fullclean || true
+echo "==> Copying firmware sources to staging"
+cp -a "$FW_SRC_DIR" "$FW_DIR"
 
 echo "==> Running firmware build"
+idf.py -C "$FW_DIR" set-target "$IDF_TARGET"
 idf.py -C "$FW_DIR" build
 
-PROJECT_NAME="$(grep -E '^[[:space:]]*project\(' "$FW_DIR/CMakeLists.txt" | sed -E 's/.*project\(([^)]+)\).*/\1/' | tr -d '[:space:]')"
+PROJECT_NAME="$(
+    grep -E '^[[:space:]]*project\(' "$FW_DIR/CMakeLists.txt" \
+        | sed -E 's/.*project\(([^)]+)\).*/\1/' \
+        | tr -d '[:space:]'
+)"
 
 if [ -z "$PROJECT_NAME" ]; then
     echo "Could not detect project name from firmware/CMakeLists.txt" >&2
@@ -63,11 +89,13 @@ PARTITIONS_SRC="$BUILD_DIR/partition_table/partition-table.bin"
 if [ ! -f "$BIN_SRC" ]; then
     echo "Firmware binary not found: $BIN_SRC" >&2
     echo "Available build files:"
-    find "$BUILD_DIR" -maxdepth 2 -type f | sort
+    find "$BUILD_DIR" -maxdepth 3 -type f | sort || true
     exit 1
 fi
 
-OUT_PREFIX="pc-water-cooling-controller-${VERSION}-firmware-esp32c3"
+OUT_PREFIX="pc-water-cooling-controller-${VERSION}-firmware-${IDF_TARGET}"
+
+echo "==> Copying firmware artifacts"
 
 cp "$BIN_SRC" "$DIST_DIR/${OUT_PREFIX}.bin"
 cp "$ELF_SRC" "$DIST_DIR/${OUT_PREFIX}.elf"
@@ -88,16 +116,18 @@ cat > "$DIST_DIR/${OUT_PREFIX}-flash.txt" <<EOF
 PC Water Cooling Controller firmware ${VERSION}
 
 Target:
-  ESP32-C3
+  ${IDF_TARGET}
 
-Flash command from repository root:
+Flash command from repository root inside the build Docker image:
 
-  . "$IDF_ROOT/export.sh"
-  idf.py -C firmware flash
+  esptool.py --chip ${IDF_TARGET} --baud 460800 write_flash \\
+    0x0 ${OUT_PREFIX}-bootloader.bin \\
+    0x8000 ${OUT_PREFIX}-partition-table.bin \\
+    0x10000 ${OUT_PREFIX}.bin
 
 Manual esptool example:
 
-  esptool.py --chip esp32c3 --baud 460800 write_flash \\
+  esptool.py --chip ${IDF_TARGET} --baud 460800 write_flash \\
     0x0 ${OUT_PREFIX}-bootloader.bin \\
     0x8000 ${OUT_PREFIX}-partition-table.bin \\
     0x10000 ${OUT_PREFIX}.bin

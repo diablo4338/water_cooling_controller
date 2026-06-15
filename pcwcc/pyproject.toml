@@ -14,3 +14,4 @@ pcwcc = "pcwcc.main:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+license = { file = "LICENSE" }

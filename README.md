@@ -25,3 +25,19 @@ The `scripts/make_release.sh` script and the `Release` workflow produce:
 - the BOM is stored separately in [`hardware/production/bom/main.csv`](hardware/production/bom/main.csv).
 
 Build details and structure notes are kept in the `README` files of the corresponding directories.
+
+## License
+
+This project is licensed for non-commercial use only.
+
+Commercial use is not permitted without prior written permission from the author.
+
+See [LICENSE](LICENSE) for details.
+
+## Safety disclaimer
+
+This is an experimental DIY hardware/software project. Use it at your own risk.
+Incorrect wiring, firmware, configuration, or installation may cause hardware
+damage, overheating, fire, or injury.
+
+See [DISCLAIMER.md](DISCLAIMER.md).
