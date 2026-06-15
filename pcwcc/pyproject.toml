@@ -1,17 +1,34 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "pcwcc"
 version = "0.1.0"
 requires-python = ">=3.11,<3.14"
+license = { file = "LICENSE" }
 dependencies = [
-    "PySide6==6.10.2",
+    "PySide6==6.9.3",
     "bleak==2.1.1",
     "cryptography==46.0.5",
     "platformdirs==4.9.4",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest==8.4.2",
+    "pytest-asyncio==1.2.0",
+    "pyinstaller==6.16.0",
+]
+
 [project.scripts]
 pcwcc = "pcwcc.main:main"
 
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-license = { file = "LICENSE" }

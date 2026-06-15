@@ -70,22 +70,7 @@ jobs:
           provenance: false
 
       - name: Run tests
-        run: |
-          docker run --rm \
-            -v "$PWD:/work" \
-            -w /work \
-            "${IMAGE_NAME}" \
-            bash -lc '
-              PYTHON_MM="$(cut -d. -f1,2 <<< "${PYTHON_VERSION}")"
-              TEST_PYTHON="/opt/python-${PYTHON_VERSION}/bin/python${PYTHON_MM}"
-              TEST_VENV="/tmp/pcwcc-test-venv"
-
-              "$TEST_PYTHON" -m venv "$TEST_VENV"
-              "$TEST_VENV/bin/python" -m pip install --upgrade pip wheel setuptools
-              "$TEST_VENV/bin/python" -m pip install -e ./pcwcc
-              "$TEST_VENV/bin/python" -m pip install -r ./pcwcc/tests/requirements.txt
-              "$TEST_VENV/bin/python" -m pytest ./pcwcc/tests
-            '
+        run: ./scripts/run_release_tests.sh
 
       - name: Resolve build version
         run: |

@@ -90,23 +90,7 @@ python --version
 python -m pip install --upgrade pip wheel setuptools
 
 echo "==> Installing app dependencies"
-
-if [ -f "$APP_DIR/requirements.txt" ]; then
-    python -m pip install -r "$APP_DIR/requirements.txt"
-else
-    python -m pip install "$APP_DIR"
-fi
-
-python -m pip install pyinstaller
-
-echo "==> Running tests for desktop app"
-if [ -f "$APP_DIR/tests/requirements.txt" ]; then
-    python -m pip install -r "$APP_DIR/tests/requirements.txt"
-fi
-
-if [ -d "$APP_DIR/tests" ]; then
-    PYTHONPATH="$APP_DIR/src" python -m pytest -c "$APP_DIR/pytest.ini" "$APP_DIR/tests" -q -m "not integration"
-fi
+python -m pip install "$APP_DIR[dev]"
 
 echo "==> Running PyInstaller"
 cd "$APP_DIR"

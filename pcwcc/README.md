@@ -53,7 +53,7 @@ Integration tests from the repository root:
 PYTHONPATH=pcwcc/src python -m pytest -c pcwcc/pytest.ini -q -m integration
 ```
 
-Test dependencies are listed in `tests/requirements.txt`.
+Runtime and development dependencies are declared in `pyproject.toml`.
 
 ## Environment variables
 Application:
