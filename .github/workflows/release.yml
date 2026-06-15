@@ -14,7 +14,7 @@ on:
       esp_idf_version:
         description: ESP-IDF version
         required: true
-        default: "v5.4.1"
+        default: "v5.4.4"
       runner:
         description: "Runner"
         required: true
