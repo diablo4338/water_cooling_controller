@@ -18,7 +18,7 @@ on:
       runner:
         description: "Runner"
         required: true
-        default: "self-hosted"
+        default: "github-hosted"
         type: choice
         options:
           - self-hosted
@@ -32,10 +32,14 @@ on:
   push:
     branches:
       - main
+    tags:
+      - "v*"
 
 jobs:
   release-linux:
     runs-on: ${{ inputs.runner == 'self-hosted' && fromJSON('["self-hosted", "Linux", "X64"]') || 'ubuntu-22.04' }}
+    permissions:
+      contents: write
 
     env:
       IMAGE_NAME: pcwcc-release-build:ci
@@ -88,13 +92,23 @@ jobs:
               pytest ./pcwcc/tests
             '
 
+      - name: Resolve build version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.version }}" ]; then
+            echo "VERSION=${{ github.event.inputs.version }}" >> "$GITHUB_ENV"
+          elif [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            echo "VERSION=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
+          else
+            echo "VERSION=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+          fi
+
       - name: Build AppImage
         run: |
           docker run --rm \
             -v "$PWD:/work" \
             -w /work \
             "${IMAGE_NAME}" \
-            bash -lc './scripts/build_appimage.sh "${GITHUB_SHA::7}"'
+            bash -lc './scripts/build_appimage.sh "${VERSION}"'
 
       - name: Upload AppImage artifact
         uses: actions/upload-artifact@v4
@@ -102,3 +116,14 @@ jobs:
           name: pcwcc-linux-appimage
           path: dist/*.AppImage
           if-no-files-found: error
+
+      - name: Create prerelease
+        if: (github.event_name == 'workflow_dispatch' && github.event.inputs.version != '') || startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.VERSION }}
+          name: PC Water Cooling Controller ${{ env.VERSION }}
+          prerelease: true
+          target_commitish: ${{ github.sha }}
+          files: dist/*.AppImage
+          generate_release_notes: true
