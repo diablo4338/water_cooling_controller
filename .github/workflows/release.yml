@@ -69,14 +69,6 @@ jobs:
           cache-to: type=gha,mode=max
           provenance: false
 
-      - name: Show tool versions
-        run: |
-          docker run --rm \
-            -v "$PWD:/work" \
-            -w /work \
-            "${IMAGE_NAME}" \
-            bash -lc 'python --version && openssl version && idf.py --version'
-
       - name: Run tests
         run: |
           docker run --rm \
@@ -84,46 +76,40 @@ jobs:
             -w /work \
             "${IMAGE_NAME}" \
             bash -lc '
-              python -m venv /tmp/pcwcc-test-venv
-              . /tmp/pcwcc-test-venv/bin/activate
-              python -m pip install --upgrade pip wheel setuptools
-              python -m pip install -e ./pcwcc
-              python -m pip install -r ./pcwcc/tests/requirements.txt
-              pytest ./pcwcc/tests
+              PYTHON_MM="$(cut -d. -f1,2 <<< "${PYTHON_VERSION}")"
+              TEST_PYTHON="/opt/python-${PYTHON_VERSION}/bin/python${PYTHON_MM}"
+              TEST_VENV="/tmp/pcwcc-test-venv"
+
+              "$TEST_PYTHON" -m venv "$TEST_VENV"
+              "$TEST_VENV/bin/python" -m pip install --upgrade pip wheel setuptools
+              "$TEST_VENV/bin/python" -m pip install -e ./pcwcc
+              "$TEST_VENV/bin/python" -m pip install -r ./pcwcc/tests/requirements.txt
+              "$TEST_VENV/bin/python" -m pytest ./pcwcc/tests
             '
 
       - name: Resolve build version
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.version }}" ]; then
-            echo "VERSION=${{ github.event.inputs.version }}" >> "$GITHUB_ENV"
-          elif [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
             echo "VERSION=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
           else
             echo "VERSION=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
           fi
 
-      - name: Build AppImage
+      - name: Build release artifacts
         run: |
           docker run --rm \
             -v "$PWD:/work" \
             -w /work \
             "${IMAGE_NAME}" \
-            bash -lc './scripts/build_appimage.sh "${VERSION}"'
-
-      - name: Upload AppImage artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: pcwcc-linux-appimage
-          path: dist/*.AppImage
-          if-no-files-found: error
+            bash -lc './scripts/make_release.sh "${VERSION}"'
 
       - name: Create prerelease
-        if: (github.event_name == 'workflow_dispatch' && github.event.inputs.version != '') || startsWith(github.ref, 'refs/tags/v')
+        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.VERSION }}
           name: PC Water Cooling Controller ${{ env.VERSION }}
           prerelease: true
           target_commitish: ${{ github.sha }}
-          files: dist/*.AppImage
+          files: dist/*
           generate_release_notes: true
