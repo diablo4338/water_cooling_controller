@@ -45,7 +45,7 @@ jobs:
       IMAGE_NAME: pcwcc-release-build:ci
       PYTHON_VERSION: ${{ github.event.inputs.python_version || '3.12.13' }}
       OPENSSL_VERSION: ${{ github.event.inputs.openssl_version || '3.2.3' }}
-      ESP_IDF_VERSION: ${{ github.event.inputs.esp_idf_version || 'v5.4.1' }}
+      ESP_IDF_VERSION: ${{ github.event.inputs.esp_idf_version || 'v5.4.4' }}
 
     steps:
       - name: Checkout
