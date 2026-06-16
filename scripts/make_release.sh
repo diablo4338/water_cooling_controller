@@ -7,11 +7,10 @@ cd "$ROOT_DIR"
 VERSION="${1:-}"
 
 if [ -z "$VERSION" ]; then
-    git config --global --add safe.directory "$ROOT_DIR"
-    if git describe --tags --exact-match >/dev/null 2>&1; then
-        VERSION="$(git describe --tags --exact-match)"
+    if git -c safe.directory="$ROOT_DIR" describe --tags --exact-match >/dev/null 2>&1; then
+        VERSION="$(git -c safe.directory="$ROOT_DIR" describe --tags --exact-match)"
     else
-        VERSION="dev-$(git rev-parse --short HEAD)"
+        VERSION="dev-$(git -c safe.directory="$ROOT_DIR" rev-parse --short HEAD)"
     fi
 fi
 

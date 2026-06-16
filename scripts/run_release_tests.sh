@@ -8,6 +8,7 @@ IMAGE_NAME="${IMAGE_NAME:-pcwcc-release-build:ci}"
 PYTHON_VERSION="${PYTHON_VERSION:?PYTHON_VERSION is required}"
 
 docker run --rm \
+    --user "$(id -u):$(id -g)" \
     -v "${ROOT_DIR}:/work" \
     -w /work \
     "${IMAGE_NAME}" \
