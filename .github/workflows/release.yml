@@ -65,8 +65,6 @@ jobs:
             PYTHON_VERSION=${{ env.PYTHON_VERSION }}
             OPENSSL_VERSION=${{ env.OPENSSL_VERSION }}
             ESP_IDF_VERSION=${{ env.ESP_IDF_VERSION }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
           provenance: false
 
       - name: Run tests

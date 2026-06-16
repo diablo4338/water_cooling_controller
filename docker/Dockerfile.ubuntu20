@@ -72,11 +72,8 @@ RUN apt-get update && \
         libxcb-xinerama0 \
         libxcb-xfixes0 \
         zlib1g && \
+    update-ca-certificates && \
     rm -rf /var/lib/apt/lists/*
-
-# --------------------------------------------------------------------
-# OpenSSL 3
-# --------------------------------------------------------------------
 
 RUN cd /tmp && \
     wget -O "openssl-${OPENSSL_VERSION}.tar.gz" \
@@ -92,16 +89,20 @@ RUN cd /tmp && \
     make install_sw && \
     test -f "/opt/openssl-${OPENSSL_VERSION}/lib64/libssl.so.3" && \
     test -f "/opt/openssl-${OPENSSL_VERSION}/lib64/libcrypto.so.3" && \
+    test -d "/opt/openssl-${OPENSSL_VERSION}/include/openssl" && \
     echo "/opt/openssl-${OPENSSL_VERSION}/lib64" > "/etc/ld.so.conf.d/openssl-${OPENSSL_VERSION}.conf" && \
     ln -sf "/opt/openssl-${OPENSSL_VERSION}/bin/openssl" /usr/local/bin/openssl && \
-    ldconfig && \
-    rm -rf "/tmp/openssl-${OPENSSL_VERSION}" "/tmp/openssl-${OPENSSL_VERSION}.tar.gz" && \
-    mkdir -p "/opt/openssl-${OPENSSL_VERSION}/ssl/certs" && \
+    mkdir -p "/opt/openssl-${OPENSSL_VERSION}/ssl" && \
     ln -sf /etc/ssl/certs/ca-certificates.crt "/opt/openssl-${OPENSSL_VERSION}/ssl/cert.pem" && \
-    ln -sf /etc/ssl/certs "/opt/openssl-${OPENSSL_VERSION}/ssl/certs"
-# --------------------------------------------------------------------
-# Python 3.12 linked against our OpenSSL 3
-# --------------------------------------------------------------------
+    rm -rf "/opt/openssl-${OPENSSL_VERSION}/ssl/certs" && \
+    ln -s /etc/ssl/certs "/opt/openssl-${OPENSSL_VERSION}/ssl/certs" && \
+    ldconfig && \
+    openssl version -a && \
+    rm -rf "/tmp/openssl-${OPENSSL_VERSION}" "/tmp/openssl-${OPENSSL_VERSION}.tar.gz"
+
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+ENV REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+ENV CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
 
 RUN cd /tmp && \
     wget -O "Python-${PYTHON_VERSION}.tgz" \
@@ -131,20 +132,30 @@ RUN cd /tmp && \
     ln -sf "/opt/python-${PYTHON_VERSION}/bin/python3.12" /usr/local/bin/python && \
     ln -sf "/opt/python-${PYTHON_VERSION}/bin/pip3.12" /usr/local/bin/pip && \
     ldconfig && \
-    python3.12 -c "import ssl; print(ssl.OPENSSL_VERSION)" && \
+    python3.12 --version && \
+    python3.12 -c "import ssl; print(ssl.OPENSSL_VERSION); print(ssl.get_default_verify_paths())" && \
     python3.12 -m pip install --no-cache-dir --upgrade pip wheel setuptools && \
     rm -rf "/tmp/Python-${PYTHON_VERSION}" "/tmp/Python-${PYTHON_VERSION}.tgz"
 
-# --------------------------------------------------------------------
-# ESP-IDF baked into image
-# --------------------------------------------------------------------
+RUN python3.12 - <<'PY_EOF'
+import ssl
+import urllib.request
+
+print("OpenSSL:", ssl.OPENSSL_VERSION)
+print("Default verify paths:", ssl.get_default_verify_paths())
+with urllib.request.urlopen("https://github.com", timeout=30) as response:
+    print("HTTPS check:", response.status)
+PY_EOF
 
 ENV IDF_PATH=/opt/esp/idf
 ENV IDF_TOOLS_PATH=/opt/esp/tools
+ENV IDF_CCACHE_ENABLE=1
+ENV CCACHE_DIR=/work/.ccache
 ENV PYTHON_BIN=python3.12
 ENV PYTHON=python3.12
 
-RUN mkdir -p /opt/esp && \
+RUN rm -rf "${IDF_PATH}" "${IDF_TOOLS_PATH}" && \
+    mkdir -p /opt/esp && \
     git clone \
         --branch "${ESP_IDF_VERSION}" \
         --recursive \
@@ -152,11 +163,12 @@ RUN mkdir -p /opt/esp && \
         https://github.com/espressif/esp-idf.git \
         "${IDF_PATH}" && \
     cd "${IDF_PATH}" && \
+    echo "Expected ESP-IDF: ${ESP_IDF_VERSION}" && \
+    echo "Actual ESP-IDF:   $(git describe --tags --always)" && \
+    test "$(git describe --tags --always)" = "${ESP_IDF_VERSION}" && \
     ./install.sh "${ESP_IDF_TARGETS}"
 
-# --------------------------------------------------------------------
-# Final build env
-# --------------------------------------------------------------------
+RUN bash -lc ". '${IDF_PATH}/export.sh' >/dev/null && idf.py --version && python --version && which idf.py && ls -la '${IDF_TOOLS_PATH}/python_env'"
 
 ENV OPENSSL_VERSION=${OPENSSL_VERSION}
 ENV PYTHON_VERSION=${PYTHON_VERSION}
@@ -167,22 +179,25 @@ ENV OPENSSL_DIR=/opt/openssl-${OPENSSL_VERSION}
 ENV LD_LIBRARY_PATH=/opt/openssl-${OPENSSL_VERSION}/lib64:/opt/python-${PYTHON_VERSION}/lib
 ENV PATH=/opt/openssl-${OPENSSL_VERSION}/bin:/opt/python-${PYTHON_VERSION}/bin:${PATH}
 
-RUN cat > /usr/local/bin/pcwcc-entrypoint <<'EOF'
+RUN cat > /usr/local/bin/pcwcc-entrypoint <<'ENTRYPOINT_EOF'
 #!/usr/bin/env bash
 set -e
 
 if [ -f "${IDF_PATH}/export.sh" ]; then
-    # ESP-IDF sets PATH, IDF_PYTHON_ENV_PATH, tools paths, etc.
     . "${IDF_PATH}/export.sh" >/dev/null
 fi
 
 exec "$@"
-EOF
+ENTRYPOINT_EOF
 
 RUN chmod +x /usr/local/bin/pcwcc-entrypoint && \
     echo '. "${IDF_PATH}/export.sh" >/dev/null 2>&1 || true' >> /root/.bashrc
 
 WORKDIR /work
+
+RUN python --version && \
+    openssl version && \
+    bash -lc ". '${IDF_PATH}/export.sh' >/dev/null && idf.py --version"
 
 ENTRYPOINT ["pcwcc-entrypoint"]
 CMD ["/bin/bash"]
