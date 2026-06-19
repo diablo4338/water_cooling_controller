@@ -102,25 +102,32 @@ OUT_PREFIX="pc-water-cooling-controller-${VERSION}-firmware-${IDF_TARGET}"
 ARCHIVE_DIR="$STAGING_DIR/$OUT_PREFIX"
 ARCHIVE_FILE="$DIST_DIR/${OUT_PREFIX}.zip"
 TMP_ARCHIVE_FILE="$STAGING_DIR/${OUT_PREFIX}.zip"
+BIN_OUT="$ARCHIVE_DIR/${OUT_PREFIX}.bin"
+ELF_OUT="$ARCHIVE_DIR/${OUT_PREFIX}.elf"
+MAP_OUT="$ARCHIVE_DIR/${OUT_PREFIX}.map"
+BOOTLOADER_OUT="$ARCHIVE_DIR/${OUT_PREFIX}-bootloader.bin"
+PARTITIONS_OUT="$ARCHIVE_DIR/${OUT_PREFIX}-partition-table.bin"
+FLASH_OUT="$ARCHIVE_DIR/${OUT_PREFIX}-flash.txt"
 
 echo "==> Copying firmware artifacts"
+mkdir -p "$ARCHIVE_DIR"
 
-cp "$BIN_SRC" "$DIST_DIR/${OUT_PREFIX}.bin"
-cp "$ELF_SRC" "$DIST_DIR/${OUT_PREFIX}.elf"
+cp "$BIN_SRC" "$BIN_OUT"
+cp "$ELF_SRC" "$ELF_OUT"
 
 if [ -f "$MAP_SRC" ]; then
-    cp "$MAP_SRC" "$DIST_DIR/${OUT_PREFIX}.map"
+    cp "$MAP_SRC" "$MAP_OUT"
 fi
 
 if [ -f "$BOOTLOADER_SRC" ]; then
-    cp "$BOOTLOADER_SRC" "$DIST_DIR/${OUT_PREFIX}-bootloader.bin"
+    cp "$BOOTLOADER_SRC" "$BOOTLOADER_OUT"
 fi
 
 if [ -f "$PARTITIONS_SRC" ]; then
-    cp "$PARTITIONS_SRC" "$DIST_DIR/${OUT_PREFIX}-partition-table.bin"
+    cp "$PARTITIONS_SRC" "$PARTITIONS_OUT"
 fi
 
-cat > "$DIST_DIR/${OUT_PREFIX}-flash.txt" <<EOF
+cat > "$FLASH_OUT" <<EOF
 PC Water Cooling Controller firmware ${VERSION}
 
 Target:
@@ -143,24 +150,6 @@ Manual esptool example:
 EOF
 
 echo "==> Creating firmware archive"
-mkdir -p "$ARCHIVE_DIR"
-
-cp "$DIST_DIR/${OUT_PREFIX}.bin" "$ARCHIVE_DIR/"
-cp "$DIST_DIR/${OUT_PREFIX}.elf" "$ARCHIVE_DIR/"
-cp "$DIST_DIR/${OUT_PREFIX}-flash.txt" "$ARCHIVE_DIR/"
-
-if [ -f "$DIST_DIR/${OUT_PREFIX}.map" ]; then
-    cp "$DIST_DIR/${OUT_PREFIX}.map" "$ARCHIVE_DIR/"
-fi
-
-if [ -f "$DIST_DIR/${OUT_PREFIX}-bootloader.bin" ]; then
-    cp "$DIST_DIR/${OUT_PREFIX}-bootloader.bin" "$ARCHIVE_DIR/"
-fi
-
-if [ -f "$DIST_DIR/${OUT_PREFIX}-partition-table.bin" ]; then
-    cp "$DIST_DIR/${OUT_PREFIX}-partition-table.bin" "$ARCHIVE_DIR/"
-fi
-
 (
     cd "$STAGING_DIR"
     zip -r "$TMP_ARCHIVE_FILE" "$OUT_PREFIX"
