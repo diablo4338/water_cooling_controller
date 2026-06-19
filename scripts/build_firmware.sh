@@ -30,6 +30,11 @@ trap cleanup EXIT
 
 mkdir -p "$DIST_DIR"
 
+if ! command -v zip >/dev/null 2>&1; then
+    echo "zip is required" >&2
+    exit 1
+fi
+
 echo "==> Building firmware"
 echo "Version:        $VERSION"
 echo "Firmware src:   $FW_SRC_DIR"
@@ -94,6 +99,9 @@ if [ ! -f "$BIN_SRC" ]; then
 fi
 
 OUT_PREFIX="pc-water-cooling-controller-${VERSION}-firmware-${IDF_TARGET}"
+ARCHIVE_DIR="$STAGING_DIR/$OUT_PREFIX"
+ARCHIVE_FILE="$DIST_DIR/${OUT_PREFIX}.zip"
+TMP_ARCHIVE_FILE="$STAGING_DIR/${OUT_PREFIX}.zip"
 
 echo "==> Copying firmware artifacts"
 
@@ -133,6 +141,31 @@ Manual esptool example:
     0x10000 ${OUT_PREFIX}.bin
 
 EOF
+
+echo "==> Creating firmware archive"
+mkdir -p "$ARCHIVE_DIR"
+
+cp "$DIST_DIR/${OUT_PREFIX}.bin" "$ARCHIVE_DIR/"
+cp "$DIST_DIR/${OUT_PREFIX}.elf" "$ARCHIVE_DIR/"
+cp "$DIST_DIR/${OUT_PREFIX}-flash.txt" "$ARCHIVE_DIR/"
+
+if [ -f "$DIST_DIR/${OUT_PREFIX}.map" ]; then
+    cp "$DIST_DIR/${OUT_PREFIX}.map" "$ARCHIVE_DIR/"
+fi
+
+if [ -f "$DIST_DIR/${OUT_PREFIX}-bootloader.bin" ]; then
+    cp "$DIST_DIR/${OUT_PREFIX}-bootloader.bin" "$ARCHIVE_DIR/"
+fi
+
+if [ -f "$DIST_DIR/${OUT_PREFIX}-partition-table.bin" ]; then
+    cp "$DIST_DIR/${OUT_PREFIX}-partition-table.bin" "$ARCHIVE_DIR/"
+fi
+
+(
+    cd "$STAGING_DIR"
+    zip -r "$TMP_ARCHIVE_FILE" "$OUT_PREFIX"
+)
+mv "$TMP_ARCHIVE_FILE" "$ARCHIVE_FILE"
 
 echo "==> Firmware artifacts:"
 ls -lh "$DIST_DIR"/"${OUT_PREFIX}"*

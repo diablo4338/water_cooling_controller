@@ -40,6 +40,7 @@ This build enables `PAIR_RUN_TESTS=1`.
 - `bootloader.bin`;
 - `partition-table.bin`;
 - a flashing note file.
+- a `.zip` archive containing the full firmware artifact set.
 
 ## Related docs
 - [`../docs/firmware.md`](../docs/firmware.md) - short firmware summary.
