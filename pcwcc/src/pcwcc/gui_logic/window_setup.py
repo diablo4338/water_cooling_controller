@@ -25,14 +25,16 @@ from .metrics_chart import MetricsHistoryChart
 
 
 class MainWindowSetupMixin:
-    _MIN_INPUT_HEIGHT = 30
+    _MIN_INPUT_HEIGHT = 26
+    _METRIC_FIELD_WIDTH = 40
+    _METRIC_ROW_SPACING = 10
 
     def _create_widgets(self) -> None:
         self.setWindowTitle(APP_TITLE)
         if self.debug_enabled:
-            self.resize(1280, 720)
+            self.resize(1360, 820)
         else:
-            self.resize(900, 600)
+            self.resize(1024, 760)
         self.scan_button = QPushButton("Scan")
         self.pair_button = QPushButton("Pair")
         self.connect_button = QPushButton("Connect")
@@ -108,6 +110,7 @@ class MainWindowSetupMixin:
 
     def _build_window(self) -> None:
         buttons = QHBoxLayout()
+        buttons.setSpacing(6)
         buttons.addWidget(self.scan_button)
         buttons.addWidget(self.pair_button)
         buttons.addWidget(self.connect_button)
@@ -118,16 +121,20 @@ class MainWindowSetupMixin:
         buttons.addWidget(self.auto_checkbox)
 
         lists_layout = QHBoxLayout()
+        lists_layout.setSpacing(6)
         lists_layout.addWidget(self._wrap_section("Devices for pairing", self.found_list))
         lists_layout.addWidget(self._wrap_section("Paired devices", self.paired_list))
 
         main_content_layout = QVBoxLayout()
+        main_content_layout.setContentsMargins(0, 0, 0, 0)
+        main_content_layout.setSpacing(6)
         main_content_layout.addLayout(buttons)
         main_content_layout.addLayout(lists_layout)
         main_content_layout.addWidget(QLabel("Device parameters"))
         main_content_layout.addWidget(self._build_params_layout())
 
         sensors_layout = QHBoxLayout()
+        sensors_layout.setSpacing(6)
         sensors_layout.addWidget(self._wrap_section("Temperatures", self._build_temp_widget()))
         sensors_layout.addWidget(self._wrap_section("Fan speed", self._build_fan_widget()))
         main_content_layout.addLayout(sensors_layout)
@@ -152,11 +159,15 @@ class MainWindowSetupMixin:
         main_scroll.setWidget(main_content_widget)
 
         body_layout = QHBoxLayout()
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.setSpacing(8)
         body_layout.addWidget(main_scroll, 3)
         if self.debug_enabled:
             body_layout.addWidget(self._build_debug_panel(), 2)
 
         root_layout = QVBoxLayout()
+        root_layout.setContentsMargins(8, 8, 8, 8)
+        root_layout.setSpacing(6)
         root_layout.addLayout(body_layout)
         root_layout.addWidget(self.status_label)
 
@@ -213,6 +224,8 @@ class MainWindowSetupMixin:
     def _wrap_section(title: str, widget: QWidget, action_button: QPushButton | None = None) -> QWidget:
         wrapper = QWidget()
         layout = QVBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
         layout.addWidget(QLabel(title))
         if action_button is not None:
             action_row = QHBoxLayout()
@@ -236,6 +249,8 @@ class MainWindowSetupMixin:
     def _build_debug_panel(self) -> QWidget:
         wrapper = QWidget()
         layout = QVBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
         layout.addWidget(self._wrap_section("Operations (log)", self.op_log_view, self.clear_op_log_button))
         layout.addWidget(self._wrap_section("Debug log", self.debug_log_view, self.clear_debug_log_button))
         layout.addWidget(self._wrap_section("Real-time data", self.data_view, self.clear_data_log_button))
@@ -245,11 +260,16 @@ class MainWindowSetupMixin:
     def _build_params_layout(self) -> QWidget:
         wrapper = QWidget()
         layout = QVBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
         groups_layout = QHBoxLayout()
+        groups_layout.setSpacing(6)
         self.param_fields.clear()
         for group_key, group_title in (("control", "Control"), ("fan", "Fan")):
             box = QGroupBox(group_title)
             grid = QGridLayout()
+            grid.setVerticalSpacing(4)
+            grid.setHorizontalSpacing(6)
             row = 0
             for spec in PARAM_FIELDS:
                 if spec.get("group") != group_key:
@@ -292,6 +312,7 @@ class MainWindowSetupMixin:
         layout.addLayout(groups_layout)
 
         button_row = QHBoxLayout()
+        button_row.setSpacing(6)
         button_row.addStretch(1)
         button_row.addWidget(self.apply_status_label)
         button_row.addWidget(self.apply_button)
@@ -302,6 +323,8 @@ class MainWindowSetupMixin:
 
     def _build_temp_layout(self) -> QGridLayout:
         grid = QGridLayout()
+        grid.setHorizontalSpacing(6)
+        grid.setVerticalSpacing(4)
         self.temp_fields.clear()
         self.temp_indicators.clear()
         self.temp_values = [None] * 4
@@ -316,11 +339,13 @@ class MainWindowSetupMixin:
             field.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
             field.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self._apply_input_sizing(field)
+            field.setMaximumWidth(self._METRIC_FIELD_WIDTH)
             indicator = QFrame()
             indicator.setFixedSize(16, 16)
             indicator.setStyleSheet("background:#6b7280; border:1px solid #111827;")
             indicator.setToolTip("—")
             value_row = QHBoxLayout()
+            value_row.setSpacing(self._METRIC_ROW_SPACING)
             value_row.addWidget(field)
             value_row.addWidget(indicator)
 
@@ -334,6 +359,8 @@ class MainWindowSetupMixin:
 
     def _build_power_layout(self) -> QGridLayout:
         grid = QGridLayout()
+        grid.setHorizontalSpacing(6)
+        grid.setVerticalSpacing(4)
 
         voltage_field = QLineEdit("â€”")
         voltage_field.setReadOnly(True)
@@ -362,6 +389,7 @@ class MainWindowSetupMixin:
 
     def _build_operation_buttons_layout(self) -> QHBoxLayout:
         layout = QHBoxLayout()
+        layout.setSpacing(6)
         layout.addWidget(self.setup_fans_button)
         layout.addWidget(self.calibrate_button)
         layout.addStretch(1)
@@ -399,6 +427,8 @@ class MainWindowSetupMixin:
 
     def _build_fan_layout(self) -> QGridLayout:
         grid = QGridLayout()
+        grid.setHorizontalSpacing(6)
+        grid.setVerticalSpacing(4)
         self.fan_fields = []
         self.fan_percent_field = None
         self.fan_status_indicators = []
@@ -413,6 +443,7 @@ class MainWindowSetupMixin:
             rpm_field.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
             rpm_field.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self._apply_input_sizing(rpm_field)
+            rpm_field.setMaximumWidth(self._METRIC_FIELD_WIDTH)
             indicator = QFrame()
             indicator.setFixedSize(16, 16)
             indicator.setStyleSheet("background:#6b7280; border:1px solid #111827;")
@@ -423,6 +454,7 @@ class MainWindowSetupMixin:
             if idx > 0:
                 monitor.stateChanged.connect(self._on_params_changed)
             value_row = QHBoxLayout()
+            value_row.setSpacing(self._METRIC_ROW_SPACING)
             value_row.addWidget(rpm_field)
             value_row.addWidget(indicator)
             value_row.addWidget(monitor)
@@ -443,6 +475,7 @@ class MainWindowSetupMixin:
         percent_field.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         percent_field.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._apply_input_sizing(percent_field)
+        percent_field.setMaximumWidth(self._METRIC_FIELD_WIDTH)
         column = QVBoxLayout()
         column.addWidget(label)
         column.addWidget(percent_field)

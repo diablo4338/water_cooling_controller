@@ -28,7 +28,7 @@ class MetricsHistoryChart(QWidget):
         super().__init__(parent)
         self._points: deque[MetricsChartPoint] = deque()
         self._display_full_history = False
-        self.setMinimumHeight(180)
+        self.setMinimumHeight(150)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
     def set_online_mode(self) -> None:
