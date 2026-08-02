@@ -19,6 +19,7 @@
 
 #define OP_CALIB_BASELINE_WAIT_US (4 * 1000000LL)
 #define OP_CALIB_STOP_WAIT_US (6 * 1000000LL)
+#define OP_CALIB_INCREMENT_PAUSE_US (3 * 1000000LL)
 #define OP_CALIB_STEP_WAIT_US (4 * 1000000LL)
 #define OP_CALIB_STEP_DELTA 5
 #define OP_CALIB_RPM_DELTA 50.0f
@@ -32,6 +33,7 @@ typedef enum {
     CALIB_PHASE_IDLE = 0,
     CALIB_PHASE_STOP_WAIT,
     CALIB_PHASE_WAIT_BASELINE,
+    CALIB_PHASE_INCREMENT_PAUSE,
     CALIB_PHASE_RAMP,
 } calib_phase_t;
 
@@ -69,11 +71,11 @@ static void operation_manager_notify_custom(operation_type_t type,
                                             const char *err_text);
 static void operation_manager_notify_state(operation_state_t state_override);
 
-static int64_t g_calibration_sleep_until_us = 0;
 static calib_phase_t g_calib_phase = CALIB_PHASE_IDLE;
 static int64_t g_calib_next_check_us = 0;
 static float g_calib_baseline_rpm = 0.0f;
 static uint8_t g_calib_target = 0;
+static uint8_t g_calib_pending_target = 0;
 static setup_phase_t g_setup_phase = SETUP_PHASE_IDLE;
 static int64_t g_setup_next_check_us = 0;
 static float g_setup_dc_rpm[METRICS_FAN_CHANNELS] = {0};
@@ -159,6 +161,24 @@ static bool op_calib_apply_target(uint8_t target, const char **err_text) {
     return true;
 }
 
+static bool op_calib_pause_before_target(uint8_t target, const char **err_text) {
+    uint8_t calib_max_speed = op_calib_max_speed();
+    if (target < OP_CALIB_START_SPEED) {
+        target = OP_CALIB_START_SPEED;
+    }
+    if (target > calib_max_speed) {
+        target = calib_max_speed;
+    }
+    if (!fan_control_override_set(OP_TYPE_FAN_CALIBRATION, 0.0f)) {
+        if (err_text) *err_text = "fan busy";
+        return false;
+    }
+    g_calib_pending_target = target;
+    g_calib_phase = CALIB_PHASE_INCREMENT_PAUSE;
+    g_calib_next_check_us = esp_timer_get_time() + OP_CALIB_INCREMENT_PAUSE_US;
+    return true;
+}
+
 static bool op_calibration_start(const char **err_text) {
     params_t current;
     if (!(params_cache_get(&current) || params_read(&current))) {
@@ -171,6 +191,7 @@ static bool op_calibration_start(const char **err_text) {
         return false;
     }
     g_calib_target = 0;
+    g_calib_pending_target = 0;
     g_calib_phase = CALIB_PHASE_STOP_WAIT;
     g_calib_baseline_rpm = 0.0f;
     g_calib_next_check_us = esp_timer_get_time() + OP_CALIB_STOP_WAIT_US;
@@ -195,7 +216,6 @@ static op_step_result_t op_calibration_step(int64_t now_us, const char **err_tex
             return OP_STEP_CONTINUE;
         }
         g_calib_baseline_rpm = op_calib_read_rpm();
-        g_calib_phase = CALIB_PHASE_RAMP;
         {
             char msg[OP_ERROR_TEXT_MAX + 1];
             uint16_t rpm_u = (uint16_t)fminf(fmaxf(g_calib_baseline_rpm, 0.0f), 65535.0f);
@@ -203,9 +223,20 @@ static op_step_result_t op_calibration_step(int64_t now_us, const char **err_tex
             snprintf(msg, sizeof(msg), "calib S%03hu R%05hu", step_u, rpm_u);
             operation_manager_notify_custom(OP_TYPE_FAN_CALIBRATION, OP_STATE_IN_SERVICE, msg);
         }
-        if (!op_calib_apply_target((uint8_t)(g_calib_target + OP_CALIB_STEP_DELTA), err_text)) {
+        if (!op_calib_pause_before_target((uint8_t)(g_calib_target + OP_CALIB_STEP_DELTA), err_text)) {
             return OP_STEP_ERROR;
         }
+        return OP_STEP_CONTINUE;
+    }
+    if (g_calib_phase == CALIB_PHASE_INCREMENT_PAUSE) {
+        if (now_us < g_calib_next_check_us) {
+            return OP_STEP_CONTINUE;
+        }
+        if (!op_calib_apply_target(g_calib_pending_target, err_text)) {
+            return OP_STEP_ERROR;
+        }
+        g_calib_pending_target = 0;
+        g_calib_phase = CALIB_PHASE_RAMP;
         return OP_STEP_CONTINUE;
     }
     if (g_calib_phase == CALIB_PHASE_RAMP) {
@@ -253,7 +284,7 @@ static op_step_result_t op_calibration_step(int64_t now_us, const char **err_tex
         if (next > calib_max_speed) {
             next = calib_max_speed;
         }
-        if (!op_calib_apply_target(next, err_text)) {
+        if (!op_calib_pause_before_target(next, err_text)) {
             return OP_STEP_ERROR;
         }
         return OP_STEP_CONTINUE;
@@ -263,11 +294,11 @@ static op_step_result_t op_calibration_step(int64_t now_us, const char **err_tex
 }
 
 static void op_calibration_finish(void) {
-    g_calibration_sleep_until_us = 0;
     g_calib_phase = CALIB_PHASE_IDLE;
     g_calib_next_check_us = 0;
     g_calib_baseline_rpm = 0.0f;
     g_calib_target = 0;
+    g_calib_pending_target = 0;
 }
 
 static void op_setup_reset(void) {

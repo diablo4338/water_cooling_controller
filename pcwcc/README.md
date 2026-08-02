@@ -22,22 +22,74 @@ Application-local data:
 - `pcwcc.spec` - `PyInstaller` configuration.
 
 ## Run
-From the `pcwcc/` directory:
+
+The application requires Python 3.11, 3.12, or 3.13. Python 3.14 is not
+currently supported. Runtime and development dependencies are declared in
+[`pyproject.toml`](pyproject.toml); the project does not use a separate
+`requirements.txt`.
+
+### Windows (PowerShell)
+
+From the repository root, create a virtual environment using Python 3.13:
+
+```powershell
+py -3.13 -m venv .venv
+```
+
+Install the application and its development dependencies:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -e ".\pcwcc[dev]"
+```
+
+Run the application:
+
+```powershell
+.\.venv\Scripts\python.exe -m pcwcc.main
+```
+
+Run it with extended BLE diagnostics:
+
+```powershell
+.\.venv\Scripts\python.exe -m pcwcc.main --debug
+```
+
+The editable installation (`-e`) means source code changes are picked up when
+the application is restarted; reinstalling the package after each change is
+not required.
+
+If `py -3.13` reports that no suitable Python installation was found, install
+64-bit Python 3.13 first, then repeat the commands above.
+
+### Linux
+
+From the `pcwcc/` directory, after installing the project dependencies:
 
 ```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -e ".[dev]"
 PYTHONPATH=src python -m pcwcc.main
 ```
 
-From the repository root:
+Alternatively, from the repository root:
 
 ```bash
 make run-app
 ```
 
+`make run-app` installs the application and its development dependencies from
+`pcwcc/pyproject.toml` before starting it. To install without starting the GUI,
+use:
+
+```bash
+make install-app
+```
+
 For extended BLE diagnostics:
 
 ```bash
-PYTHONPATH=src python -m pcwcc.main --debug
+make run-app APP_ARGS=--debug
 ```
 
 ## Tests
@@ -52,8 +104,6 @@ Integration tests from the repository root:
 ```bash
 PYTHONPATH=pcwcc/src python -m pytest -c pcwcc/pytest.ini -q -m integration
 ```
-
-Runtime and development dependencies are declared in `pyproject.toml`.
 
 ## Environment variables
 Application:

@@ -1,0 +1,9 @@
+PySide6==6.9.3
+bleak==2.1.1
+cryptography==46.0.5
+platformdirs==4.9.4
+
+[dev]
+pytest==8.4.2
+pytest-asyncio==1.2.0
+pyinstaller==6.16.0

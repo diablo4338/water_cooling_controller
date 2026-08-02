@@ -1,0 +1,12 @@
+Metadata-Version: 2.4
+Name: pcwcc
+Version: 0.1.0
+Requires-Python: <3.14,>=3.11
+Requires-Dist: PySide6==6.9.3
+Requires-Dist: bleak==2.1.1
+Requires-Dist: cryptography==46.0.5
+Requires-Dist: platformdirs==4.9.4
+Provides-Extra: dev
+Requires-Dist: pytest==8.4.2; extra == "dev"
+Requires-Dist: pytest-asyncio==1.2.0; extra == "dev"
+Requires-Dist: pyinstaller==6.16.0; extra == "dev"

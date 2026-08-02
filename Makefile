@@ -6,8 +6,9 @@ IDF_EXPORT ?= ~/esp/esp-idf/export.sh
 IDF_PY ?= idf.py
 IDF_DIR ?= firmware
 CLI_PYTHONPATH ?= pcwcc/src
+APP_ARGS ?=
 
-.PHONY: test test-integration test-unit run-app run-buttons fw fw-test fw-tests
+.PHONY: test test-integration test-unit install-app run-app run-buttons fw fw-test fw-tests
 
 test:
 	PYTHONPATH=$(CLI_PYTHONPATH) $(PYTHON) -m pytest -c pcwcc/pytest.ini -q
@@ -18,8 +19,11 @@ test-integration:
 test-unit:
 	PYTHONPATH=$(CLI_PYTHONPATH) $(PYTHON) -m pytest -c pcwcc/pytest.ini -q -m "not integration"
 
-run-app:
-	PYTHONPATH=$(CLI_PYTHONPATH) $(PYTHON) -m pcwcc.main
+install-app:
+	$(PYTHON) -m pip install -e "./pcwcc[dev]"
+
+run-app: install-app
+	PYTHONPATH=$(CLI_PYTHONPATH) $(PYTHON) -m pcwcc.main $(APP_ARGS)
 
 run-buttons:
 	$(UVICORN) tests.raspberry.app:app --host $(BUTTON_HOST) --port $(BUTTON_PORT)
