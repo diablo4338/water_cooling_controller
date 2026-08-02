@@ -21,7 +21,9 @@ from .protocol import (
     PARAMS_VERSION,
 )
 
-PARAMS_FORMAT = "<BHiBiiiBBBBB"
+PARAMS_FORMAT_V5 = "<BHiBiiiBBBBB"
+PARAMS_FORMAT = "<BHiBiiiBBBBBB"
+PARAMS_PAYLOAD_LEN_V5 = struct.calcsize(PARAMS_FORMAT_V5)
 PARAMS_PAYLOAD_LEN = struct.calcsize(PARAMS_FORMAT)
 
 
@@ -46,7 +48,23 @@ def decode_power_metric(data: bytes) -> float | None:
     return decode_temp_value(data)
 
 
-def encode_params(params: DeviceParams, mask: int = 0x03FF) -> bytes:
+def encode_params(params: DeviceParams, mask: int = 0x07FF) -> bytes:
+    if params.protocol_version == 5:
+        return struct.pack(
+            PARAMS_FORMAT_V5,
+            5,
+            int(mask) & 0x03FF,
+            int(params.fan_min_speed),
+            int(params.fan_control_type),
+            int(params.fan_max_temp),
+            int(params.fan_off_delta),
+            int(params.fan_start_temp),
+            int(params.fan_mode),
+            int(bool(params.fan_monitoring_enabled)),
+            int(bool(params.fan2_monitoring_enabled)),
+            int(bool(params.fan3_monitoring_enabled)),
+            int(bool(params.fan4_monitoring_enabled)),
+        )
     return struct.pack(
         PARAMS_FORMAT,
         PARAMS_VERSION,
@@ -61,28 +79,41 @@ def encode_params(params: DeviceParams, mask: int = 0x03FF) -> bytes:
         int(bool(params.fan2_monitoring_enabled)),
         int(bool(params.fan3_monitoring_enabled)),
         int(bool(params.fan4_monitoring_enabled)),
+        int(bool(params.overheat_alarm_enabled)),
     )
 
 
 def decode_params(data: bytes) -> DeviceParams:
-    if len(data) != PARAMS_PAYLOAD_LEN:
+    if len(data) == PARAMS_PAYLOAD_LEN_V5:
+        values = struct.unpack(PARAMS_FORMAT_V5, data)
+        if values[0] != 5:
+            raise RuntimeError(f"Unsupported params version={values[0]}")
+        (
+            version, mask, fan_min_speed, fan_control_type, fan_max_temp,
+            fan_off_delta, fan_start_temp, fan_mode, fan_monitoring_enabled,
+            fan2_monitoring_enabled, fan3_monitoring_enabled, fan4_monitoring_enabled,
+        ) = values
+        overheat_alarm_enabled = True
+    elif len(data) == PARAMS_PAYLOAD_LEN:
+        (
+            version,
+            mask,
+            fan_min_speed,
+            fan_control_type,
+            fan_max_temp,
+            fan_off_delta,
+            fan_start_temp,
+            fan_mode,
+            fan_monitoring_enabled,
+            fan2_monitoring_enabled,
+            fan3_monitoring_enabled,
+            fan4_monitoring_enabled,
+            overheat_alarm_enabled,
+        ) = struct.unpack(PARAMS_FORMAT, data)
+        if version != PARAMS_VERSION:
+            raise RuntimeError(f"Unsupported params version={version}")
+    else:
         raise RuntimeError(f"Bad params len={len(data)}")
-    (
-        version,
-        mask,
-        fan_min_speed,
-        fan_control_type,
-        fan_max_temp,
-        fan_off_delta,
-        fan_start_temp,
-        fan_mode,
-        fan_monitoring_enabled,
-        fan2_monitoring_enabled,
-        fan3_monitoring_enabled,
-        fan4_monitoring_enabled,
-    ) = struct.unpack(PARAMS_FORMAT, data)
-    if version != PARAMS_VERSION:
-        raise RuntimeError(f"Unsupported params version={version}")
     _ = mask
     return DeviceParams(
         fan_min_speed=int(fan_min_speed),
@@ -95,6 +126,8 @@ def decode_params(data: bytes) -> DeviceParams:
         fan2_monitoring_enabled=bool(fan2_monitoring_enabled),
         fan3_monitoring_enabled=bool(fan3_monitoring_enabled),
         fan4_monitoring_enabled=bool(fan4_monitoring_enabled),
+        overheat_alarm_enabled=bool(overheat_alarm_enabled),
+        protocol_version=int(version),
     )
 
 
@@ -102,7 +135,7 @@ def decode_params_status(data: bytes) -> ParamsStatus:
     if len(data) != 3:
         raise RuntimeError(f"Bad params status len={len(data)}")
     version, status, field_id = struct.unpack("<BBB", data)
-    if version != PARAMS_VERSION:
+    if version not in (5, PARAMS_VERSION):
         raise RuntimeError(f"Unsupported params status version={version}")
     field = None if field_id == PARAM_FIELD_NONE else int(field_id)
     return ParamsStatus(ok=status == PARAM_STATUS_OK, status=status, field_id=field)

@@ -21,6 +21,7 @@ from pcwcc.core import (
     UUID_VOLTAGE_VALUE,
 )
 from pcwcc import gui as gui_module
+from pcwcc.core_logic.models import DEFAULT_PARAMS
 from pcwcc.gui_logic import window_updates as window_updates_module
 
 
@@ -89,6 +90,7 @@ def test_temp_indicator_uses_device_params_snapshot_while_form_is_dirty(
         fan2_monitoring_enabled=True,
         fan3_monitoring_enabled=True,
         fan4_monitoring_enabled=True,
+        overheat_alarm_enabled=True,
     )
     window.on_connection_state(True, device)
     window.on_params_received(params)
@@ -145,6 +147,7 @@ def test_param_field_change_does_not_submit_write(monkeypatch: pytest.MonkeyPatc
         fan2_monitoring_enabled=True,
         fan3_monitoring_enabled=True,
         fan4_monitoring_enabled=True,
+        overheat_alarm_enabled=True,
     )
     window.on_connection_state(True, device)
     window.on_params_received(params)
@@ -156,6 +159,26 @@ def test_param_field_change_does_not_submit_write(monkeypatch: pytest.MonkeyPatc
     fan_min_speed.setValue(11)
 
     assert submitted == []
+
+    window.close()
+    app.processEvents()
+
+
+def test_params_are_editable_immediately_after_connection(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("pcwcc.core.load_or_create_host_key", lambda: object())
+    monkeypatch.setattr(gui_module.BleWorker, "start", lambda self: None)
+    monkeypatch.setattr(gui_module.BleWorker, "stop", lambda self: None)
+    monkeypatch.setattr(window_updates_module, "load_device_params", lambda _address: DEFAULT_PARAMS)
+    monkeypatch.setattr(gui_module.BleWorker, "submit", lambda _self, coro: coro.close())
+
+    app = QApplication.instance() or QApplication([])
+    window = gui_module.MainWindow()
+    device = DeviceInfo(name="Test", address="AA:BB")
+
+    window.on_connection_state(True, device)
+
+    assert all(item["widget"].isEnabled() for item in window.param_fields)
+    assert window._device_params_snapshot == DEFAULT_PARAMS
 
     window.close()
     app.processEvents()

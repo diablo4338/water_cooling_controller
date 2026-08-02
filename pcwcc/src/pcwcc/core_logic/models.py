@@ -25,6 +25,8 @@ class DeviceParams:
     fan2_monitoring_enabled: bool
     fan3_monitoring_enabled: bool
     fan4_monitoring_enabled: bool
+    overheat_alarm_enabled: bool
+    protocol_version: int = 6
 
 
 @dataclass(frozen=True)
@@ -144,4 +146,5 @@ DEFAULT_PARAMS = DeviceParams(
     fan2_monitoring_enabled=True,
     fan3_monitoring_enabled=True,
     fan4_monitoring_enabled=True,
+    overheat_alarm_enabled=True,
 )

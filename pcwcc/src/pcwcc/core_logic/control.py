@@ -98,7 +98,7 @@ class BleCoreControlMixin:
         data = await self._read_char(UUID_OP_STATUS, timeout=timeout)
         return decode_operation_status(bytes(data))
 
-    async def write_params(self, params, timeout: Optional[float] = None, mask: int = 0x03FF) -> None:
+    async def write_params(self, params, timeout: Optional[float] = None, mask: int = 0x07FF) -> None:
         if not self.client:
             raise RuntimeError("Not connected")
         if timeout is None:

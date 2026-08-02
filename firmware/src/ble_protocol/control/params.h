@@ -9,8 +9,8 @@
 extern "C" {
 #endif
 
-#define PARAMS_VERSION 5
-#define PARAMS_PAYLOAD_LEN 25
+#define PARAMS_VERSION 6
+#define PARAMS_PAYLOAD_LEN 26
 #define PARAMS_STATUS_LEN 3
 
 #define PARAM_STATUS_OK 0x00
@@ -27,6 +27,7 @@ extern "C" {
 #define PARAM_FIELD_FAN2_MONITORING_ENABLED 7
 #define PARAM_FIELD_FAN3_MONITORING_ENABLED 8
 #define PARAM_FIELD_FAN4_MONITORING_ENABLED 9
+#define PARAM_FIELD_OVERHEAT_ALARM_ENABLED 10
 #define PARAM_FIELD_NONE 0xFF
 
 #define PARAM_MASK_FAN_MIN_SPEED (1u << 0)
@@ -39,10 +40,12 @@ extern "C" {
 #define PARAM_MASK_FAN2_MONITORING_ENABLED (1u << 7)
 #define PARAM_MASK_FAN3_MONITORING_ENABLED (1u << 8)
 #define PARAM_MASK_FAN4_MONITORING_ENABLED (1u << 9)
+#define PARAM_MASK_OVERHEAT_ALARM_ENABLED (1u << 10)
 #define PARAM_MASK_ALL (PARAM_MASK_FAN_MIN_SPEED | PARAM_MASK_FAN_CONTROL_TYPE | PARAM_MASK_FAN_MAX_TEMP | \
                         PARAM_MASK_FAN_OFF_DELTA | PARAM_MASK_FAN_START_TEMP | PARAM_MASK_FAN_MODE | \
                         PARAM_MASK_FAN_MONITORING_ENABLED | PARAM_MASK_FAN2_MONITORING_ENABLED | \
-                        PARAM_MASK_FAN3_MONITORING_ENABLED | PARAM_MASK_FAN4_MONITORING_ENABLED)
+                        PARAM_MASK_FAN3_MONITORING_ENABLED | PARAM_MASK_FAN4_MONITORING_ENABLED | \
+                        PARAM_MASK_OVERHEAT_ALARM_ENABLED)
 
 #define PARAM_FAN_CONTROL_DC 0
 #define PARAM_FAN_CONTROL_PWM 1
@@ -61,6 +64,7 @@ typedef struct {
     uint8_t fan2_monitoring_enabled;
     uint8_t fan3_monitoring_enabled;
     uint8_t fan4_monitoring_enabled;
+    uint8_t overheat_alarm_enabled;
 } params_t;
 
 void params_init(void);

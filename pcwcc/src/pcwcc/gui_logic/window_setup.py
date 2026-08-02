@@ -299,6 +299,10 @@ class MainWindowSetupMixin:
                         field.addItem(label, value)
                     field.currentIndexChanged.connect(self._on_params_changed)
                     field.setCurrentIndex(0)
+                elif kind == "bool":
+                    field = QCheckBox()
+                    field.stateChanged.connect(self._on_params_changed)
+                    field.setChecked(True)
                 else:
                     continue
                 self._apply_input_sizing(field)

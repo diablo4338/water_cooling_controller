@@ -26,6 +26,8 @@ class MainWindowParamsMixin:
             fan2_monitoring_enabled=True,
             fan3_monitoring_enabled=True,
             fan4_monitoring_enabled=True,
+            overheat_alarm_enabled=True,
+            protocol_version=6,
         )
 
     def _set_fan_status_indicator(self, channel: int, color: str) -> None:
@@ -85,6 +87,8 @@ class MainWindowParamsMixin:
                 if spec["kind"] == "enum":
                     idx = widget.findData(int(value))
                     widget.setCurrentIndex(idx if idx >= 0 else 0)
+                elif spec["kind"] == "bool":
+                    widget.setChecked(bool(value))
                 else:
                     widget.setValue(value)
                 widget.setEnabled(False)
@@ -114,9 +118,16 @@ class MainWindowParamsMixin:
                 if spec["kind"] == "enum":
                     idx = widget.findData(int(value))
                     widget.setCurrentIndex(idx if idx >= 0 else 0)
+                elif spec["kind"] == "bool":
+                    widget.setChecked(bool(value))
                 else:
                     widget.setValue(value)
                 widget.setEnabled(True)
+                if spec["key"] == "overheat_alarm_enabled" and params.protocol_version < 6:
+                    widget.setEnabled(False)
+                    widget.setToolTip("Requires firmware with parameters protocol v6")
+                elif spec["key"] == "overheat_alarm_enabled":
+                    widget.setToolTip("")
             for idx, key in enumerate(FAN_MONITORING_KEYS):
                 self.fan_monitor_checkboxes[idx].setChecked(bool(getattr(params, key)))
                 self.fan_monitor_checkboxes[idx].setEnabled(idx > 0)
@@ -138,7 +149,12 @@ class MainWindowParamsMixin:
         for item in self.param_fields:
             spec = item["spec"]
             widget = item["widget"]
-            value = int(widget.currentData()) if spec["kind"] == "enum" else int(widget.value())
+            if spec["kind"] == "enum":
+                value = int(widget.currentData())
+            elif spec["kind"] == "bool":
+                value = widget.isChecked()
+            else:
+                value = int(widget.value())
             values[spec["key"]] = value
         for idx, key in enumerate(FAN_MONITORING_KEYS):
             values[key] = self.fan_monitor_checkboxes[idx].isChecked()
@@ -153,6 +169,12 @@ class MainWindowParamsMixin:
             fan2_monitoring_enabled=bool(values["fan2_monitoring_enabled"]),
             fan3_monitoring_enabled=bool(values["fan3_monitoring_enabled"]),
             fan4_monitoring_enabled=bool(values["fan4_monitoring_enabled"]),
+            overheat_alarm_enabled=bool(values["overheat_alarm_enabled"]),
+            protocol_version=(
+                self._device_params_snapshot.protocol_version
+                if self._device_params_snapshot is not None
+                else 6
+            ),
         )
 
     def _on_params_changed(self, _) -> None:

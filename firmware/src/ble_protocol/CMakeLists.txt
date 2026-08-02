@@ -14,6 +14,7 @@ set(SRCS
     "control/operation_manager.c"
     "control/operation_preflight.c"
     "control/params.c"
+    "hw/overheat_alarm.c"
     "hw/overcurrent_monitor.c"
     "hw/status_led.c"
     "pairing/conn_guard.c"
@@ -31,6 +32,7 @@ if(DEFINED PAIR_RUN_TESTS)
     list(APPEND SRCS "../../tests/ble_protocol/test_fsm.c")
     list(APPEND SRCS "../../tests/ble_protocol/test_storage.c")
     list(APPEND SRCS "../../tests/ble_protocol/test_status_led.c")
+    list(APPEND SRCS "../../tests/ble_protocol/test_overheat_alarm.c")
 endif()
 
 idf_component_register(SRCS ${SRCS}

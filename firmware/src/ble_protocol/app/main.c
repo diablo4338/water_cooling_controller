@@ -31,6 +31,7 @@
 #include "fan_status_ble.h"
 #include "operation_manager.h"
 #include "operation_status_ble.h"
+#include "overheat_alarm.h"
 #include "overcurrent_monitor.h"
 #include "pair_mode.h"
 #include "status_led.h"
@@ -59,6 +60,7 @@ void app_main(void) {
     ecdh_init();
     pair_mode_init();
     status_led_init();
+    overheat_alarm_init();
     ESP_ERROR_CHECK(shared_i2c_bus_init());
     metrics_init();
     metrics_ble_init();
@@ -113,6 +115,7 @@ void app_main(void) {
     xTaskCreate(metrics_task, "metrics", 4096, NULL, 5, NULL);
     xTaskCreate(fan_control_task, "fan_ctl", 4096, NULL, 5, NULL);
     xTaskCreate(status_led_task, "status_led", 2048, NULL, 3, NULL);
+    xTaskCreate(overheat_alarm_task, "overheat_alarm", 2048, NULL, 3, NULL);
 
     ble_hs_cfg.sync_cb = ble_app_on_sync;
 

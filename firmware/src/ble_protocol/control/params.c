@@ -9,7 +9,7 @@
 #define PARAMS_NS "params"
 #define PARAMS_KEY_VER "ver"
 #define PARAMS_KEY_BLOB "blob"
-#define PARAMS_VER_VALUE 5
+#define PARAMS_VER_VALUE 6
 
 typedef struct {
     uint8_t status;
@@ -27,6 +27,7 @@ typedef struct {
     .fan2_monitoring_enabled = 1, \
     .fan3_monitoring_enabled = 1, \
     .fan4_monitoring_enabled = 1, \
+    .overheat_alarm_enabled = 1, \
 }
 
 static params_t g_current = PARAMS_DEFAULTS_INIT;
@@ -109,6 +110,7 @@ static bool params_decode_payload(const uint8_t *data, size_t len, params_t *out
     out->fan2_monitoring_enabled = data[22];
     out->fan3_monitoring_enabled = data[23];
     out->fan4_monitoring_enabled = data[24];
+    out->overheat_alarm_enabled = data[25];
     return true;
 }
 
@@ -126,6 +128,7 @@ static void params_encode_payload(const params_t *params, uint16_t mask, uint8_t
     out[22] = params->fan2_monitoring_enabled;
     out[23] = params->fan3_monitoring_enabled;
     out[24] = params->fan4_monitoring_enabled;
+    out[25] = params->overheat_alarm_enabled;
 }
 
 static void set_last_status_locked(uint8_t status, uint8_t field) {
@@ -264,6 +267,10 @@ static bool params_validate(const params_t *params, uint8_t *field) {
         if (field) *field = PARAM_FIELD_FAN4_MONITORING_ENABLED;
         return false;
     }
+    if (params->overheat_alarm_enabled > 1) {
+        if (field) *field = PARAM_FIELD_OVERHEAT_ALARM_ENABLED;
+        return false;
+    }
     return true;
 }
 
@@ -292,6 +299,7 @@ uint8_t params_apply(uint8_t *field_id) {
         if (mask & PARAM_MASK_FAN2_MONITORING_ENABLED) candidate.fan2_monitoring_enabled = pending.fan2_monitoring_enabled;
         if (mask & PARAM_MASK_FAN3_MONITORING_ENABLED) candidate.fan3_monitoring_enabled = pending.fan3_monitoring_enabled;
         if (mask & PARAM_MASK_FAN4_MONITORING_ENABLED) candidate.fan4_monitoring_enabled = pending.fan4_monitoring_enabled;
+        if (mask & PARAM_MASK_OVERHEAT_ALARM_ENABLED) candidate.overheat_alarm_enabled = pending.overheat_alarm_enabled;
     }
     candidate.fan_monitoring_enabled = 1;
 

@@ -32,6 +32,7 @@ from ..core import (
     MetricsSnapshot,
     OperationStatus,
     ParamsStatus,
+    load_device_params,
     load_metrics_history,
     load_metrics_history_all,
     save_metrics_history,
@@ -364,6 +365,8 @@ class MainWindowUpdateMixin:
         if connected and device:
             self._startup_auto_connect_device = None
             self.model.set_connected(True, device)
+            if self._device_params_snapshot is None:
+                self._set_params_fields(load_device_params(device.address), save=False)
             update_paired_last_connected(device.address)
             self._load_metrics_chart_history(device)
             if self._snapshot_has_chart_data(self.metrics_snapshot):

@@ -245,6 +245,10 @@ def _params_from_dict(raw: dict) -> Optional[DeviceParams]:
             fan4_monitoring_enabled=bool(
                 raw.get("fan4_monitoring_enabled", DEFAULT_PARAMS.fan4_monitoring_enabled)
             ),
+            overheat_alarm_enabled=bool(
+                raw.get("overheat_alarm_enabled", DEFAULT_PARAMS.overheat_alarm_enabled)
+            ),
+            protocol_version=int(raw.get("protocol_version", DEFAULT_PARAMS.protocol_version)),
         )
     except Exception:
         return None
@@ -262,6 +266,8 @@ def _params_to_dict(params: DeviceParams) -> dict:
         "fan2_monitoring_enabled": bool(params.fan2_monitoring_enabled),
         "fan3_monitoring_enabled": bool(params.fan3_monitoring_enabled),
         "fan4_monitoring_enabled": bool(params.fan4_monitoring_enabled),
+        "overheat_alarm_enabled": bool(params.overheat_alarm_enabled),
+        "protocol_version": int(params.protocol_version),
     }
 
 

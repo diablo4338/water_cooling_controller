@@ -73,6 +73,12 @@ PARAM_FIELDS = [
         "choices": FAN_MODE_CHOICES,
         "group": "control",
     },
+    {
+        "key": "overheat_alarm_enabled",
+        "label": "Overheat alarm",
+        "kind": "bool",
+        "group": "control",
+    },
 ]
 FAN_MONITORING_KEYS = [
     "fan_monitoring_enabled",
@@ -91,6 +97,7 @@ PARAM_LABELS_BY_ID = {
     7: "Monitor fan 2 faults",
     8: "Monitor fan 3 faults",
     9: "Monitor fan 4 faults",
+    10: "Overheat alarm",
 }
 PARAM_ERROR_MESSAGES = {
     0: "Min fan speed must be between 10 and 100",
@@ -103,4 +110,5 @@ PARAM_ERROR_MESSAGES = {
     7: "Monitor fan 2 faults must be on or off",
     8: "Monitor fan 3 faults must be on or off",
     9: "Monitor fan 4 faults must be on or off",
+    10: "Overheat alarm must be on or off",
 }

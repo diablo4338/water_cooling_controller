@@ -16,6 +16,7 @@
 #include "pair_mode.h"
 #include "pair_state.h"
 #include "params.h"
+#include "overheat_alarm.h"
 #include "status_led.h"
 #include "state.h"
 #include "storage.h"
@@ -57,6 +58,7 @@ void button_task(void *p) {
             press_start = esp_timer_get_time();
             pair_triggered = false;
             factory_triggered = false;
+            overheat_alarm_silence();
         }
 
         if (v == 0 && !factory_triggered) {

@@ -9,6 +9,7 @@ __pycache__/
 venv/
 
 .cache/
+.ccache
 dist/
 build/
 release/

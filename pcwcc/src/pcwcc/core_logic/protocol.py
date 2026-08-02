@@ -49,7 +49,7 @@ FAN_SPEED_UUIDS = [
 ]
 POWER_METRIC_UUIDS = [UUID_VOLTAGE_VALUE, UUID_CURRENT_VALUE]
 
-PARAMS_VERSION = 5
+PARAMS_VERSION = 6
 PARAM_STATUS_OK = 0
 PARAM_STATUS_INVALID = 1
 PARAM_STATUS_BUSY = 2
@@ -65,6 +65,7 @@ PARAM_FIELD_NAMES = {
     7: "fan2_monitoring_enabled",
     8: "fan3_monitoring_enabled",
     9: "fan4_monitoring_enabled",
+    10: "overheat_alarm_enabled",
 }
 
 FAN_CONTROL_DC = 0
