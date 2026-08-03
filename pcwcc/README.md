@@ -137,3 +137,23 @@ Integration tests:
 
 ## Packaging
 The Linux `AppImage` is built by [`../scripts/build_appimage.sh`](../scripts/build_appimage.sh). Details are in [`packaging/appimage/README.md`](packaging/appimage/README.md).
+
+### Windows executable
+
+From the repository root, after installing the development dependencies, build
+the Windows application with PyInstaller:
+
+```powershell
+.\.venv\Scripts\python.exe -m PyInstaller `
+  --name PCWCC `
+  --windowed `
+  --onedir `
+  --paths ".\pcwcc\src" `
+  ".\pcwcc\src\pcwcc\main.py"
+```
+
+The executable is written to `dist\PCWCC\PCWCC.exe`. Windows builds disable
+filtered and cached WinRT GATT service discovery by default to avoid
+`ERROR_BAD_COMMAND (0x80070016)` with the controller. The behaviour can still
+be overridden with `BLE_USE_SERVICE_FILTER` and
+`BLE_WINRT_USE_CACHED_SERVICES`.

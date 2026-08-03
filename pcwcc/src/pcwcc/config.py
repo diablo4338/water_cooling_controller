@@ -88,8 +88,16 @@ def load_config() -> BleConfig:
     gui_action_connect_timeout_s = _get_float("GUI_ACTION_CONNECT_TIMEOUT_S", connect_timeout_s)
     gui_action_disconnect_timeout_s = _get_float("GUI_ACTION_DISCONNECT_TIMEOUT_S", 5.0)
     resolve_before_connect = _get_bool("BLE_RESOLVE_BEFORE_CONNECT", os.name == "nt")
-    use_service_filter = _get_bool("BLE_USE_SERVICE_FILTER", True)
+    # WinRT's per-UUID service discovery and stale GATT cache can make an
+    # otherwise reachable ESP32 fail during BleakClient.connect() with
+    # ERROR_BAD_COMMAND (0x80070016). Discover the complete, uncached GATT
+    # database by default on Windows; environment variables still allow both
+    # behaviours to be overridden for diagnostics.
+    is_windows = os.name == "nt"
+    use_service_filter = _get_bool("BLE_USE_SERVICE_FILTER", not is_windows)
     winrt_use_cached_services = _get_optional_bool("BLE_WINRT_USE_CACHED_SERVICES")
+    if is_windows and winrt_use_cached_services is None:
+        winrt_use_cached_services = False
     winrt_address_type = _get_optional_str("BLE_WINRT_ADDRESS_TYPE")
 
     return BleConfig(
