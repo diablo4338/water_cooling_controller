@@ -96,7 +96,7 @@ def load_config() -> BleConfig:
     is_windows = os.name == "nt"
     use_service_filter = _get_bool("BLE_USE_SERVICE_FILTER", not is_windows)
     winrt_use_cached_services = _get_optional_bool("BLE_WINRT_USE_CACHED_SERVICES")
-    if is_windows and winrt_use_cached_services is None:
+    if winrt_use_cached_services is None:
         winrt_use_cached_services = False
     winrt_address_type = _get_optional_str("BLE_WINRT_ADDRESS_TYPE")
 
