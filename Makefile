@@ -8,7 +8,7 @@ IDF_DIR ?= firmware
 CLI_PYTHONPATH ?= pcwcc/src
 APP_ARGS ?=
 
-.PHONY: test test-integration test-unit install-app run-app run-buttons fw fw-test fw-tests
+.PHONY: test test-integration test-unit install-app build-exe run-app run-buttons fw fw-test fw-tests
 
 test:
 	PYTHONPATH=$(CLI_PYTHONPATH) $(PYTHON) -m pytest -c pcwcc/pytest.ini -q
@@ -21,6 +21,9 @@ test-unit:
 
 install-app:
 	$(PYTHON) -m pip install -e "./pcwcc[dev]"
+
+build-exe: install-app
+	$(PYTHON) -m PyInstaller --noconfirm --clean --name PCWCC --windowed --onedir --paths pcwcc/src pcwcc/src/pcwcc/main.py
 
 run-app: install-app
 	PYTHONPATH=$(CLI_PYTHONPATH) $(PYTHON) -m pcwcc.main $(APP_ARGS)

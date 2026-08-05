@@ -33,3 +33,4 @@ paired_devices.json
 host_key.pem
 params.json
 metrics_history/
+PCWCC.spec
