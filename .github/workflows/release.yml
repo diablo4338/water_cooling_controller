@@ -37,7 +37,7 @@ on:
 
 jobs:
   release-linux:
-    runs-on: ${{ inputs.runner == 'self-hosted' && fromJSON('["self-hosted", "Linux", "X64"]') || 'ubuntu-22.04' }}
+    runs-on: ${{ inputs.runner == 'self-hosted' && 'self-hosted' || 'ubuntu-22.04' }}
     permissions:
       contents: write
 
