@@ -1,22 +1,14 @@
 set(SRCS
     "app/main.c"
     "app/app_tasks.c"
+    "app/load_runtime.c"
+    "control/load_state.c"
+    "hw/load_output.c"
     "ble/access.c"
-    "ble/device_status_ble.c"
-    "ble/fan_status_ble.c"
+    "ble/load_metrics_ble.c"
     "ble/gap.c"
     "ble/gatt.c"
-    "ble/metrics_ble.c"
-    "ble/operation_status_ble.c"
     "ble/uuid.c"
-    "control/device_status.c"
-    "control/fan_control.c"
-    "control/operation_manager.c"
-    "control/operation_preflight.c"
-    "control/params.c"
-    "hw/overheat_alarm.c"
-    "hw/overcurrent_monitor.c"
-    "hw/status_led.c"
     "pairing/conn_guard.c"
     "pairing/crypto.c"
     "pairing/ecdh.c"
@@ -27,12 +19,12 @@ set(SRCS
     "pairing/storage.c")
 
 if(DEFINED PAIR_RUN_TESTS)
+    list(APPEND SRCS "../../tests/ble_protocol/test_load_state.c")
+    list(APPEND SRCS "../../tests/ble_protocol/test_connect_window.c")
     list(APPEND SRCS "../../tests/ble_protocol/test_pair_state.c")
     list(APPEND SRCS "../../tests/ble_protocol/test_conn_guard.c")
     list(APPEND SRCS "../../tests/ble_protocol/test_fsm.c")
     list(APPEND SRCS "../../tests/ble_protocol/test_storage.c")
-    list(APPEND SRCS "../../tests/ble_protocol/test_status_led.c")
-    list(APPEND SRCS "../../tests/ble_protocol/test_overheat_alarm.c")
 endif()
 
 idf_component_register(SRCS ${SRCS}

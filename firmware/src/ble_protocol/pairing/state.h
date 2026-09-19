@@ -9,8 +9,6 @@
 #include "esp_timer.h"
 #include "host/ble_hs.h"
 
-#define PAIR_BTN_GPIO 19
-
 extern const char *TAG;
 
 typedef enum {

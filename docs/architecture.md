@@ -15,9 +15,13 @@ Key artifacts:
 - `pcwcc/tests/` - unit and integration tests, run through `pcwcc/src/pcwcc/core.py`.
 
 ## Firmware (firmware/)
-- `firmware/src/ble_protocol/app/main.c` - `app_main`, NVS, NimBLE, timers, metrics init.
+- `firmware/src/ble_protocol/app/main.c` - wakeup entry, load cycle and BLE service startup.
+- `firmware/src/ble_protocol/app/load_runtime.c` - synchronous sampling and RTC state retention across deep sleep.
+- `firmware/src/ble_protocol/control/load_state.c` - idle/working transitions and low-current timeout.
+- `firmware/src/ble_protocol/hw/load_output.c` - static DC output and GPIO hold.
 - `firmware/src/ble_protocol/ble/gap.c` - advertising, connect/disconnect, PAIR/MAIN mode selection.
-- `firmware/src/ble_protocol/ble/gatt.c` - GATT database (PAIR/MAIN/METRICS), read/write callbacks.
+- `firmware/src/ble_protocol/ble/gatt.c` - pairing, authorization and metrics GATT services.
+- `firmware/src/ble_protocol/ble/load_metrics_ble.c` - authorized metric notifications.
 - `firmware/src/ble_protocol/ble/uuid.c` - UUID strings, firmware source of truth.
 - `firmware/src/ble_protocol/pairing/state.c` - main access state machine (trusted/unauth/authed) and session handles.
 - `firmware/src/ble_protocol/pairing/pair_state.c` - pairing flow steps.
@@ -25,8 +29,7 @@ Key artifacts:
 - `firmware/src/ble_protocol/pairing/conn_guard.c` - connection handle constraints.
 - `firmware/src/ble_protocol/pairing/crypto.c`, `ecdh.c`, `host_verify.c` - cryptography and host identity checks.
 - `firmware/src/ble_protocol/pairing/storage.c` - ring-buffer storage for up to 5 trusted host/key entries in NVS.
-- `firmware/src/ble_protocol/ble/metrics_ble.c` - notify/handle metrics over BLE.
-- `firmware/src/metrics/` - metrics source (ADS1115 and aggregation).
+- `firmware/src/metrics/` - ADS1115 and INA226 adapters.
 - `firmware/tests/` - firmware test sources compiled when `PAIR_RUN_TESTS=1`.
 - `firmware/build/` - ESP-IDF build artifacts.
 
@@ -36,10 +39,12 @@ Key artifacts:
 ## BLE protocol surface
 GATT services are split by responsibility:
 - `PAIR_SVC` - pairing and initial key exchange.
-- `MAIN_SVC` - authorization before data access.
-- `METRICS_SVC` - temperature metrics (notify).
-- `CONFIG_SVC` - cooling system parameters and status.
-- `OPERATIONS_SVC` - maintenance operations (for example, fan calibration).
+- `MAIN_SVC` - authorization.
+- `METRICS_SVC` - authorized read/notify values for controller state, thermal
+  button state, temperature, INA bus voltage and INA current.
+
+The firmware has no configuration or maintenance services. Its metrics service is
+available only after session authorization.
 
 UUID constants must be synchronized between firmware (`firmware/src/ble_protocol/ble/uuid.c`) and the app (`pcwcc/src/pcwcc/core.py`).
 

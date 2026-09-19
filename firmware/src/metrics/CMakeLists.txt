@@ -1,7 +1,6 @@
 set(SRCS
     "ads1115.c"
-    "ina226.c"
-    "metrics.c")
+    "ina226.c")
 
 if(DEFINED PAIR_RUN_TESTS)
     list(APPEND SRCS "../../tests/metrics/test_ads1115.c")

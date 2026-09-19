@@ -10,6 +10,7 @@
 #include "gap.h"
 #include "pair_state.h"
 #include "state.h"
+#include "load_runtime.h"
 
 #define PAIR_MODE_TIMEOUT_US (60ULL * 1000ULL * 1000ULL)
 
@@ -52,6 +53,7 @@ bool pair_mode_is_active(void) {
 }
 
 bool pair_mode_activate(void) {
+    load_runtime_open_window();
     g_pair_active = true;
     pair_state_full_reset();
     if (!pair_mode_prepare_session()) {

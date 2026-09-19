@@ -4,14 +4,11 @@
 #include "esp_err.h"
 #include "esp_log.h"
 #include "shared_i2c_bus.h"
+#include "freertos/task.h"
 
 static const char *INA_TAG = "ina226";
 
-#define INA226_CONFIG_VALUE      0x4D37
-#define INA226_ALERT_LIMIT_VALUE ((uint16_t)((INA226_ALERT_THRESHOLD_MA * 1000U) / INA226_CURRENT_LSB_UA))
-#define INA226_MASK_SOL_BIT      (1U << 15)
-#define INA226_MASK_LEN_BIT      (1U << 0)
-#define INA226_MASK_ENABLE_VALUE (INA226_MASK_SOL_BIT | INA226_MASK_LEN_BIT)
+#define INA226_CONFIG_VALUE      0x4120 /* Power down until a single conversion is requested. */
 #define INA226_I2C_TIMEOUT_MS    100
 
 static bool s_i2c_inited = false;
@@ -95,19 +92,12 @@ static bool ina226_configure_device(void) {
     }
     if (!ina226_verify_reg(REG_CALIBRATION, CAL_VALUE, "calibration")) return false;
 
-    err = ina226_write_reg(REG_ALERT_LIMIT, INA226_ALERT_LIMIT_VALUE);
-    if (err != ESP_OK) {
-        ina226_recover("write alert limit", err);
-        return false;
-    }
-    if (!ina226_verify_reg(REG_ALERT_LIMIT, INA226_ALERT_LIMIT_VALUE, "alert_limit")) return false;
-
-    err = ina226_write_reg(REG_MASK_ENABLE, INA226_MASK_ENABLE_VALUE);
+    err = ina226_write_reg(REG_MASK_ENABLE, 0);
     if (err != ESP_OK) {
         ina226_recover("write mask/enable", err);
         return false;
     }
-    if (!ina226_verify_reg(REG_MASK_ENABLE, INA226_MASK_ENABLE_VALUE, "mask_enable")) return false;
+    if (!ina226_verify_reg(REG_MASK_ENABLE, 0, "mask_enable")) return false;
 
     return true;
 }
@@ -194,19 +184,28 @@ bool ina226_get_sample(ina226_sample_t *out) {
     return true;
 }
 
-bool ina226_read_mask_enable(uint16_t *out) {
-    if (!out) return false;
-    if ((!s_started || s_ina_error) && !ina226_init()) return false;
-    if (!s_i2c_dev) return false;
-
-    esp_err_t err = ina226_read_reg(REG_MASK_ENABLE, out);
+bool ina226_get_single_sample(ina226_sample_t *out) {
+    if (!out || !ina226_init()) return false;
+    /* One shunt + bus conversion, 1.1 ms each, no averaging, triggered mode.
+     * Unlike continuous reads this cannot return a pre-wakeup measurement. */
+    uint16_t status;
+    if (ina226_read_reg(REG_MASK_ENABLE, &status) != ESP_OK) return false;
+    esp_err_t err = ina226_write_reg(REG_CONFIG, 0x4123);
     if (err != ESP_OK) {
-        ina226_recover("read mask/enable", err);
+        ina226_recover("trigger conversion", err);
         return false;
     }
-
-    s_ina_error = false;
-    return true;
+    for (unsigned attempt = 0; attempt < 10; ++attempt) {
+        vTaskDelay(pdMS_TO_TICKS(10));
+        err = ina226_read_reg(REG_MASK_ENABLE, &status);
+        if (err != ESP_OK) {
+            ina226_recover("conversion status", err);
+            return false;
+        }
+        if (status & (1U << 3)) return ina226_get_sample(out);
+    }
+    ina226_recover("conversion timeout", ESP_ERR_TIMEOUT);
+    return false;
 }
 
 float ina226_bus_raw_to_v(uint16_t raw) {

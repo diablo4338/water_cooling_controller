@@ -1,6 +1,9 @@
 #include <string.h>
 
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "nimble/nimble_port.h"
 
 #include "host/ble_gap.h"
 #include "host/ble_hs_adv.h"
@@ -13,10 +16,68 @@
 #include "pair_state.h"
 #include "state.h"
 #include "uuid.h"
-#include "device_status_ble.h"
-#include "metrics_ble.h"
-#include "fan_status_ble.h"
-#include "operation_status_ble.h"
+#include "load_runtime.h"
+#include "load_metrics_ble.h"
+
+/* Only the NimBLE host task reads/writes these lifecycle flags. */
+static bool host_synced;
+static bool radio_quiet;
+static struct ble_npl_event service_event;
+static struct ble_npl_event advertise_event;
+static struct ble_npl_event stop_advertise_event;
+static struct ble_npl_event disconnect_event;
+static TaskHandle_t service_waiter;
+static void start_advertising_now(void);
+static void stop_advertising_cb(struct ble_npl_event *event);
+
+static void disconnect_client_cb(struct ble_npl_event *event) {
+    (void)event;
+    uint16_t conn = fsm_get_conn_handle();
+    if (conn != BLE_HS_CONN_HANDLE_NONE) {
+        ble_gap_terminate(conn, BLE_ERR_REM_USER_CONN_TERM);
+    }
+}
+
+static void start_advertising_cb(struct ble_npl_event *event) {
+    (void)event;
+    start_advertising_now();
+}
+
+static void service_poll_cb(struct ble_npl_event *event) {
+    (void)event;
+    if (host_synced) {
+        if (load_runtime_window_remaining_ms() > 0) {
+            start_advertising_now();
+        } else if (radio_quiet && !ble_gap_adv_active() &&
+                   !load_runtime_connection_blocks_sleep(
+                       fsm_get_conn_handle() != BLE_HS_CONN_HANDLE_NONE)) {
+            /* Advertising has completed, so no new connection can be accepted.
+             * The sampler is blocked until this callback finishes. */
+            load_runtime_sleep();
+        }
+    }
+    xTaskNotifyGive(service_waiter);
+}
+
+void gap_init(void) {
+    ble_npl_event_init(&service_event, service_poll_cb, NULL);
+    ble_npl_event_init(&advertise_event, start_advertising_cb, NULL);
+    ble_npl_event_init(&stop_advertise_event, stop_advertising_cb, NULL);
+    ble_npl_event_init(&disconnect_event, disconnect_client_cb, NULL);
+}
+
+void gap_disconnect_client(void) {
+    ble_npl_eventq_put(nimble_port_get_dflt_eventq(), &disconnect_event);
+}
+
+void gap_service_poll(void) {
+    /* Single caller: the load task. One event in flight at a time. */
+    if (!service_waiter) {
+        service_waiter = xTaskGetCurrentTaskHandle();
+    }
+    ble_npl_eventq_put(nimble_port_get_dflt_eventq(), &service_event);
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+}
 
 // ====== Terminate timer ======
 static void clear_session_secrets_locked(void) {
@@ -44,6 +105,15 @@ void term_cb(void *arg) {
 static int gap_event(struct ble_gap_event *event, void *arg);
 
 void start_advertising(void) {
+    ble_npl_eventq_put(nimble_port_get_dflt_eventq(), &advertise_event);
+}
+
+static void start_advertising_now(void) {
+    int32_t remaining_ms = load_runtime_window_remaining_ms();
+    if (remaining_ms == 0 || !ble_hs_synced() || ble_gap_adv_active() ||
+        fsm_get_conn_handle() != BLE_HS_CONN_HANDLE_NONE) {
+        return;
+    }
     struct ble_gap_adv_params adv_params;
     memset(&adv_params, 0, sizeof(adv_params));
 
@@ -105,19 +175,29 @@ void start_advertising(void) {
         return;
     }
 
-    rc = ble_gap_adv_start(g_own_addr_type, NULL, BLE_HS_FOREVER,
+    rc = ble_gap_adv_start(g_own_addr_type, NULL, remaining_ms,
                            &adv_params, gap_event, NULL);
     if (rc != 0) {
         ESP_LOGE(TAG, "ble_gap_adv_start rc=%d", rc);
         return;
     }
 
+    radio_quiet = false;
     ESP_LOGI(TAG, "Advertising started (%s)", pairing ? "PAIR" : "MAIN");
 }
 
 void stop_advertising(void) {
+    ble_npl_eventq_put(nimble_port_get_dflt_eventq(), &stop_advertise_event);
+}
+
+static void stop_advertising_cb(struct ble_npl_event *event) {
+    (void)event;
     int rc = ble_gap_adv_stop();
-    if (rc != 0) ESP_LOGW(TAG, "ble_gap_adv_stop rc=%d", rc);
+    if (rc == 0 || rc == BLE_HS_EALREADY) {
+        radio_quiet = true;
+    } else {
+        ESP_LOGW(TAG, "ble_gap_adv_stop rc=%d", rc);
+    }
 }
 
 static int gap_event(struct ble_gap_event *event, void *arg) {
@@ -126,6 +206,7 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
     switch (event->type) {
         case BLE_GAP_EVENT_CONNECT:
             if (event->connect.status == 0) {
+                radio_quiet = false;
                 fsm_dispatch(FSM_EVT_CONNECT, event->connect.conn_handle);
                 state_lock();
                 clear_session_secrets_locked();
@@ -133,12 +214,14 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
                 rand_bytes(auth_nonce, sizeof(auth_nonce));
                 ESP_LOGI(TAG, "Connected (handle=%d)", event->connect.conn_handle);
             } else {
+                radio_quiet = true;
                 ESP_LOGI(TAG, "Connect failed; restarting adv");
                 start_advertising();
             }
             return 0;
 
         case BLE_GAP_EVENT_DISCONNECT: {
+            radio_quiet = true;
             ESP_LOGI(TAG, "Disconnected; restarting adv");
             bool pair_mode_active = pair_mode_is_active();
             fsm_dispatch(FSM_EVT_DISCONNECT, BLE_HS_CONN_HANDLE_NONE);
@@ -146,9 +229,7 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
             clear_session_secrets_locked();
             state_unlock();
             esp_timer_stop(g_term_timer);
-            metrics_reset_notify();
-            device_status_reset_notify();
-            operation_status_reset_notify();
+            load_metrics_reset_notify();
             if (pair_mode_active) {
                 pair_state_full_reset();
                 if (pair_mode_prepare_session()) {
@@ -163,15 +244,16 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
             return 0;
         }
 
+        case BLE_GAP_EVENT_ADV_COMPLETE:
+            radio_quiet = true;
+            /* A new press can extend the window while the old advertising
+             * duration is running. Restart only for the remaining time. */
+            start_advertising();
+            return 0;
+
         case BLE_GAP_EVENT_SUBSCRIBE:
-            metrics_set_notify(event->subscribe.attr_handle,
-                               event->subscribe.cur_notify != 0);
-            device_status_set_notify(event->subscribe.attr_handle,
-                                     event->subscribe.cur_notify != 0);
-            fan_status_set_notify(event->subscribe.attr_handle,
-                                  event->subscribe.cur_notify != 0);
-            operation_status_set_notify(event->subscribe.attr_handle,
-                                        event->subscribe.cur_notify != 0);
+            load_metrics_set_notify(event->subscribe.attr_handle,
+                                    event->subscribe.cur_notify != 0);
             return 0;
 
         default:
@@ -186,5 +268,7 @@ void ble_app_on_sync(void) {
         ESP_LOGE(TAG, "ble_hs_id_infer_auto rc=%d", rc);
         return;
     }
+    host_synced = true;
+    radio_quiet = true;
     start_advertising();
 }

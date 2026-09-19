@@ -3,7 +3,6 @@
 
 #include "esp_log.h"
 #include "nvs_flash.h"
-#include "driver/gpio.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -21,26 +20,17 @@
 #include "state.h"
 #include "storage.h"
 #include "uuid.h"
-#include "metrics.h"
-#include "metrics_ble.h"
 #include "shared_i2c_bus.h"
-#include "device_status.h"
-#include "device_status_ble.h"
-#include "params.h"
-#include "fan_control.h"
-#include "fan_status_ble.h"
-#include "operation_manager.h"
-#include "operation_status_ble.h"
-#include "overheat_alarm.h"
-#include "overcurrent_monitor.h"
 #include "pair_mode.h"
-#include "status_led.h"
+#include "load_runtime.h"
 
 #ifdef PAIR_RUN_TESTS
 #include "unity_test_runner.h"
 void pair_tests_force_link(void);
 void conn_guard_tests_force_link(void);
 void metrics_tests_force_link(void);
+void load_state_tests_force_link(void);
+void connect_window_tests_force_link(void);
 #endif
 
 void app_main(void) {
@@ -48,30 +38,26 @@ void app_main(void) {
     pair_tests_force_link();
     conn_guard_tests_force_link();
     metrics_tests_force_link();
+    load_state_tests_force_link();
+    connect_window_tests_force_link();
     ESP_ERROR_CHECK(nvs_flash_init());
     unity_run_all_tests();
     return;
 #endif
 
+    load_runtime_init();
+    ESP_ERROR_CHECK(shared_i2c_bus_init());
+    load_runtime_cycle();
+    if (load_runtime_window_remaining_ms() == 0) {
+        load_runtime_sleep();
+        return;
+    }
     ESP_ERROR_CHECK(nvs_flash_init());
     fsm_reset();
     nvs_load_or_empty();
 
     ecdh_init();
     pair_mode_init();
-    status_led_init();
-    overheat_alarm_init();
-    ESP_ERROR_CHECK(shared_i2c_bus_init());
-    metrics_init();
-    metrics_ble_init();
-    device_status_ble_init();
-    params_init();
-    device_status_init();
-    overcurrent_monitor_init();
-    fan_status_ble_init();
-    operation_status_ble_init();
-    operation_manager_init();
-    fan_control_init();
 
     esp_timer_create_args_t targs = {
         .callback = term_cb,
@@ -89,19 +75,13 @@ void app_main(void) {
     };
     ESP_ERROR_CHECK(esp_timer_create(&pargs, &g_pair_timer));
 
-    gpio_config_t io = {
-        .pin_bit_mask = 1ULL << PAIR_BTN_GPIO,
-        .mode = GPIO_MODE_INPUT,
-        .pull_up_en = GPIO_PULLUP_ENABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE
-    };
-    ESP_ERROR_CHECK(gpio_config(&io));
-    xTaskCreate(button_task, "btn", 4096, NULL, 5, NULL);
-
     gatt_init_uuids_and_services();
 
-    nimble_port_init();
+    ESP_ERROR_CHECK(nimble_port_init());
+    gap_init();
+    if (!fsm_is_paired()) {
+        pair_mode_activate();
+    }
     ble_svc_gap_init();
     ble_svc_gatt_init();
 
@@ -112,12 +92,8 @@ void app_main(void) {
     rc = ble_gatts_add_svcs(gatt_svcs);
     if (rc != 0) ESP_LOGE(TAG, "ble_gatts_add_svcs rc=%d", rc);
 
-    xTaskCreate(metrics_task, "metrics", 4096, NULL, 5, NULL);
-    xTaskCreate(fan_control_task, "fan_ctl", 4096, NULL, 5, NULL);
-    xTaskCreate(status_led_task, "status_led", 2048, NULL, 3, NULL);
-    xTaskCreate(overheat_alarm_task, "overheat_alarm", 2048, NULL, 3, NULL);
-
     ble_hs_cfg.sync_cb = ble_app_on_sync;
 
     nimble_port_freertos_init(host_task);
+    xTaskCreate(load_runtime_task, "load", 4096, NULL, 5, NULL);
 }

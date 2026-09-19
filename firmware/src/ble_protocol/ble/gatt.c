@@ -18,15 +18,8 @@
 #include "uuid.h"
 #include "conn_guard.h"
 #include "host_verify.h"
-#include "device_status.h"
-#include "device_status_ble.h"
-#include "metrics.h"
-#include "metrics_ble.h"
-#include "fan_control.h"
-#include "fan_status_ble.h"
-#include "operation_manager.h"
-#include "operation_status_ble.h"
-#include "params.h"
+#include "load_metrics_ble.h"
+#include "load_runtime.h"
 
 // ====== GATT access callbacks ======
 static int gatt_read_dev_nonce(uint16_t conn_handle, uint16_t attr_handle,
@@ -207,223 +200,41 @@ static int gatt_write_auth_proof(uint16_t conn_handle, uint16_t attr_handle,
     return 0;
 }
 
-// ====== Metrics ======
-static int gatt_read_temp_single(uint16_t conn_handle, uint16_t attr_handle,
-                                 struct ble_gatt_access_ctxt *ctxt, void *arg) {
-    (void)attr_handle;
-    if (!can_access_data()) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
-    if (!auth_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
-    uint8_t channel = (uint8_t)(uintptr_t)arg;
-    float temp = metrics_get_temp(channel);
-    os_mbuf_append(ctxt->om, &temp, sizeof(temp));
-    return 0;
-}
+typedef enum {
+    METRIC_LOAD_STATE,
+    METRIC_BUTTON_STATE,
+    METRIC_TEMPERATURE,
+    METRIC_VOLTAGE_V,
+    METRIC_CURRENT_MA,
+} metric_id_t;
 
-static int gatt_read_fan_speed(uint16_t conn_handle, uint16_t attr_handle,
-                               struct ble_gatt_access_ctxt *ctxt, void *arg) {
-    (void)attr_handle;
-    if (!can_access_data()) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
-    if (!auth_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
-    uint8_t channel = (uint8_t)(uintptr_t)arg;
-    float rpm = metrics_get_fan_speed_rpm_channel(channel);
-    os_mbuf_append(ctxt->om, &rpm, sizeof(rpm));
-    return 0;
-}
-
-static int gatt_read_voltage(uint16_t conn_handle, uint16_t attr_handle,
-                             struct ble_gatt_access_ctxt *ctxt, void *arg) {
-    (void)attr_handle;
-    (void)arg;
-    if (!can_access_data()) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
-    if (!auth_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
-    float voltage = metrics_get_voltage_v();
-    os_mbuf_append(ctxt->om, &voltage, sizeof(voltage));
-    return 0;
-}
-
-static int gatt_read_current(uint16_t conn_handle, uint16_t attr_handle,
-                             struct ble_gatt_access_ctxt *ctxt, void *arg) {
-    (void)attr_handle;
-    (void)arg;
-    if (!can_access_data()) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
-    if (!auth_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
-    float current = metrics_get_current_ma();
-    os_mbuf_append(ctxt->om, &current, sizeof(current));
-    return 0;
-}
-
-static int gatt_read_fan_percent(uint16_t conn_handle, uint16_t attr_handle,
-                                 struct ble_gatt_access_ctxt *ctxt, void *arg) {
-    (void)attr_handle;
-    (void)arg;
-    if (!can_access_data()) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
-    if (!auth_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
-    float percent = fan_control_get_output_percent();
-    os_mbuf_append(ctxt->om, &percent, sizeof(percent));
-    return 0;
-}
-
-// ====== Config params ======
-static int gatt_read_params(uint16_t conn_handle, uint16_t attr_handle,
+static int gatt_read_metric(uint16_t conn_handle, uint16_t attr_handle,
                             struct ble_gatt_access_ctxt *ctxt, void *arg) {
     (void)attr_handle;
-    (void)arg;
-    if (!can_access_data()) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
-    if (!auth_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
-
-    uint8_t payload[PARAMS_PAYLOAD_LEN];
-    if (!params_get_current_payload(payload, sizeof(payload))) return BLE_ATT_ERR_UNLIKELY;
-    os_mbuf_append(ctxt->om, payload, sizeof(payload));
-    return 0;
-}
-
-static int gatt_write_params(uint16_t conn_handle, uint16_t attr_handle,
-                             struct ble_gatt_access_ctxt *ctxt, void *arg) {
-    (void)attr_handle;
-    (void)arg;
-    if (!can_access_data()) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
-    if (!auth_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
-    if (operation_manager_is_active()) {
-        params_set_last_status(PARAM_STATUS_BUSY, PARAM_FIELD_NONE);
-        return BLE_ATT_ERR_INSUFFICIENT_RES;
+    if (!can_access_data() || !auth_conn_check(conn_handle)) {
+        return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
     }
-
-    int len = OS_MBUF_PKTLEN(ctxt->om);
-    if (len != PARAMS_PAYLOAD_LEN) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
-
-    uint8_t buf[PARAMS_PAYLOAD_LEN];
-    os_mbuf_copydata(ctxt->om, 0, sizeof(buf), buf);
-    if (!params_set_pending_payload(buf, sizeof(buf))) return BLE_ATT_ERR_UNLIKELY;
-    return 0;
-}
-
-static int gatt_access_params(uint16_t conn_handle, uint16_t attr_handle,
-                              struct ble_gatt_access_ctxt *ctxt, void *arg) {
-    if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
-        return gatt_read_params(conn_handle, attr_handle, ctxt, arg);
+    load_runtime_snapshot_t snapshot;
+    load_runtime_get_snapshot(&snapshot);
+    switch ((metric_id_t)(uintptr_t)arg) {
+        case METRIC_LOAD_STATE:
+            os_mbuf_append(ctxt->om, &snapshot.load_state, sizeof(snapshot.load_state));
+            return 0;
+        case METRIC_BUTTON_STATE:
+            os_mbuf_append(ctxt->om, &snapshot.button_pressed, sizeof(snapshot.button_pressed));
+            return 0;
+        case METRIC_TEMPERATURE:
+            os_mbuf_append(ctxt->om, &snapshot.temperature_c, sizeof(snapshot.temperature_c));
+            return 0;
+        case METRIC_VOLTAGE_V:
+            os_mbuf_append(ctxt->om, &snapshot.voltage_v, sizeof(snapshot.voltage_v));
+            return 0;
+        case METRIC_CURRENT_MA:
+            os_mbuf_append(ctxt->om, &snapshot.current_ma, sizeof(snapshot.current_ma));
+            return 0;
+        default:
+            return BLE_ATT_ERR_UNLIKELY;
     }
-    if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
-        return gatt_write_params(conn_handle, attr_handle, ctxt, arg);
-    }
-    return BLE_ATT_ERR_UNLIKELY;
-}
-
-static uint16_t g_params_status_attr_handle = 0;
-
-static int gatt_access_params_status(uint16_t conn_handle, uint16_t attr_handle,
-                                     struct ble_gatt_access_ctxt *ctxt, void *arg) {
-    (void)attr_handle;
-    (void)arg;
-    if (!can_access_data()) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
-    if (!auth_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
-
-    if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
-        uint8_t payload[PARAMS_STATUS_LEN];
-        params_get_last_status_payload(payload, sizeof(payload));
-        os_mbuf_append(ctxt->om, payload, sizeof(payload));
-        return 0;
-    }
-
-    if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
-        int len = OS_MBUF_PKTLEN(ctxt->om);
-        if (len != 1) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
-
-        uint8_t cmd = 0;
-        os_mbuf_copydata(ctxt->om, 0, 1, &cmd);
-        if (cmd != 0x01) return BLE_ATT_ERR_UNLIKELY;
-
-        if (operation_manager_is_active()) {
-            params_set_last_status(PARAM_STATUS_BUSY, PARAM_FIELD_NONE);
-            return BLE_ATT_ERR_INSUFFICIENT_RES;
-        }
-
-        params_apply(NULL);
-
-        if (g_params_status_attr_handle != 0) {
-            uint8_t payload[PARAMS_STATUS_LEN];
-            params_get_last_status_payload(payload, sizeof(payload));
-            struct os_mbuf *om = ble_hs_mbuf_from_flat(payload, sizeof(payload));
-            if (om) {
-                int rc = ble_gatts_notify_custom(conn_handle, g_params_status_attr_handle, om);
-                if (rc != 0) {
-                    ESP_LOGW(TAG, "notify params status rc=%d", rc);
-                }
-            }
-        }
-        return 0;
-    }
-
-    return BLE_ATT_ERR_UNLIKELY;
-}
-
-static int gatt_read_fan_status(uint16_t conn_handle, uint16_t attr_handle,
-                                struct ble_gatt_access_ctxt *ctxt, void *arg) {
-    (void)attr_handle;
-    (void)arg;
-    if (!can_access_data()) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
-    if (!auth_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
-
-    uint8_t payload[FAN_STATUS_PAYLOAD_LEN];
-    fan_control_get_status_payload(payload, sizeof(payload));
-    os_mbuf_append(ctxt->om, payload, sizeof(payload));
-    return 0;
-}
-
-static int gatt_read_device_status(uint16_t conn_handle, uint16_t attr_handle,
-                                   struct ble_gatt_access_ctxt *ctxt, void *arg) {
-    (void)attr_handle;
-    (void)arg;
-    if (!can_access_data()) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
-    if (!auth_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
-
-    uint8_t payload[DEVICE_STATUS_PAYLOAD_LEN];
-    device_status_get_payload(payload, sizeof(payload));
-    os_mbuf_append(ctxt->om, payload, sizeof(payload));
-    return 0;
-}
-
-// ====== Operations ======
-static int gatt_access_operation_control(uint16_t conn_handle, uint16_t attr_handle,
-                                         struct ble_gatt_access_ctxt *ctxt, void *arg) {
-    (void)attr_handle;
-    (void)arg;
-    if (!can_access_data()) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
-    if (!auth_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
-
-    if (ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR) {
-        return BLE_ATT_ERR_UNLIKELY;
-    }
-
-    int len = OS_MBUF_PKTLEN(ctxt->om);
-    if (len != 3) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
-
-    uint8_t buf[3];
-    os_mbuf_copydata(ctxt->om, 0, sizeof(buf), buf);
-    uint8_t version = buf[0];
-    uint8_t op_type = buf[1];
-    uint8_t action = buf[2];
-    if (version != OP_CONTROL_VERSION) return BLE_ATT_ERR_UNLIKELY;
-    if (action != 0x01) return BLE_ATT_ERR_UNLIKELY;
-
-    operation_manager_start((operation_type_t)op_type);
-    return 0;
-}
-
-static int gatt_access_operation_status(uint16_t conn_handle, uint16_t attr_handle,
-                                        struct ble_gatt_access_ctxt *ctxt, void *arg) {
-    (void)attr_handle;
-    (void)arg;
-    if (!can_access_data()) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
-    if (!auth_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
-
-    if (ctxt->op != BLE_GATT_ACCESS_OP_READ_CHR) {
-        return BLE_ATT_ERR_UNLIKELY;
-    }
-
-    uint8_t payload[OP_STATUS_PAYLOAD_LEN];
-    operation_manager_get_status_payload(payload, sizeof(payload));
-    os_mbuf_append(ctxt->om, payload, sizeof(payload));
-    return 0;
 }
 
 // ====== GATT db (RAM) ======
@@ -446,136 +257,32 @@ static struct ble_gatt_chr_def main_chrs[] = {
     { 0 }
 };
 
-static struct ble_gatt_chr_def config_chrs[] = {
-    {
-        .uuid = NULL,
-        .access_cb = gatt_access_params,
-        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE,
-    },
-    {
-        .uuid = NULL,
-        .access_cb = gatt_access_params_status,
-        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_NOTIFY,
-        .val_handle = &g_params_status_attr_handle,
-    },
-    {
-        .uuid = NULL,
-        .access_cb = gatt_read_fan_status,
-        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
-        .val_handle = &g_fan_status_attr_handle,
-    },
-    {
-        .uuid = NULL,
-        .access_cb = gatt_read_device_status,
-        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
-        .val_handle = &g_device_status_attr_handle,
-    },
-    { 0 }
-};
-
-static struct ble_gatt_chr_def operations_chrs[] = {
-    {
-        .uuid = NULL,
-        .access_cb = gatt_access_operation_control,
-        .flags = BLE_GATT_CHR_F_WRITE,
-    },
-    {
-        .uuid = NULL,
-        .access_cb = gatt_access_operation_status,
-        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
-        .val_handle = &g_operation_status_attr_handle,
-    },
-    { 0 }
-};
-
 static struct ble_gatt_chr_def metrics_chrs[] = {
-    {
-        .uuid = NULL,
-        .access_cb = gatt_read_temp_single,
-        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
-        .val_handle = &g_temp_attr_handles[0],
-        .arg = (void *)(uintptr_t)0,
-    },
-    {
-        .uuid = NULL,
-        .access_cb = gatt_read_temp_single,
-        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
-        .val_handle = &g_temp_attr_handles[1],
-        .arg = (void *)(uintptr_t)1,
-    },
-    {
-        .uuid = NULL,
-        .access_cb = gatt_read_temp_single,
-        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
-        .val_handle = &g_temp_attr_handles[2],
-        .arg = (void *)(uintptr_t)2,
-    },
-    {
-        .uuid = NULL,
-        .access_cb = gatt_read_temp_single,
-        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
-        .val_handle = &g_temp_attr_handles[3],
-        .arg = (void *)(uintptr_t)3,
-    },
-    {
-        .uuid = NULL,
-        .access_cb = gatt_read_fan_speed,
-        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
-        .val_handle = &g_fan_attr_handles[0],
-        .arg = (void *)(uintptr_t)0,
-    },
-    {
-        .uuid = NULL,
-        .access_cb = gatt_read_fan_speed,
-        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
-        .val_handle = &g_fan_attr_handles[1],
-        .arg = (void *)(uintptr_t)1,
-    },
-    {
-        .uuid = NULL,
-        .access_cb = gatt_read_fan_speed,
-        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
-        .val_handle = &g_fan_attr_handles[2],
-        .arg = (void *)(uintptr_t)2,
-    },
-    {
-        .uuid = NULL,
-        .access_cb = gatt_read_fan_speed,
-        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
-        .val_handle = &g_fan_attr_handles[3],
-        .arg = (void *)(uintptr_t)3,
-    },
-    {
-        .uuid = NULL,
-        .access_cb = gatt_read_voltage,
-        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
-        .val_handle = &g_voltage_attr_handle,
-    },
-    {
-        .uuid = NULL,
-        .access_cb = gatt_read_current,
-        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
-        .val_handle = &g_current_attr_handle,
-    },
-    {
-        .uuid = NULL,
-        .access_cb = gatt_read_fan_percent,
-        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
-        .val_handle = &g_fan_percent_attr_handle,
-    },
+    { .uuid = NULL, .access_cb = gatt_read_metric,
+      .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+      .val_handle = &g_load_state_attr_handle, .arg = (void *)(uintptr_t)METRIC_LOAD_STATE },
+    { .uuid = NULL, .access_cb = gatt_read_metric,
+      .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+      .val_handle = &g_button_state_attr_handle, .arg = (void *)(uintptr_t)METRIC_BUTTON_STATE },
+    { .uuid = NULL, .access_cb = gatt_read_metric,
+      .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+      .val_handle = &g_temperature_attr_handle, .arg = (void *)(uintptr_t)METRIC_TEMPERATURE },
+    { .uuid = NULL, .access_cb = gatt_read_metric,
+      .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+      .val_handle = &g_voltage_attr_handle, .arg = (void *)(uintptr_t)METRIC_VOLTAGE_V },
+    { .uuid = NULL, .access_cb = gatt_read_metric,
+      .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+      .val_handle = &g_current_attr_handle, .arg = (void *)(uintptr_t)METRIC_CURRENT_MA },
     { 0 }
 };
 
 struct ble_gatt_svc_def gatt_svcs[] = {
     { .type = BLE_GATT_SVC_TYPE_PRIMARY, .uuid = NULL, .characteristics = pair_chrs },
     { .type = BLE_GATT_SVC_TYPE_PRIMARY, .uuid = NULL, .characteristics = main_chrs },
-    { .type = BLE_GATT_SVC_TYPE_PRIMARY, .uuid = NULL, .characteristics = config_chrs },
-    { .type = BLE_GATT_SVC_TYPE_PRIMARY, .uuid = NULL, .characteristics = operations_chrs },
     { .type = BLE_GATT_SVC_TYPE_PRIMARY, .uuid = NULL, .characteristics = metrics_chrs },
     { 0 }
 };
 
-// ====== UUID parse + patch ======
 static void parse_uuid_or_abort(const char *s, ble_uuid_any_t *out) {
     int rc = ble_uuid_from_str(out, s);
     if (rc != 0) {
@@ -588,68 +295,32 @@ void gatt_init_uuids_and_services(void) {
     parse_uuid_or_abort(UUID_PAIR_SVC_STR, &UUID_PAIR_SVC);
     parse_uuid_or_abort(UUID_MAIN_SVC_STR, &UUID_MAIN_SVC);
     parse_uuid_or_abort(UUID_METRICS_SVC_STR, &UUID_METRICS_SVC);
-    parse_uuid_or_abort(UUID_CONFIG_SVC_STR, &UUID_CONFIG_SVC);
-    parse_uuid_or_abort(UUID_OPERATIONS_SVC_STR, &UUID_OPERATIONS_SVC);
-
     parse_uuid_or_abort(UUID_PAIR_DEV_NONCE_STR, &UUID_PAIR_DEV_NONCE);
-    parse_uuid_or_abort(UUID_PAIR_DEV_PUB_STR,   &UUID_PAIR_DEV_PUB);
-    parse_uuid_or_abort(UUID_PAIR_HOST_PUB_STR,  &UUID_PAIR_HOST_PUB);
-    parse_uuid_or_abort(UUID_PAIR_CONFIRM_STR,   &UUID_PAIR_CONFIRM);
-    parse_uuid_or_abort(UUID_PAIR_FINISH_STR,    &UUID_PAIR_FINISH);
-
+    parse_uuid_or_abort(UUID_PAIR_DEV_PUB_STR, &UUID_PAIR_DEV_PUB);
+    parse_uuid_or_abort(UUID_PAIR_HOST_PUB_STR, &UUID_PAIR_HOST_PUB);
+    parse_uuid_or_abort(UUID_PAIR_CONFIRM_STR, &UUID_PAIR_CONFIRM);
+    parse_uuid_or_abort(UUID_PAIR_FINISH_STR, &UUID_PAIR_FINISH);
     parse_uuid_or_abort(UUID_AUTH_NONCE_STR, &UUID_AUTH_NONCE);
     parse_uuid_or_abort(UUID_AUTH_PROOF_STR, &UUID_AUTH_PROOF);
-
-    parse_uuid_or_abort(UUID_CONFIG_PARAMS_STR, &UUID_CONFIG_PARAMS);
-    parse_uuid_or_abort(UUID_CONFIG_STATUS_STR, &UUID_CONFIG_STATUS);
-    parse_uuid_or_abort(UUID_CONFIG_FAN_STATUS_STR, &UUID_CONFIG_FAN_STATUS);
-    parse_uuid_or_abort(UUID_CONFIG_DEVICE_STATUS_STR, &UUID_CONFIG_DEVICE_STATUS);
-    parse_uuid_or_abort(UUID_OP_CONTROL_STR, &UUID_OP_CONTROL);
-    parse_uuid_or_abort(UUID_OP_STATUS_STR, &UUID_OP_STATUS);
-    
-    parse_uuid_or_abort(UUID_TEMP0_VALUE_STR, &UUID_TEMP0_VALUE);
-    parse_uuid_or_abort(UUID_TEMP1_VALUE_STR, &UUID_TEMP1_VALUE);
-    parse_uuid_or_abort(UUID_TEMP2_VALUE_STR, &UUID_TEMP2_VALUE);
-    parse_uuid_or_abort(UUID_TEMP3_VALUE_STR, &UUID_TEMP3_VALUE);
-    parse_uuid_or_abort(UUID_FAN_SPEED_VALUE_STR, &UUID_FAN_SPEED_VALUE);
-    parse_uuid_or_abort(UUID_FAN2_SPEED_VALUE_STR, &UUID_FAN2_SPEED_VALUE);
-    parse_uuid_or_abort(UUID_FAN3_SPEED_VALUE_STR, &UUID_FAN3_SPEED_VALUE);
-    parse_uuid_or_abort(UUID_FAN4_SPEED_VALUE_STR, &UUID_FAN4_SPEED_VALUE);
-    parse_uuid_or_abort(UUID_VOLTAGE_VALUE_STR, &UUID_VOLTAGE_VALUE);
-    parse_uuid_or_abort(UUID_CURRENT_VALUE_STR, &UUID_CURRENT_VALUE);
-    parse_uuid_or_abort(UUID_FAN_PERCENT_VALUE_STR, &UUID_FAN_PERCENT_VALUE);
+    parse_uuid_or_abort(UUID_LOAD_STATE_STR, &UUID_LOAD_STATE);
+    parse_uuid_or_abort(UUID_BUTTON_STATE_STR, &UUID_BUTTON_STATE);
+    parse_uuid_or_abort(UUID_TEMPERATURE_STR, &UUID_TEMPERATURE);
+    parse_uuid_or_abort(UUID_VOLTAGE_V_STR, &UUID_VOLTAGE_V);
+    parse_uuid_or_abort(UUID_CURRENT_MA_STR, &UUID_CURRENT_MA);
 
     gatt_svcs[0].uuid = &UUID_PAIR_SVC.u;
     gatt_svcs[1].uuid = &UUID_MAIN_SVC.u;
-    gatt_svcs[2].uuid = &UUID_CONFIG_SVC.u;
-    gatt_svcs[3].uuid = &UUID_OPERATIONS_SVC.u;
-    gatt_svcs[4].uuid = &UUID_METRICS_SVC.u;
-
+    gatt_svcs[2].uuid = &UUID_METRICS_SVC.u;
     pair_chrs[0].uuid = &UUID_PAIR_DEV_NONCE.u;
     pair_chrs[1].uuid = &UUID_PAIR_DEV_PUB.u;
     pair_chrs[2].uuid = &UUID_PAIR_HOST_PUB.u;
     pair_chrs[3].uuid = &UUID_PAIR_CONFIRM.u;
     pair_chrs[4].uuid = &UUID_PAIR_FINISH.u;
-
     main_chrs[0].uuid = &UUID_AUTH_NONCE.u;
     main_chrs[1].uuid = &UUID_AUTH_PROOF.u;
-
-    config_chrs[0].uuid = &UUID_CONFIG_PARAMS.u;
-    config_chrs[1].uuid = &UUID_CONFIG_STATUS.u;
-    config_chrs[2].uuid = &UUID_CONFIG_FAN_STATUS.u;
-    config_chrs[3].uuid = &UUID_CONFIG_DEVICE_STATUS.u;
-    operations_chrs[0].uuid = &UUID_OP_CONTROL.u;
-    operations_chrs[1].uuid = &UUID_OP_STATUS.u;
-
-    metrics_chrs[0].uuid = &UUID_TEMP0_VALUE.u;
-    metrics_chrs[1].uuid = &UUID_TEMP1_VALUE.u;
-    metrics_chrs[2].uuid = &UUID_TEMP2_VALUE.u;
-    metrics_chrs[3].uuid = &UUID_TEMP3_VALUE.u;
-    metrics_chrs[4].uuid = &UUID_FAN_SPEED_VALUE.u;
-    metrics_chrs[5].uuid = &UUID_FAN2_SPEED_VALUE.u;
-    metrics_chrs[6].uuid = &UUID_FAN3_SPEED_VALUE.u;
-    metrics_chrs[7].uuid = &UUID_FAN4_SPEED_VALUE.u;
-    metrics_chrs[8].uuid = &UUID_VOLTAGE_VALUE.u;
-    metrics_chrs[9].uuid = &UUID_CURRENT_VALUE.u;
-    metrics_chrs[10].uuid = &UUID_FAN_PERCENT_VALUE.u;
+    metrics_chrs[0].uuid = &UUID_LOAD_STATE.u;
+    metrics_chrs[1].uuid = &UUID_BUTTON_STATE.u;
+    metrics_chrs[2].uuid = &UUID_TEMPERATURE.u;
+    metrics_chrs[3].uuid = &UUID_VOLTAGE_V.u;
+    metrics_chrs[4].uuid = &UUID_CURRENT_MA.u;
 }
