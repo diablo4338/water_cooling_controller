@@ -23,6 +23,7 @@
 #include "shared_i2c_bus.h"
 #include "pair_mode.h"
 #include "load_runtime.h"
+#include "runtime_config.h"
 
 #ifdef PAIR_RUN_TESTS
 #include "unity_test_runner.h"
@@ -37,6 +38,7 @@ void app_main(void) {
     esp_log_level_set("pair-stack", ESP_LOG_INFO);
     esp_log_level_set("load", ESP_LOG_INFO);
     esp_log_level_set("ina226", ESP_LOG_INFO);
+    esp_log_level_set("runtime-config", ESP_LOG_INFO);
 #ifdef PAIR_RUN_TESTS
     pair_tests_force_link();
     conn_guard_tests_force_link();
@@ -48,6 +50,8 @@ void app_main(void) {
     return;
 #endif
 
+    ESP_ERROR_CHECK(nvs_flash_init());
+    runtime_config_init();
     load_runtime_init();
     ESP_ERROR_CHECK(shared_i2c_bus_init());
     load_runtime_cycle();
@@ -55,7 +59,6 @@ void app_main(void) {
         load_runtime_sleep();
         return;
     }
-    ESP_ERROR_CHECK(nvs_flash_init());
     fsm_reset();
     nvs_load_or_empty();
 

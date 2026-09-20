@@ -20,6 +20,7 @@
 #include "connect_window.h"
 #include "load_metrics_ble.h"
 #include "storage.h"
+#include "runtime_config.h"
 
 #define RETAINED_MAGIC 0x4C4F4102U
 /* Physical ADS input 2 maps to logical temperature channel 4. */
@@ -83,14 +84,6 @@ static RTC_DATA_ATTR struct {
     int64_t long_press_since_us;
 } retained;
 
-static const load_policy_t policy = {
-    .button_temperature_c = 30.0f,
-    .button_release_temperature_c = 29.0f,
-    .idle_current_ma = 100.0f,
-    .idle_timeout_us = 300LL * 1000000,
-    .require_new_press = true,
-};
-
 void load_runtime_init(void) {
     if (esp_reset_reason() != ESP_RST_DEEPSLEEP || retained.magic != RETAINED_MAGIC ||
         (retained.state.mode != LOAD_IDLE && retained.state.mode != LOAD_WORKING)) {
@@ -117,6 +110,15 @@ void load_runtime_get_snapshot(load_runtime_snapshot_t *out) {
 }
 
 void load_runtime_cycle(void) {
+    runtime_config_t config;
+    runtime_config_get(&config);
+    const load_policy_t policy = {
+        .button_temperature_c = (float)config.button_press_deci_c / 10.0f,
+        .button_release_temperature_c = (float)config.button_release_deci_c / 10.0f,
+        .idle_current_ma = (float)config.idle_current_ma,
+        .idle_timeout_us = (int64_t)config.idle_timeout_s * 1000000LL,
+        .require_new_press = true,
+    };
     int16_t raw = 0;
     float temperature = NAN;
     if (ads1115_init() && ads1115_read_raw(BUTTON_ADS_INPUT, &raw) && raw >= 500) {
@@ -189,7 +191,9 @@ void load_runtime_cycle(void) {
 }
 
 void load_runtime_sleep(void) {
-    ESP_ERROR_CHECK(esp_sleep_enable_timer_wakeup(5000000ULL));
+    runtime_config_t config;
+    runtime_config_get(&config);
+    ESP_ERROR_CHECK(esp_sleep_enable_timer_wakeup((uint64_t)config.deep_sleep_ms * 1000ULL));
     load_output_hold();
     esp_deep_sleep_start();
 }

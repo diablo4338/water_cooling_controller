@@ -3,6 +3,7 @@ set(SRCS
     "app/app_tasks.c"
     "app/load_runtime.c"
     "control/load_state.c"
+    "control/runtime_config.c"
     "hw/load_output.c"
     "ble/access.c"
     "ble/load_metrics_ble.c"

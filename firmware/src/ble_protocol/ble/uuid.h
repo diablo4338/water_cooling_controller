@@ -16,6 +16,8 @@ extern const char *UUID_PAIR_FINISH_STR;
 
 extern const char *UUID_AUTH_NONCE_STR;
 extern const char *UUID_AUTH_PROOF_STR;
+extern const char *UUID_RUNTIME_CONFIG_STR;
+extern const char *UUID_CONFIG_RESULT_STR;
 extern const char *UUID_LOAD_STATE_STR;
 extern const char *UUID_BUTTON_STATE_STR;
 extern const char *UUID_TEMPERATURE_STR;
@@ -34,6 +36,8 @@ extern ble_uuid_any_t UUID_PAIR_FINISH;
 
 extern ble_uuid_any_t UUID_AUTH_NONCE;
 extern ble_uuid_any_t UUID_AUTH_PROOF;
+extern ble_uuid_any_t UUID_RUNTIME_CONFIG;
+extern ble_uuid_any_t UUID_CONFIG_RESULT;
 extern ble_uuid_any_t UUID_LOAD_STATE;
 extern ble_uuid_any_t UUID_BUTTON_STATE;
 extern ble_uuid_any_t UUID_TEMPERATURE;
