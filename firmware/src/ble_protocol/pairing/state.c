@@ -1,4 +1,26 @@
 #include "state.h"
+#include "esp_log.h"
+
+static const char *state_name(fsm_state_t state) {
+    switch (state) {
+        case FSM_STATE_UNPAIRED_IDLE: return "UNPAIRED_IDLE";
+        case FSM_STATE_PAIRED_UNAUTH: return "PAIRED_UNAUTH";
+        case FSM_STATE_AUTHED: return "AUTHED";
+        default: return "UNKNOWN";
+    }
+}
+
+static const char *event_name(fsm_event_t event) {
+    switch (event) {
+        case FSM_EVT_CONNECT: return "CONNECT";
+        case FSM_EVT_DISCONNECT: return "DISCONNECT";
+        case FSM_EVT_AUTH_OK: return "AUTH_OK";
+        case FSM_EVT_AUTH_FAILED: return "AUTH_FAILED";
+        case FSM_EVT_TRUST_LOADED: return "TRUST_LOADED";
+        case FSM_EVT_TRUST_RESET: return "TRUST_RESET";
+        default: return "UNKNOWN";
+    }
+}
 
 const char *TAG = "pair-stack";
 
@@ -52,17 +74,21 @@ static void fsm_reset_locked(void) {
 
 void fsm_reset(void) {
     state_lock();
+    fsm_state_t previous = g_fsm.state;
     fsm_reset_locked();
     state_unlock();
+    ESP_LOGI(TAG, "FSM %s -> UNPAIRED_IDLE event=RESET", state_name(previous));
 }
 
 bool fsm_dispatch(fsm_event_t event, uint16_t conn_handle) {
     bool handled = false;
 
     state_lock();
+    fsm_state_t previous = g_fsm.state;
     if (event == FSM_EVT_TRUST_RESET) {
         fsm_reset_locked();
         state_unlock();
+        ESP_LOGI(TAG, "FSM %s -> UNPAIRED_IDLE event=TRUST_RESET", state_name(previous));
         return true;
     }
 
@@ -122,7 +148,11 @@ bool fsm_dispatch(fsm_event_t event, uint16_t conn_handle) {
         }
     }
 
+    fsm_state_t next = g_fsm.state;
     state_unlock();
+    ESP_LOGI(TAG, "FSM %s -> %s event=%s handle=%u handled=%d",
+             state_name(previous), state_name(next), event_name(event),
+             (unsigned)conn_handle, handled);
     return handled;
 }
 

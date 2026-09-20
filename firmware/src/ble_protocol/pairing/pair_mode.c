@@ -61,8 +61,11 @@ bool pair_mode_activate(void) {
         return false;
     }
 
-    esp_timer_stop(g_pair_timer);
+    if (esp_timer_stop(g_pair_timer) == ESP_OK) {
+        ESP_LOGI(TAG, "Timer pair_timeout cancelled reason=restart");
+    }
     ESP_ERROR_CHECK(esp_timer_start_once(g_pair_timer, PAIR_MODE_TIMEOUT_US));
+    ESP_LOGI(TAG, "Timer pair_timeout started duration_ms=60000");
 
     stop_advertising();
     start_advertising();
@@ -76,7 +79,9 @@ void pair_mode_deactivate(void) {
     }
 
     g_pair_active = false;
-    esp_timer_stop(g_pair_timer);
+    if (esp_timer_stop(g_pair_timer) == ESP_OK) {
+        ESP_LOGI(TAG, "Timer pair_timeout cancelled reason=pair_mode_deactivated");
+    }
     pair_state_full_reset();
     clear_pair_session_buffers();
     ESP_LOGW(TAG, "Pairing mode OFF");

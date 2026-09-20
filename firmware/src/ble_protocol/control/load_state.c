@@ -2,9 +2,16 @@
 
 #include <math.h>
 
+bool load_button_is_pressed(const load_state_t *state, const load_policy_t *policy,
+                            float temperature_c) {
+    if (!state || !policy || !isfinite(temperature_c)) return state && state->button_was_pressed;
+    if (!state->button_was_pressed) return temperature_c >= policy->button_temperature_c;
+    return temperature_c > policy->button_release_temperature_c;
+}
+
 void load_state_step(load_state_t *state, const load_policy_t *policy,
                      float temperature_c, float current_ma, int64_t now_us) {
-    bool pressed = isfinite(temperature_c) && temperature_c > policy->button_temperature_c;
+    bool pressed = load_button_is_pressed(state, policy, temperature_c);
     bool start = pressed && (!policy->require_new_press || !state->button_was_pressed);
     /* A failed ADC read must not manufacture a release followed by a new press. */
     if (isfinite(temperature_c)) state->button_was_pressed = pressed;

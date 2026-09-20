@@ -19,10 +19,15 @@ typedef struct {
 
 typedef struct {
     float button_temperature_c;
+    float button_release_temperature_c;
     float idle_current_ma;
     int64_t idle_timeout_us;
     bool require_new_press;
 } load_policy_t;
+
+/* Apply hysteresis to the retained button level. */
+bool load_button_is_pressed(const load_state_t *state, const load_policy_t *policy,
+                            float temperature_c);
 
 void load_state_step(load_state_t *state, const load_policy_t *policy,
                      float temperature_c, float current_ma, int64_t now_us);

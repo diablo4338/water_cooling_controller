@@ -34,6 +34,9 @@ void connect_window_tests_force_link(void);
 #endif
 
 void app_main(void) {
+    esp_log_level_set("pair-stack", ESP_LOG_INFO);
+    esp_log_level_set("load", ESP_LOG_INFO);
+    esp_log_level_set("ina226", ESP_LOG_INFO);
 #ifdef PAIR_RUN_TESTS
     pair_tests_force_link();
     conn_guard_tests_force_link();

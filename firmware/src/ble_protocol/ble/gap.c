@@ -34,7 +34,9 @@ static void disconnect_client_cb(struct ble_npl_event *event) {
     (void)event;
     uint16_t conn = fsm_get_conn_handle();
     if (conn != BLE_HS_CONN_HANDLE_NONE) {
-        ble_gap_terminate(conn, BLE_ERR_REM_USER_CONN_TERM);
+        ESP_LOGI(TAG, "Disconnect requested handle=%u reason=client_reset", (unsigned)conn);
+        int rc = ble_gap_terminate(conn, BLE_ERR_REM_USER_CONN_TERM);
+        if (rc != 0) ESP_LOGW(TAG, "ble_gap_terminate rc=%d", rc);
     }
 }
 
@@ -91,6 +93,8 @@ void term_cb(void *arg) {
     (void)arg;
     uint16_t curr = fsm_get_conn_handle();
     uint16_t expected = fsm_get_term_conn_handle();
+    ESP_LOGI(TAG, "Timer term expired current_handle=%u expected_handle=%u",
+             (unsigned)curr, (unsigned)expected);
     if (curr != BLE_HS_CONN_HANDLE_NONE && curr == expected) {
         ESP_LOGI(TAG, "Terminating conn after finish (handle=%u)", (unsigned)curr);
         int rc = ble_gap_terminate(curr, BLE_ERR_REM_USER_CONN_TERM);
@@ -215,36 +219,32 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
                 ESP_LOGI(TAG, "Connected (handle=%d)", event->connect.conn_handle);
             } else {
                 radio_quiet = true;
-                ESP_LOGI(TAG, "Connect failed; restarting adv");
+                ESP_LOGW(TAG, "Connect failed status=%d; restarting adv", event->connect.status);
                 start_advertising();
             }
             return 0;
 
         case BLE_GAP_EVENT_DISCONNECT: {
             radio_quiet = true;
-            ESP_LOGI(TAG, "Disconnected; restarting adv");
-            bool pair_mode_active = pair_mode_is_active();
+            ESP_LOGI(TAG, "Disconnected handle=%u reason=0x%X; cancelling BLE timers",
+                     (unsigned)event->disconnect.conn.conn_handle,
+                     (unsigned)event->disconnect.reason);
+            load_runtime_close_window();
+            pair_mode_deactivate();
             fsm_dispatch(FSM_EVT_DISCONNECT, BLE_HS_CONN_HANDLE_NONE);
             state_lock();
             clear_session_secrets_locked();
             state_unlock();
-            esp_timer_stop(g_term_timer);
-            load_metrics_reset_notify();
-            if (pair_mode_active) {
-                pair_state_full_reset();
-                if (pair_mode_prepare_session()) {
-                    start_advertising();
-                } else {
-                    pair_mode_deactivate();
-                    start_advertising();
-                }
-            } else {
-                start_advertising();
+            if (esp_timer_stop(g_term_timer) == ESP_OK) {
+                ESP_LOGI(TAG, "Timer term cancelled reason=disconnected");
             }
+            load_metrics_reset_notify();
+            pair_state_full_reset();
             return 0;
         }
 
         case BLE_GAP_EVENT_ADV_COMPLETE:
+            ESP_LOGI(TAG, "Advertising completed reason=%d", event->adv_complete.reason);
             radio_quiet = true;
             /* A new press can extend the window while the old advertising
              * duration is running. Restart only for the remaining time. */
@@ -269,6 +269,7 @@ void ble_app_on_sync(void) {
         return;
     }
     host_synced = true;
+    ESP_LOGI(TAG, "BLE host synced addr_type=%u", (unsigned)g_own_addr_type);
     radio_quiet = true;
     start_advertising();
 }

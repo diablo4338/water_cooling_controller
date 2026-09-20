@@ -1,17 +1,17 @@
 #include "uuid.h"
 
-const char *UUID_PAIR_SVC_STR       = "8fdd08d6-2a9e-4d5a-9f44-9f58b3a9d3c1";
-const char *UUID_MAIN_SVC_STR       = "3d1a4b35-9707-43e6-bf3e-2e2f7b561d82";
+const char *UUID_PAIR_SVC_STR       = "2efb6d97-ca64-4bb6-9fa0-2042e9a2e01e";
+const char *UUID_MAIN_SVC_STR       = "0814951d-ca1b-4581-b1af-9c4f2ca96e90";
 const char *UUID_METRICS_SVC_STR    = "f3a0c1d2-5b6a-4d2e-9b43-1c2d3e4f5061";
 
-const char *UUID_PAIR_DEV_NONCE_STR = "0b46b3cf-7e3b-44a3-8f39-4af2a8c9a1ee";
-const char *UUID_PAIR_DEV_PUB_STR   = "91c66f66-5c92-4c4d-86bf-6d2c58b6f0d7";
-const char *UUID_PAIR_HOST_PUB_STR  = "c9c8f69a-1f49-4ea0-a0a2-3c0d0a69e9d4";
-const char *UUID_PAIR_CONFIRM_STR   = "f5ee9c0b-96ae-4dc0-9b46-5f6f7f2ad2bf";
-const char *UUID_PAIR_FINISH_STR    = "a4c8e2c1-1c7b-4b06-a59f-4b5f8a2a8b3c";
+const char *UUID_PAIR_DEV_NONCE_STR = "6e0a1bba-3a45-432d-88f9-17c6df81e2bc";
+const char *UUID_PAIR_DEV_PUB_STR   = "95597eed-5a9b-488a-a905-a59328f2265d";
+const char *UUID_PAIR_HOST_PUB_STR  = "8f5dff2a-438c-4899-8d9a-c20eb13130a3";
+const char *UUID_PAIR_CONFIRM_STR   = "dacbbf11-ed96-4cbf-8eac-058540aa041b";
+const char *UUID_PAIR_FINISH_STR    = "cdec3bfc-4d5f-4a40-8d9e-353a234eca2d";
 
-const char *UUID_AUTH_NONCE_STR     = "f1d1f9b6-8c92-47f6-a2f5-5b0a77d2e3a9";
-const char *UUID_AUTH_PROOF_STR     = "74cde77a-7f14-4e6e-b7f5-92ef0c3ad7e4";
+const char *UUID_AUTH_NONCE_STR     = "b5e032c6-697d-4ae1-a0d3-4aa27733bb09";
+const char *UUID_AUTH_PROOF_STR     = "82a3e36a-db27-445c-998b-8420446461a1";
 const char *UUID_LOAD_STATE_STR     = "a1b2c3d4-0b1c-4a2b-9c3d-4e5f60718281";
 const char *UUID_BUTTON_STATE_STR   = "a1b2c3d4-0b1c-4a2b-9c3d-4e5f60718282";
 const char *UUID_TEMPERATURE_STR    = "a1b2c3d4-0b1c-4a2b-9c3d-4e5f60718294";

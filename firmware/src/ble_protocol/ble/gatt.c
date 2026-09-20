@@ -135,8 +135,11 @@ static int gatt_write_pair_finish(uint16_t conn_handle, uint16_t attr_handle,
     pair_mode_deactivate();
 
     fsm_set_term_conn_handle(conn_handle);
-    esp_timer_stop(g_term_timer);
+    if (esp_timer_stop(g_term_timer) == ESP_OK) {
+        ESP_LOGI(TAG, "Timer term cancelled reason=restart handle=%u", (unsigned)conn_handle);
+    }
     ESP_ERROR_CHECK(esp_timer_start_once(g_term_timer, 250 * 1000));
+    ESP_LOGI(TAG, "Timer term started duration_ms=250 handle=%u", (unsigned)conn_handle);
 
     ESP_LOGI(TAG, "Pairing finished; trusted client added and pairing mode closed");
     return 0;

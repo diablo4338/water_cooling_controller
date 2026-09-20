@@ -4,12 +4,12 @@
 
 void load_state_tests_force_link(void) {}
 
-static const load_policy_t policy = {30.0f, 100.0f, 300000000LL, true};
+static const load_policy_t policy = {30.0f, 27.0f, 100.0f, 300000000LL, true};
 
 TEST_CASE("load starts above threshold and ignores working presses", "[load]") {
     load_state_t state = {0};
     load_state_step(&state, &policy, 30.0f, 0, 0);
-    TEST_ASSERT_EQUAL(LOAD_IDLE, state.mode);
+    TEST_ASSERT_EQUAL(LOAD_WORKING, state.mode);
     load_state_step(&state, &policy, 31.0f, 0, 1000000);
     TEST_ASSERT_EQUAL(LOAD_WORKING, state.mode);
     TEST_ASSERT_FALSE(state.low_current_pending);
@@ -29,9 +29,24 @@ TEST_CASE("load timeout spans wakeups and requires release to restart", "[load]"
     load_state_step(&restored, &policy, NAN, 20, 302000000);
     load_state_step(&restored, &policy, 31, 20, 303000000);
     TEST_ASSERT_EQUAL(LOAD_IDLE, restored.mode);
-    load_state_step(&restored, &policy, 30, 20, 304000000);
+    load_state_step(&restored, &policy, 27, 20, 304000000);
     load_state_step(&restored, &policy, 31, 20, 305000000);
     TEST_ASSERT_EQUAL(LOAD_WORKING, restored.mode);
+}
+
+TEST_CASE("button hysteresis prevents repeated press above release threshold", "[load]") {
+    load_state_t state = {0};
+    load_state_step(&state, &policy, 30, 200, 0);
+    TEST_ASSERT_TRUE(state.button_was_pressed);
+    TEST_ASSERT_EQUAL(LOAD_WORKING, state.mode);
+    load_state_step(&state, &policy, 28, 200, 1000000);
+    TEST_ASSERT_TRUE(state.button_was_pressed);
+    load_state_step(&state, &policy, 30, 200, 2000000);
+    TEST_ASSERT_EQUAL(LOAD_WORKING, state.mode);
+    load_state_step(&state, &policy, 27, 200, 3000000);
+    TEST_ASSERT_FALSE(state.button_was_pressed);
+    load_state_step(&state, &policy, 30, 200, 4000000);
+    TEST_ASSERT_EQUAL(LOAD_WORKING, state.mode);
 }
 
 TEST_CASE("invalid or high INA sample resets low current timeout", "[load]") {

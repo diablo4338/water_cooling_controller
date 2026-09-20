@@ -16,6 +16,7 @@
 
 void pair_timeout_cb(void *arg) {
     (void)arg;
+    ESP_LOGI(TAG, "Timer pair_timeout expired active=%d", pair_mode_is_active());
     if (!pair_mode_is_active()) {
         return;
     }
@@ -23,6 +24,7 @@ void pair_timeout_cb(void *arg) {
 
     uint16_t conn_handle = fsm_get_conn_handle();
     if (conn_handle != BLE_HS_CONN_HANDLE_NONE && !fsm_is_authed()) {
+        ESP_LOGI(TAG, "Disconnect requested handle=%u reason=pair_timeout", (unsigned)conn_handle);
         int rc = ble_gap_terminate(conn_handle, BLE_ERR_REM_USER_CONN_TERM);
         if (rc != 0) ESP_LOGW(TAG, "ble_gap_terminate rc=%d", rc);
         return;

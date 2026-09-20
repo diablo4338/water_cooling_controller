@@ -32,6 +32,9 @@ idf_component_register(SRCS ${SRCS}
                        REQUIRES bt mbedtls nvs_flash driver esp_timer i2c_bus log freertos metrics
                        PRIV_REQUIRES unity)
 
+# Keep lifecycle diagnostics available even when the global default is WARN.
+target_compile_definitions(${COMPONENT_LIB} PRIVATE LOG_LOCAL_LEVEL=ESP_LOG_INFO)
+
 if(DEFINED PAIR_RUN_TESTS)
     target_compile_definitions(${COMPONENT_LIB} PRIVATE PAIR_RUN_TESTS)
 endif()

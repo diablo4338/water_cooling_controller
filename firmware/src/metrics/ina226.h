@@ -31,6 +31,7 @@ typedef struct {
 bool ina226_init(void);
 bool ina226_has_error(void);
 bool ina226_get_sample(ina226_sample_t *out);
+/* Reads one internally averaged shunt+bus result. */
 bool ina226_get_single_sample(ina226_sample_t *out);
 float ina226_bus_raw_to_v(uint16_t raw);
 float ina226_current_raw_to_ma(int16_t raw);

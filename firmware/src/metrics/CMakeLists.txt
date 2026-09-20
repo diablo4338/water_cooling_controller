@@ -16,3 +16,5 @@ idf_component_register(
 if(DEFINED PAIR_RUN_TESTS)
     target_compile_definitions(${COMPONENT_LIB} PRIVATE PAIR_RUN_TESTS)
 endif()
+
+target_compile_definitions(${COMPONENT_LIB} PRIVATE LOG_LOCAL_LEVEL=ESP_LOG_INFO)

@@ -7,6 +7,7 @@
 #include "esp_sleep.h"
 #include "esp_system.h"
 #include "esp_timer.h"
+#include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "ads1115.h"
@@ -26,6 +27,7 @@
 
 static portMUX_TYPE window_mux = portMUX_INITIALIZER_UNLOCKED;
 static connect_window_t connect_window;
+static bool window_expiry_logged = true;
 static portMUX_TYPE snapshot_mux = portMUX_INITIALIZER_UNLOCKED;
 static load_runtime_snapshot_t snapshot = {
     .temperature_c = NAN,
@@ -38,14 +40,31 @@ static load_runtime_snapshot_t snapshot = {
 
 void load_runtime_open_window(void) {
     portENTER_CRITICAL(&window_mux);
+    bool restarting = connect_window_remaining_ms(&connect_window, esp_timer_get_time()) > 0;
     connect_window_open(&connect_window, esp_timer_get_time());
+    window_expiry_logged = false;
+    int32_t remaining = connect_window_remaining_ms(&connect_window, esp_timer_get_time());
     portEXIT_CRITICAL(&window_mux);
+    ESP_LOGI("load", "Timer connect_window %s duration_ms=%ld",
+             restarting ? "restarted" : "started", (long)remaining);
+}
+
+void load_runtime_close_window(void) {
+    portENTER_CRITICAL(&window_mux);
+    bool active = connect_window_remaining_ms(&connect_window, esp_timer_get_time()) > 0;
+    connect_window.deadline_us = 0;
+    window_expiry_logged = true;
+    portEXIT_CRITICAL(&window_mux);
+    if (active) ESP_LOGI("load", "Timer connect_window cancelled reason=disconnected");
 }
 
 int32_t load_runtime_window_remaining_ms(void) {
     portENTER_CRITICAL(&window_mux);
     int32_t remaining = connect_window_remaining_ms(&connect_window, esp_timer_get_time());
+    bool expired = remaining == 0 && !window_expiry_logged;
+    if (expired) window_expiry_logged = true;
     portEXIT_CRITICAL(&window_mux);
+    if (expired) ESP_LOGI("load", "Timer connect_window expired");
     return remaining;
 }
 
@@ -66,6 +85,7 @@ static RTC_DATA_ATTR struct {
 
 static const load_policy_t policy = {
     .button_temperature_c = 30.0f,
+    .button_release_temperature_c = 29.0f,
     .idle_current_ma = 100.0f,
     .idle_timeout_us = 300LL * 1000000,
     .require_new_press = true,
@@ -106,7 +126,7 @@ void load_runtime_cycle(void) {
     gettimeofday(&now, NULL);
     int64_t now_us = (int64_t)now.tv_sec * 1000000 + now.tv_usec;
     bool valid_button = isfinite(temperature);
-    bool pressed = valid_button && temperature > policy.button_temperature_c;
+    bool pressed = load_button_is_pressed(&retained.state, &policy, temperature);
 
     /* Read the edge before the load FSM updates its retained button history.
      * The BLE window also opens in WORKING, without changing the load state. */
@@ -115,13 +135,19 @@ void load_runtime_cycle(void) {
         retained.long_press_pending = true;
         retained.reset_sent = false;
         retained.long_press_since_us = now_us;
+        ESP_LOGI("load", "Timer long_press started duration_ms=10000");
     } else if (valid_button && !pressed) {
+        if (retained.long_press_pending && !retained.reset_sent) {
+            ESP_LOGI("load", "Timer long_press cancelled reason=button_released elapsed_ms=%lld",
+                     (long long)((now_us - retained.long_press_since_us) / 1000));
+        }
         retained.long_press_pending = false;
         retained.reset_sent = false;
     }
     if (pressed && retained.long_press_pending && !retained.reset_sent &&
         now_us - retained.long_press_since_us >= LONG_PRESS_US) {
         retained.reset_sent = true;
+        ESP_LOGI("load", "Timer long_press expired action=trust_reset");
         trust_reset();
         pair_mode_activate();
         gap_disconnect_client();
@@ -130,7 +156,25 @@ void load_runtime_cycle(void) {
     bool ina_valid = ina226_get_single_sample(&sample);
     float voltage = ina_valid ? sample.voltage_v : NAN;
     float current = ina_valid ? sample.current_ma : NAN;
+    load_state_t previous = retained.state;
     load_state_step(&retained.state, &policy, temperature, current, now_us);
+    if (!previous.low_current_pending && retained.state.low_current_pending) {
+        ESP_LOGI("load", "Timer low_current started duration_ms=%lld current_ma=%.1f",
+                 (long long)(policy.idle_timeout_us / 1000), (double)current);
+    } else if (previous.low_current_pending && !retained.state.low_current_pending) {
+        if (retained.state.mode != previous.mode) {
+            ESP_LOGI("load", "Timer low_current expired");
+        } else {
+            ESP_LOGI("load", "Timer low_current cancelled reason=%s current_ma=%.1f",
+                     isfinite(current) ? "current_recovered" : "invalid_sample", (double)current);
+        }
+    }
+    if (previous.mode != retained.state.mode) {
+        ESP_LOGI("load", "State %s -> %s reason=%s",
+                 previous.mode == LOAD_IDLE ? "IDLE" : "WORKING",
+                 retained.state.mode == LOAD_IDLE ? "IDLE" : "WORKING",
+                 retained.state.mode == LOAD_IDLE ? "low_current_timeout" : "button_press");
+    }
     load_output_set(retained.state.mode == LOAD_WORKING);
     ESP_ERROR_CHECK(gpio_set_level(BUTTON_LED_GPIO, retained.state.button_was_pressed));
 
@@ -145,7 +189,7 @@ void load_runtime_cycle(void) {
 }
 
 void load_runtime_sleep(void) {
-    ESP_ERROR_CHECK(esp_sleep_enable_timer_wakeup(1000000ULL));
+    ESP_ERROR_CHECK(esp_sleep_enable_timer_wakeup(5000000ULL));
     load_output_hold();
     esp_deep_sleep_start();
 }

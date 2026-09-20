@@ -18,6 +18,7 @@ void load_runtime_task(void *arg);
 void load_runtime_cycle(void);
 void load_runtime_sleep(void);
 void load_runtime_open_window(void);
+void load_runtime_close_window(void);
 int32_t load_runtime_window_remaining_ms(void);
 bool load_runtime_connection_blocks_sleep(bool connected);
 void load_runtime_get_snapshot(load_runtime_snapshot_t *out);

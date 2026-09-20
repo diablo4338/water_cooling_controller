@@ -8,8 +8,11 @@
 
 static const char *INA_TAG = "ina226";
 
-#define INA226_CONFIG_VALUE      0x4120 /* Power down until a single conversion is requested. */
+#define INA226_CONFIG_VALUE      0x45FF
 #define INA226_I2C_TIMEOUT_MS    100
+/* MASK/ENABLE configuration: SOL..CNVR (15:10), APOL (1), LEN (0).
+ * AFF, CVRF and OVF (4:2) are status flags; bits 9:5 are reserved. */
+#define INA226_MASK_ENABLE_CONFIG_MASK 0xFC03U
 
 static bool s_i2c_inited = false;
 static bool s_ina_error = false;
@@ -69,7 +72,9 @@ static bool ina226_verify_reg(uint8_t reg, uint16_t expected, const char *name) 
         ina226_recover(name, err);
         return false;
     }
-    if (actual != expected) {
+    const uint16_t verify_mask = reg == REG_MASK_ENABLE
+        ? INA226_MASK_ENABLE_CONFIG_MASK : 0xFFFFU;
+    if ((actual & verify_mask) != (expected & verify_mask)) {
         ESP_LOGW(INA_TAG, "%s mismatch wrote=0x%04X read=0x%04X", name, expected, actual);
     } else {
         ESP_LOGI(INA_TAG, "%s=0x%04X", name, actual);
@@ -186,26 +191,48 @@ bool ina226_get_sample(ina226_sample_t *out) {
 
 bool ina226_get_single_sample(ina226_sample_t *out) {
     if (!out || !ina226_init()) return false;
-    /* One shunt + bus conversion, 1.1 ms each, no averaging, triggered mode.
-     * Unlike continuous reads this cannot return a pre-wakeup measurement. */
-    uint16_t status;
-    if (ina226_read_reg(REG_MASK_ENABLE, &status) != ESP_OK) return false;
-    esp_err_t err = ina226_write_reg(REG_CONFIG, 0x4123);
+    uint16_t status = 0;
+    esp_err_t err = ina226_write_reg(REG_CONFIG, INA226_CONFIG_VALUE);
     if (err != ESP_OK) {
-        ina226_recover("trigger conversion", err);
+        ina226_recover("start conversion", err);
         return false;
     }
-    for (unsigned attempt = 0; attempt < 10; ++attempt) {
+    bool ready = false;
+    for (unsigned attempt = 0; attempt < 40; ++attempt) {
         vTaskDelay(pdMS_TO_TICKS(10));
         err = ina226_read_reg(REG_MASK_ENABLE, &status);
         if (err != ESP_OK) {
             ina226_recover("conversion status", err);
             return false;
         }
-        if (status & (1U << 3)) return ina226_get_sample(out);
+        if (status & (1U << 3)) {
+            ready = true;
+            break;
+        }
     }
-    ina226_recover("conversion timeout", ESP_ERR_TIMEOUT);
-    return false;
+    if (!ready) {
+        ina226_recover("conversion timeout", ESP_ERR_TIMEOUT);
+        return false;
+    }
+    uint16_t bus_raw = 0;
+    uint16_t current_raw = 0;
+    if (ina226_read_reg(REG_BUS_VOLTAGE, &bus_raw) != ESP_OK ||
+        ina226_read_reg(REG_CURRENT, &current_raw) != ESP_OK) {
+        ina226_recover("read sample", ESP_FAIL);
+        return false;
+    }
+    *out = (ina226_sample_t) {
+        .bus_raw = bus_raw,
+        .current_raw = (int16_t)current_raw,
+        .voltage_v = ina226_bus_raw_to_v(bus_raw),
+        .current_ma = ina226_current_raw_to_ma((int16_t)current_raw),
+        .valid = true,
+    };
+    s_ina_error = false;
+    ESP_LOGI(INA_TAG, "sample bus_raw=%u current_raw=%d => %.3f V %.1f mA",
+             (unsigned)out->bus_raw, (int)out->current_raw,
+             (double)out->voltage_v, (double)out->current_ma);
+    return true;
 }
 
 float ina226_bus_raw_to_v(uint16_t raw) {
