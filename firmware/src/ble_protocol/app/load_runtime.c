@@ -22,14 +22,19 @@
 #include "storage.h"
 #include "runtime_config.h"
 
-#define RETAINED_MAGIC 0x4C4F4102U
+#define RETAINED_MAGIC 0x4C4F4103U
 /* Physical ADS input 2 maps to logical temperature channel 4. */
 #define BUTTON_ADS_INPUT 2
+#define PAIR_BUTTON_GPIO GPIO_NUM_19
+#define PAIR_BUTTON_ACTIVE_LEVEL 0
 
 static portMUX_TYPE window_mux = portMUX_INITIALIZER_UNLOCKED;
 static connect_window_t connect_window;
 static bool window_expiry_logged = true;
 static portMUX_TYPE snapshot_mux = portMUX_INITIALIZER_UNLOCKED;
+static portMUX_TYPE pair_button_mux = portMUX_INITIALIZER_UNLOCKED;
+static volatile bool pair_button_irq_pending;
+static bool pairing_request_pending;
 static load_runtime_snapshot_t snapshot = {
     .temperature_c = NAN,
     .voltage_v = NAN,
@@ -37,7 +42,21 @@ static load_runtime_snapshot_t snapshot = {
 };
 
 #define BUTTON_LED_GPIO GPIO_NUM_1
-#define LONG_PRESS_US (10LL * 1000000)
+
+static void IRAM_ATTR pair_button_isr(void *arg) {
+    (void)arg;
+    portENTER_CRITICAL_ISR(&pair_button_mux);
+    pair_button_irq_pending = true;
+    portEXIT_CRITICAL_ISR(&pair_button_mux);
+}
+
+static bool take_pair_button_press(void) {
+    portENTER_CRITICAL(&pair_button_mux);
+    bool pressed = pair_button_irq_pending;
+    pair_button_irq_pending = false;
+    portEXIT_CRITICAL(&pair_button_mux);
+    return pressed;
+}
 
 void load_runtime_open_window(void) {
     portENTER_CRITICAL(&window_mux);
@@ -79,9 +98,6 @@ bool load_runtime_connection_blocks_sleep(bool connected) {
 static RTC_DATA_ATTR struct {
     uint32_t magic;
     load_state_t state;
-    bool long_press_pending;
-    bool reset_sent;
-    int64_t long_press_since_us;
 } retained;
 
 void load_runtime_init(void) {
@@ -100,6 +116,38 @@ void load_runtime_init(void) {
     };
     ESP_ERROR_CHECK(gpio_config(&led));
     ESP_ERROR_CHECK(gpio_set_level(BUTTON_LED_GPIO, retained.state.button_was_pressed));
+
+    const gpio_config_t pair_button = {
+        .pin_bit_mask = 1ULL << PAIR_BUTTON_GPIO,
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_NEGEDGE,
+    };
+    ESP_ERROR_CHECK(gpio_config(&pair_button));
+    esp_err_t isr_err = gpio_install_isr_service(0);
+    if (isr_err != ESP_OK && isr_err != ESP_ERR_INVALID_STATE) {
+        ESP_ERROR_CHECK(isr_err);
+    }
+    ESP_ERROR_CHECK(gpio_isr_handler_add(PAIR_BUTTON_GPIO, pair_button_isr, NULL));
+    if (gpio_get_level(PAIR_BUTTON_GPIO) == PAIR_BUTTON_ACTIVE_LEVEL) {
+        portENTER_CRITICAL(&pair_button_mux);
+        pair_button_irq_pending = true;
+        portEXIT_CRITICAL(&pair_button_mux);
+    }
+}
+
+void load_runtime_process_pair_button(void) {
+    portENTER_CRITICAL(&pair_button_mux);
+    bool requested = pairing_request_pending;
+    pairing_request_pending = false;
+    portEXIT_CRITICAL(&pair_button_mux);
+    if (!requested) return;
+
+    ESP_LOGI("load", "GPIO19 button pressed action=trust_reset_pairing");
+    trust_reset();
+    pair_mode_activate();
+    gap_disconnect_client();
 }
 
 void load_runtime_get_snapshot(load_runtime_snapshot_t *out) {
@@ -127,32 +175,18 @@ void load_runtime_cycle(void) {
     struct timeval now;
     gettimeofday(&now, NULL);
     int64_t now_us = (int64_t)now.tv_sec * 1000000 + now.tv_usec;
-    bool valid_button = isfinite(temperature);
     bool pressed = load_button_is_pressed(&retained.state, &policy, temperature);
 
-    /* Read the edge before the load FSM updates its retained button history.
-     * The BLE window also opens in WORKING, without changing the load state. */
+    if (take_pair_button_press()) {
+        load_runtime_open_window();
+        portENTER_CRITICAL(&pair_button_mux);
+        pairing_request_pending = true;
+        portEXIT_CRITICAL(&pair_button_mux);
+    }
+
+    /* The thermal button only opens the BLE window and drives the load FSM. */
     if (pressed && !retained.state.button_was_pressed) {
         load_runtime_open_window();
-        retained.long_press_pending = true;
-        retained.reset_sent = false;
-        retained.long_press_since_us = now_us;
-        ESP_LOGI("load", "Timer long_press started duration_ms=10000");
-    } else if (valid_button && !pressed) {
-        if (retained.long_press_pending && !retained.reset_sent) {
-            ESP_LOGI("load", "Timer long_press cancelled reason=button_released elapsed_ms=%lld",
-                     (long long)((now_us - retained.long_press_since_us) / 1000));
-        }
-        retained.long_press_pending = false;
-        retained.reset_sent = false;
-    }
-    if (pressed && retained.long_press_pending && !retained.reset_sent &&
-        now_us - retained.long_press_since_us >= LONG_PRESS_US) {
-        retained.reset_sent = true;
-        ESP_LOGI("load", "Timer long_press expired action=trust_reset");
-        trust_reset();
-        pair_mode_activate();
-        gap_disconnect_client();
     }
     ina226_sample_t sample;
     bool ina_valid = ina226_get_single_sample(&sample);
@@ -194,6 +228,8 @@ void load_runtime_sleep(void) {
     runtime_config_t config;
     runtime_config_get(&config);
     ESP_ERROR_CHECK(esp_sleep_enable_timer_wakeup((uint64_t)config.deep_sleep_ms * 1000ULL));
+    ESP_ERROR_CHECK(esp_deep_sleep_enable_gpio_wakeup(
+        1ULL << PAIR_BUTTON_GPIO, ESP_GPIO_WAKEUP_GPIO_LOW));
     load_output_hold();
     esp_deep_sleep_start();
 }
@@ -202,6 +238,7 @@ void load_runtime_task(void *arg) {
     (void)arg;
     for (;;) {
         load_runtime_cycle();
+        load_runtime_process_pair_button();
         /* GAP owns the final sleep decision, serialized with connection events.
          * This blocks until GAP either enters sleep or declines the request. */
         gap_service_poll();

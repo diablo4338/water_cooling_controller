@@ -16,6 +16,7 @@ typedef struct {
 void load_runtime_init(void);
 void load_runtime_task(void *arg);
 void load_runtime_cycle(void);
+void load_runtime_process_pair_button(void);
 void load_runtime_sleep(void);
 void load_runtime_open_window(void);
 void load_runtime_close_window(void);

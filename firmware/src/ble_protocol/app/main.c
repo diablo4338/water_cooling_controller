@@ -85,7 +85,8 @@ void app_main(void) {
 
     ESP_ERROR_CHECK(nimble_port_init());
     gap_init();
-    if (!fsm_is_paired()) {
+    load_runtime_process_pair_button();
+    if (!fsm_is_paired() && !pair_mode_is_active()) {
         pair_mode_activate();
     }
     ble_svc_gap_init();
