@@ -31,6 +31,8 @@ void pair_tests_force_link(void);
 void conn_guard_tests_force_link(void);
 void metrics_tests_force_link(void);
 void load_state_tests_force_link(void);
+void runtime_config_tests_force_link(void);
+void buzzer_tests_force_link(void);
 void connect_window_tests_force_link(void);
 #endif
 
@@ -44,6 +46,8 @@ void app_main(void) {
     conn_guard_tests_force_link();
     metrics_tests_force_link();
     load_state_tests_force_link();
+    runtime_config_tests_force_link();
+    buzzer_tests_force_link();
     connect_window_tests_force_link();
     ESP_ERROR_CHECK(nvs_flash_init());
     unity_run_all_tests();

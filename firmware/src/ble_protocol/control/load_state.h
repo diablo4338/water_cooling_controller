@@ -15,17 +15,19 @@ typedef struct {
     bool button_was_pressed;
     bool low_current_pending;
     int64_t low_current_since_us;
+    float temperature_history[5];
+    uint8_t temperature_count;
+    uint8_t temperature_next;
 } load_state_t;
 
 typedef struct {
-    float button_temperature_c;
-    float button_release_temperature_c;
+    float button_delta_c;
     float idle_current_ma;
     int64_t idle_timeout_us;
     bool require_new_press;
 } load_policy_t;
 
-/* Apply hysteresis to the retained button level. */
+/* Compare the current sample with the median of five preceding valid samples. */
 bool load_button_is_pressed(const load_state_t *state, const load_policy_t *policy,
                             float temperature_c);
 

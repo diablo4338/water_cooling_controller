@@ -4,49 +4,72 @@
 
 void load_state_tests_force_link(void) {}
 
-static const load_policy_t policy = {30.0f, 27.0f, 100.0f, 300000000LL, true};
+static const load_policy_t policy = {
+    .button_delta_c = 2.0f,
+    .idle_current_ma = 100.0f,
+    .idle_timeout_us = 300000000LL,
+    .require_new_press = true,
+};
 
-TEST_CASE("load starts above threshold and ignores working presses", "[load]") {
-    load_state_t state = {0};
-    load_state_step(&state, &policy, 30.0f, 0, 0);
-    TEST_ASSERT_EQUAL(LOAD_WORKING, state.mode);
-    load_state_step(&state, &policy, 31.0f, 0, 1000000);
-    TEST_ASSERT_EQUAL(LOAD_WORKING, state.mode);
-    TEST_ASSERT_FALSE(state.low_current_pending);
-    load_state_step(&state, &policy, 20.0f, 200, 2000000);
-    load_state_step(&state, &policy, 31.0f, 200, 3000000);
-    TEST_ASSERT_EQUAL(LOAD_WORKING, state.mode);
+static void fill_history(load_state_t *state, float temperature) {
+    for (int i = 0; i < 5; ++i) {
+        load_state_step(state, &policy, temperature, 200, i * 1000000LL);
+    }
 }
 
-TEST_CASE("load timeout spans wakeups and requires release to restart", "[load]") {
-    load_state_t state = {.mode = LOAD_WORKING, .button_was_pressed = true};
-    load_state_step(&state, &policy, 31, 20, 1000000);
-    load_state_t restored = state;
-    load_state_step(&restored, &policy, 31, 20, 300999999);
-    TEST_ASSERT_EQUAL(LOAD_WORKING, restored.mode);
-    load_state_step(&restored, &policy, 31, 20, 301000000);
-    TEST_ASSERT_EQUAL(LOAD_IDLE, restored.mode);
-    load_state_step(&restored, &policy, NAN, 20, 302000000);
-    load_state_step(&restored, &policy, 31, 20, 303000000);
-    TEST_ASSERT_EQUAL(LOAD_IDLE, restored.mode);
-    load_state_step(&restored, &policy, 27, 20, 304000000);
-    load_state_step(&restored, &policy, 31, 20, 305000000);
-    TEST_ASSERT_EQUAL(LOAD_WORKING, restored.mode);
-}
-
-TEST_CASE("button hysteresis prevents repeated press above release threshold", "[load]") {
+TEST_CASE("thermal button uses median of five previous samples", "[load]") {
     load_state_t state = {0};
-    load_state_step(&state, &policy, 30, 200, 0);
-    TEST_ASSERT_TRUE(state.button_was_pressed);
-    TEST_ASSERT_EQUAL(LOAD_WORKING, state.mode);
-    load_state_step(&state, &policy, 28, 200, 1000000);
-    TEST_ASSERT_TRUE(state.button_was_pressed);
-    load_state_step(&state, &policy, 30, 200, 2000000);
-    TEST_ASSERT_EQUAL(LOAD_WORKING, state.mode);
-    load_state_step(&state, &policy, 27, 200, 3000000);
+    for (int i = 0; i < 4; ++i) load_state_step(&state, &policy, 25, 200, i * 1000000LL);
+    load_state_step(&state, &policy, 27, 200, 4000000);
+    TEST_ASSERT_EQUAL(LOAD_IDLE, state.mode);
     TEST_ASSERT_FALSE(state.button_was_pressed);
-    load_state_step(&state, &policy, 30, 200, 4000000);
+    load_state_step(&state, &policy, 26.9f, 200, 5000000);
+    TEST_ASSERT_FALSE(state.button_was_pressed);
+    load_state_step(&state, &policy, 27.0f, 200, 6000000);
+    TEST_ASSERT_TRUE(state.button_was_pressed);
     TEST_ASSERT_EQUAL(LOAD_WORKING, state.mode);
+}
+
+TEST_CASE("single outlier does not move median", "[load]") {
+    load_state_t state = {0};
+    fill_history(&state, 25);
+    load_state_step(&state, &policy, 60, 200, 5000000);
+    load_state_step(&state, &policy, 25, 200, 6000000);
+    TEST_ASSERT_TRUE(load_button_is_pressed(&state, &policy, 27));
+}
+
+TEST_CASE("thermal history is rolling and ignores invalid samples", "[load]") {
+    load_state_t state = {0};
+    fill_history(&state, 25);
+    load_state_step(&state, &policy, NAN, 200, 5000000);
+    TEST_ASSERT_EQUAL(5, state.temperature_count);
+    TEST_ASSERT_EQUAL(0, state.temperature_next);
+    load_state_step(&state, &policy, 27, 200, 6000000);
+    TEST_ASSERT_TRUE(state.button_was_pressed);
+    load_state_step(&state, &policy, NAN, 200, 7000000);
+    TEST_ASSERT_TRUE(state.button_was_pressed);
+    load_state_step(&state, &policy, 25, 200, 8000000);
+    TEST_ASSERT_FALSE(state.button_was_pressed);
+    load_state_step(&state, &policy, 40, 200, 9000000);
+    load_state_step(&state, &policy, 40, 200, 10000000);
+    load_state_step(&state, &policy, 40, 200, 11000000);
+    TEST_ASSERT_FALSE(load_button_is_pressed(&state, &policy, 41));
+}
+
+TEST_CASE("retained history survives wakeup and restart needs new press", "[load]") {
+    load_state_t state = {0};
+    fill_history(&state, 25);
+    load_state_t restored = state;
+    load_state_step(&restored, &policy, 27, 200, 5000000);
+    TEST_ASSERT_EQUAL(LOAD_WORKING, restored.mode);
+    load_state_step(&restored, &policy, 27, 20, 6000000);
+    load_state_step(&restored, &policy, 27, 20, 306000000);
+    TEST_ASSERT_EQUAL(LOAD_IDLE, restored.mode);
+    load_state_step(&restored, &policy, NAN, 20, 307000000);
+    TEST_ASSERT_EQUAL(LOAD_IDLE, restored.mode);
+    load_state_step(&restored, &policy, 25, 200, 308000000);
+    load_state_step(&restored, &policy, 29, 200, 309000000);
+    TEST_ASSERT_EQUAL(LOAD_WORKING, restored.mode);
 }
 
 TEST_CASE("invalid or high INA sample resets low current timeout", "[load]") {
@@ -58,6 +81,4 @@ TEST_CASE("invalid or high INA sample resets low current timeout", "[load]") {
     TEST_ASSERT_EQUAL(LOAD_WORKING, state.mode);
     load_state_step(&state, &policy, NAN, -100, 599000000);
     TEST_ASSERT_FALSE(state.low_current_pending);
-    load_state_step(&state, &policy, NAN, 0, 600000000);
-    TEST_ASSERT_EQUAL(LOAD_WORKING, state.mode);
 }

@@ -14,6 +14,7 @@
 #include "ina226.h"
 #include "load_output.h"
 #include "load_state.h"
+#include "buzzer_logic.h"
 #include "pair_mode.h"
 #include "state.h"
 #include "gap.h"
@@ -22,7 +23,7 @@
 #include "storage.h"
 #include "runtime_config.h"
 
-#define RETAINED_MAGIC 0x4C4F4103U
+#define RETAINED_MAGIC 0x4C4F4106U
 /* Physical ADS input 2 maps to logical temperature channel 4. */
 #define BUTTON_ADS_INPUT 2
 #define PAIR_BUTTON_GPIO GPIO_NUM_19
@@ -42,6 +43,14 @@ static load_runtime_snapshot_t snapshot = {
 };
 
 #define BUTTON_LED_GPIO GPIO_NUM_1
+#define BUZZER_GPIO GPIO_NUM_0
+
+static void buzzer_signal(uint16_t duration_ms) {
+    if (!duration_ms) return;
+    ESP_ERROR_CHECK(gpio_set_level(BUZZER_GPIO, 1));
+    vTaskDelay(pdMS_TO_TICKS(duration_ms));
+    ESP_ERROR_CHECK(gpio_set_level(BUZZER_GPIO, 0));
+}
 
 static void IRAM_ATTR pair_button_isr(void *arg) {
     (void)arg;
@@ -98,15 +107,29 @@ bool load_runtime_connection_blocks_sleep(bool connected) {
 static RTC_DATA_ATTR struct {
     uint32_t magic;
     load_state_t state;
+    buzzer_state_t buzzer;
+    bool reset_button_was_down;
 } retained;
 
 void load_runtime_init(void) {
     if (esp_reset_reason() != ESP_RST_DEEPSLEEP || retained.magic != RETAINED_MAGIC ||
-        (retained.state.mode != LOAD_IDLE && retained.state.mode != LOAD_WORKING)) {
+        (retained.state.mode != LOAD_IDLE && retained.state.mode != LOAD_WORKING) ||
+        retained.state.temperature_count > 5 || retained.state.temperature_next >= 5) {
         retained.state = (load_state_t){.mode = LOAD_IDLE};
+        retained.buzzer = (buzzer_state_t){0};
+        retained.reset_button_was_down = false;
         retained.magic = RETAINED_MAGIC;
     }
     load_output_restore(retained.state.mode == LOAD_WORKING);
+    ESP_ERROR_CHECK(gpio_set_level(BUZZER_GPIO, 0));
+    const gpio_config_t buzzer = {
+        .pin_bit_mask = 1ULL << BUZZER_GPIO,
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    ESP_ERROR_CHECK(gpio_config(&buzzer));
     const gpio_config_t led = {
         .pin_bit_mask = 1ULL << BUTTON_LED_GPIO,
         .mode = GPIO_MODE_OUTPUT,
@@ -130,7 +153,9 @@ void load_runtime_init(void) {
         ESP_ERROR_CHECK(isr_err);
     }
     ESP_ERROR_CHECK(gpio_isr_handler_add(PAIR_BUTTON_GPIO, pair_button_isr, NULL));
-    if (gpio_get_level(PAIR_BUTTON_GPIO) == PAIR_BUTTON_ACTIVE_LEVEL) {
+    if (gpio_get_level(PAIR_BUTTON_GPIO) != PAIR_BUTTON_ACTIVE_LEVEL) {
+        retained.reset_button_was_down = false;
+    } else if (!retained.reset_button_was_down) {
         portENTER_CRITICAL(&pair_button_mux);
         pair_button_irq_pending = true;
         portEXIT_CRITICAL(&pair_button_mux);
@@ -144,7 +169,13 @@ void load_runtime_process_pair_button(void) {
     portEXIT_CRITICAL(&pair_button_mux);
     if (!requested) return;
 
-    ESP_LOGI("load", "GPIO19 button pressed action=trust_reset_pairing");
+    ESP_LOGI("load", "GPIO19 button pressed action=global_reset");
+    esp_err_t config_err = runtime_config_reset_defaults();
+    if (config_err != ESP_OK) {
+        ESP_LOGE("load", "Global reset: config defaults not saved: %s",
+                 esp_err_to_name(config_err));
+    }
+    retained.buzzer = (buzzer_state_t){0};
     trust_reset();
     pair_mode_activate();
     gap_disconnect_client();
@@ -161,8 +192,7 @@ void load_runtime_cycle(void) {
     runtime_config_t config;
     runtime_config_get(&config);
     const load_policy_t policy = {
-        .button_temperature_c = (float)config.button_press_deci_c / 10.0f,
-        .button_release_temperature_c = (float)config.button_release_deci_c / 10.0f,
+        .button_delta_c = (float)config.button_delta_deci_c / 10.0f,
         .idle_current_ma = (float)config.idle_current_ma,
         .idle_timeout_us = (int64_t)config.idle_timeout_s * 1000000LL,
         .require_new_press = true,
@@ -178,10 +208,14 @@ void load_runtime_cycle(void) {
     bool pressed = load_button_is_pressed(&retained.state, &policy, temperature);
 
     if (take_pair_button_press()) {
+        retained.reset_button_was_down = true;
         load_runtime_open_window();
         portENTER_CRITICAL(&pair_button_mux);
         pairing_request_pending = true;
         portEXIT_CRITICAL(&pair_button_mux);
+    }
+    if (gpio_get_level(PAIR_BUTTON_GPIO) != PAIR_BUTTON_ACTIVE_LEVEL) {
+        retained.reset_button_was_down = false;
     }
 
     /* The thermal button only opens the BLE window and drives the load FSM. */
@@ -194,6 +228,17 @@ void load_runtime_cycle(void) {
     float current = ina_valid ? sample.current_ma : NAN;
     load_state_t previous = retained.state;
     load_state_step(&retained.state, &policy, temperature, current, now_us);
+    const buzzer_policy_t buzzer_policy = {
+        .enabled = config.buzzer_enabled != 0,
+        .threshold_mv = config.buzzer_threshold_mv,
+        .low_delay_s = config.buzzer_low_delay_s,
+        .button_ms = config.buzzer_button_ms,
+        .low_ms = config.buzzer_low_ms,
+        .combined_ms = config.buzzer_combined_ms,
+    };
+    uint16_t beep_ms = buzzer_step(&retained.buzzer, &buzzer_policy,
+                                   pressed && !previous.button_was_pressed,
+                                   voltage, now_us);
     if (!previous.low_current_pending && retained.state.low_current_pending) {
         ESP_LOGI("load", "Timer low_current started duration_ms=%lld current_ma=%.1f",
                  (long long)(policy.idle_timeout_us / 1000), (double)current);
@@ -222,14 +267,17 @@ void load_runtime_cycle(void) {
     snapshot.current_ma = current;
     portEXIT_CRITICAL(&snapshot_mux);
     load_metrics_publish();
+    buzzer_signal(beep_ms);
 }
 
 void load_runtime_sleep(void) {
     runtime_config_t config;
     runtime_config_get(&config);
     ESP_ERROR_CHECK(esp_sleep_enable_timer_wakeup((uint64_t)config.deep_sleep_ms * 1000ULL));
-    ESP_ERROR_CHECK(esp_deep_sleep_enable_gpio_wakeup(
-        1ULL << PAIR_BUTTON_GPIO, ESP_GPIO_WAKEUP_GPIO_LOW));
+    if (gpio_get_level(PAIR_BUTTON_GPIO) != PAIR_BUTTON_ACTIVE_LEVEL) {
+        ESP_ERROR_CHECK(esp_deep_sleep_enable_gpio_wakeup(
+            1ULL << PAIR_BUTTON_GPIO, ESP_GPIO_WAKEUP_GPIO_LOW));
+    }
     load_output_hold();
     esp_deep_sleep_start();
 }

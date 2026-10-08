@@ -3,6 +3,7 @@ set(SRCS
     "app/app_tasks.c"
     "app/load_runtime.c"
     "control/load_state.c"
+    "control/buzzer_logic.c"
     "control/runtime_config.c"
     "hw/load_output.c"
     "ble/access.c"
@@ -20,6 +21,8 @@ set(SRCS
     "pairing/storage.c")
 
 if(DEFINED PAIR_RUN_TESTS)
+    list(APPEND SRCS "../../tests/ble_protocol/test_buzzer_logic.c")
+    list(APPEND SRCS "../../tests/ble_protocol/test_runtime_config.c")
     list(APPEND SRCS "../../tests/ble_protocol/test_load_state.c")
     list(APPEND SRCS "../../tests/ble_protocol/test_connect_window.c")
     list(APPEND SRCS "../../tests/ble_protocol/test_pair_state.c")

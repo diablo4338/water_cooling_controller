@@ -9,30 +9,52 @@ BLE is started only in the pairing/authorization service window.
 
 - Initial state after power-on, reset or invalid retained state: `idle`, load off.
 - Button: logical temperature channel 4 (zero-based channel 3, ADS1115 input AIN2).
-  Temperature strictly above 30 °C is pressed. Invalid ADC data is not a press or
-  a release.
+  A press occurs when the current valid temperature is at least 2 °C above the
+  median of the preceding five valid readings. Five readings are needed before
+  the first press can be detected. Invalid ADC data leaves the button state and
+  the history unchanged.
 - `idle` + a new press: `working`, load at 100%.
 - `working`: button presses do not change the state.
 - Absolute INA current below 100 mA continuously for 300 seconds: `idle`, load off.
   A sample at/above the threshold or a failed INA read resets the timeout.
 - After timeout, the button must be released and pressed again to restart.
 - GPIO1 LED is on while the thermal button is pressed and off after release.
-- Holding the thermal button for 10 seconds clears all trusted clients, disconnects
-  the active client and opens pairing. The reset runs once per hold; another reset
-  requires a release and a new hold.
+- GPIO0 buzzer sounds for 0.5 seconds on a new thermal-button press. If the INA
+  bus voltage is below the buzzer threshold at that press, it sounds for 1.5 seconds.
+  After more than 10 seconds of valid readings below the threshold, it sounds for
+  1 second once per low-voltage episode. An invalid or recovered reading resets
+  the low-voltage timer. A simultaneous press uses only the 1.5-second signal.
+  A global enable flag silences all signals when disabled.
+- Pressing the GPIO19 reset button clears all trusted clients, writes factory
+  runtime parameters to NVS, disconnects the active client and opens pairing.
+  The reset runs once while the button is held, including across deep sleep.
 
-Thresholds, timeout and the release requirement are defined in `policy` in
-`firmware/src/ble_protocol/app/load_runtime.c`; the ADC input is defined alongside
-it. These are provisional defaults. There is no BLE configuration or operation
-interface; load policy is defined by the firmware.
+The temperature delta and other runtime settings are stored in NVS and configured
+over BLE. The delta defaults to 2 °C and is encoded in 0.1 °C steps.
+The battery display and runtime estimate use a factory voltage range of 6.6–8.4 V.
+The client checks that values are numeric and fit their BLE fields. The firmware
+checks the wire format, the buzzer's boolean flag, and that the upper battery
+bound is strictly above the lower one. No other semantic ranges are imposed.
+The BLE configuration format is version 4 (28 bytes); the client negotiates an
+MTU large enough to read and write it. Existing version 1, 2 and 3 settings in
+NVS are migrated. Version 3 buzzer settings are preserved and the new global
+enable flag defaults to on; earlier versions receive factory buzzer settings.
+Version 1 also receives the 2 °C button delta.
+The buzzer threshold (default 7 V, 0 disables voltage alerts), low-voltage delay
+(10 s), the three signal durations (0.5 / 1 / 1.5 s), and global buzzer enable
+can be changed over BLE. Once the controller confirms disabling the buzzer, the
+client displays its remaining buzzer settings as read-only.
+The GPIO19 global reset restores the factory values for every runtime parameter,
+including the 2 °C delta. The active parameters change after the NVS write succeeds.
 
 ## Retention and outputs
 
-`load_state_t`, including the low-current start timestamp and previous button
-state, is stored in RTC memory. System time (`gettimeofday`, RTC-backed in the
+`load_state_t`, including the five-reading temperature history, low-current start
+timestamp and previous button state, is stored in RTC memory. System time (`gettimeofday`, RTC-backed in the
 current ESP32-C3 configuration) includes deep sleep; the uptime timer does not.
 No NVS writes are made per wakeup. Pairing credentials continue to use the existing
 NVS storage and authorization protocol.
+The low-voltage timer and one-alert-per-episode flag are also retained in RTC memory.
 
 | Output | Off (0%) | On (100%) |
 | --- | --- | --- |
@@ -52,9 +74,9 @@ The existing ADC conversion and INA calibration are retained.
 ## BLE connection window
 
 A new press of the temperature button opens BLE advertising for 60 seconds. The
-press is detected on the same ADS1115 channel and at the same 30 °C threshold as
-the load command. Holding the temperature above the threshold does not keep
-extending the window; another window requires a release and a new press.
+same median-and-delta decision drives the load command and BLE window. The current
+reading is added to the history after comparison; as the median catches up to a
+warmer temperature, the button releases. Another window requires a new press.
 
 If the trust store is empty, the connection window advertises the pairing service.
 Otherwise it advertises the authorization service for an existing client.
@@ -79,8 +101,12 @@ BLE connections cannot persist through deep sleep.
 
 ## Validation on hardware
 
-Unity tests in `firmware/tests/ble_protocol/test_load_state.c` cover threshold
-boundaries, ignored presses, retained timeout, invalid measurements and restart.
+Unity tests in `firmware/tests/ble_protocol/test_load_state.c` cover the median
+boundary, rolling history, retained timeout, invalid measurements and restart.
+`firmware/tests/ble_protocol/test_runtime_config.c` verifies that factory
+configuration is committed and reloaded from NVS.
+`firmware/tests/ble_protocol/test_buzzer_logic.c` checks timing, invalid readings,
+retention and combined-signal priority.
 They are included in the existing `PAIR_RUN_TESTS` build.
 
 Check GPIO3, GPIO10, GPIO2 and the GPIO1 LED with an oscilloscope across sleep entry, reset,
