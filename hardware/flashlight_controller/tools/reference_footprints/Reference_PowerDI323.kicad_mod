@@ -1,0 +1,74 @@
+(footprint "Reference_PowerDI323"
+  (layer "F.Cu")
+  (property "Reference" "REF**"
+    (at 0 -2.2 90)
+    (layer "F.SilkS")
+    (hide yes)
+    (uuid "d2364ad0-f99a-4020-8971-4ff39b4c109d")
+    (effects
+      (font
+        (size 1 1)
+        (thickness 0.15))))
+  (property "Value" "Reference_PowerDI323"
+    (at -1 -3.5 0)
+    (layer "F.Fab")
+    (uuid "ccb1f76f-448b-48bd-b980-5c2d3a9e017e")
+    (effects
+      (font
+        (size 1 1)
+        (thickness 0.15))))
+  (property "Datasheet" "~"
+    (at 0 0 90)
+    (layer "F.Fab")
+    (hide yes)
+    (uuid "e93952cb-36b9-4689-b857-a34cfb3071b4")
+    (effects
+      (font
+        (size 1.27 1.27)
+        (thickness 0.15))))
+  (property "Description" "Schottky diode"
+    (at 0 0 90)
+    (layer "F.Fab")
+    (hide yes)
+    (uuid "aa6762c8-6ff1-4710-961f-a1c8ed4dee0e")
+    (effects
+      (font
+        (size 1.27 1.27)
+        (thickness 0.15))))
+  (property "Sim.Type" ""
+    (at 0 0 270)
+    (unlocked yes)
+    (layer "F.Fab")
+    (hide yes)
+    (uuid "2706e9ae-8386-4ab5-82a0-9a5995c969b3")
+    (effects
+      (font
+        (size 1 1)
+        (thickness 0.15))))
+  (property ki_fp_filters "TO-???* *_Diode_* *SingleDiode* D_*")
+  (attr smd)
+  (fp_line
+    (start 1.3 1)
+    (end -1.3 1)
+    (stroke
+      (width 0.12)
+      (type solid))
+    (layer "F.SilkS")
+    (uuid "bcd7e0cc-2690-4fb2-9f9d-9ff1fd10cd5b"))
+  (fp_line
+    (start -1.3 -1)
+    (end 1.3 -1)
+    (stroke
+      (width 0.12)
+      (type solid))
+    (layer "F.SilkS")
+    (uuid "bcb21d48-40b1-4868-a6ea-91e8cec414d9"))
+  (pad "1" smd rect
+    (at -1.15 0 0.0)
+    (size 1.8 1.3)
+    (layers "F.Cu" "F.Mask" "F.Paste"))
+  (pad "2" smd rect
+    (at 1.15 0 0.0)
+    (size 1.8 1.3)
+    (layers "F.Cu" "F.Mask" "F.Paste"))
+  (embedded_fonts no))

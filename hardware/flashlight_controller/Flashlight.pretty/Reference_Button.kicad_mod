@@ -1,0 +1,83 @@
+(footprint "Reference_Button"
+  (layer "F.Cu")
+  (property "Reference" "REF**"
+    (at -2.5 -2.5 0)
+    (unlocked yes)
+    (layer "F.SilkS")
+    (hide yes)
+    (uuid "42067cdf-02d3-4130-b3f4-2b9a47cd09d0")
+    (effects
+      (font
+        (size 1 1)
+        (thickness 0.1))))
+  (property "Value" "Reference_Button"
+    (at 3.15 1 0)
+    (unlocked yes)
+    (layer "F.Fab")
+    (hide yes)
+    (uuid "3675feee-d8b9-4752-a56d-babe586a4639")
+    (effects
+      (font
+        (size 1 1)
+        (thickness 0.15))))
+  (property "Datasheet" "~"
+    (at 0 0 0)
+    (unlocked yes)
+    (layer "F.Fab")
+    (hide yes)
+    (uuid "d44018dc-61c5-43c9-a7f1-93027737de3e")
+    (effects
+      (font
+        (size 1 1)
+        (thickness 0.15))))
+  (property "Description" "Push button switch, generic, two pins"
+    (at 0 0 0)
+    (unlocked yes)
+    (layer "F.Fab")
+    (hide yes)
+    (uuid "0e6be8ea-b00c-47d7-bd22-3251bd8f67a9")
+    (effects
+      (font
+        (size 1 1)
+        (thickness 0.15))))
+  (property "model" ""
+    (at 0 0 0)
+    (unlocked yes)
+    (layer "F.Fab")
+    (hide yes)
+    (uuid "b6ff1f3e-4476-4e5d-93b8-3439540d06aa")
+    (effects
+      (font
+        (size 1 1)
+        (thickness 0.15))))
+  (attr smd)
+  (fp_rect
+    (start -4.11625 -0.659166)
+    (end 4.131666 4.397499)
+    (stroke
+      (width 0.05)
+      (type default))
+    (fill no)
+    (layer "F.CrtYd")
+    (uuid "9d28a261-4224-4032-873c-d4f2930f1db6"))
+  (pad "1" smd roundrect
+    (at -3.15 0)
+    (size 1.7 1)
+    (layers "F.Cu" "F.Mask" "F.Paste")
+    (roundrect_rratio 0.15))
+  (pad "1" smd roundrect
+    (at 3.15 0)
+    (size 1.7 1)
+    (layers "F.Cu" "F.Mask" "F.Paste")
+    (roundrect_rratio 0.15))
+  (pad "2" smd roundrect
+    (at -3.15 3.8)
+    (size 1.7 1)
+    (layers "F.Cu" "F.Mask" "F.Paste")
+    (roundrect_rratio 0.15))
+  (pad "2" smd roundrect
+    (at 3.15 3.8)
+    (size 1.7 1)
+    (layers "F.Cu" "F.Mask" "F.Paste")
+    (roundrect_rratio 0.15))
+  (embedded_fonts no))

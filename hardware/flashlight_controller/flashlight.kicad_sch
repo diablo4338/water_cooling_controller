@@ -1,0 +1,266 @@
+(kicad_sch
+  (version 20250114)
+  (generator eeschema)
+  (uuid "a654af7a-4ed0-5e65-a4cd-0e8aec7ef590")
+  (paper "A4")
+  (lib_symbols
+    (symbol "power:PWR_FLAG"
+      (power global)
+      (pin_numbers
+        (hide yes))
+      (pin_names
+        (offset 0)
+        (hide yes))
+      (exclude_from_sim no)
+      (in_bom yes)
+      (on_board yes)
+      (in_pos_files yes)
+      (duplicate_pin_numbers_are_jumpers no)
+      (property "Reference" "#FLG"
+        (at 0 1.905 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (hide yes)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (property "Value" "PWR_FLAG"
+        (at 0 3.81 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (property "Footprint" ""
+        (at 0 0 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (hide yes)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (property "Datasheet" ""
+        (at 0 0 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (hide yes)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (property "Description" "Special symbol for telling ERC where power comes from"
+        (at 0 0 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (hide yes)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (property "ki_keywords" "flag power"
+        (at 0 0 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (hide yes)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (symbol "PWR_FLAG_0_0"
+        (pin power_out line
+          (at 0 0 90)
+          (length 0)
+          (name ""
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "1"
+            (effects
+              (font
+                (size 1.27 1.27))))))
+      (symbol "PWR_FLAG_0_1"
+        (polyline
+          (pts
+            (xy 0 0)
+            (xy 0 1.27)
+            (xy -1.016 1.905)
+            (xy 0 2.54)
+            (xy 1.016 1.905)
+            (xy 0 1.27))
+          (stroke
+            (width 0)
+            (type default))
+          (fill
+            (type none))))
+      (embedded_fonts no)))
+  (title_block
+    (title "2S flashlight controller / bottom assembly")
+    (rev "0.2"))
+  (sheet
+    (at 45 35)
+    (size 180 30)
+    (stroke
+      (width 0.1524)
+      (type default))
+    (fill
+      (color 0 0 0 0))
+    (uuid "cb8e0e8a-1113-53ee-bd49-812003262a2e")
+    (property "Sheetname" "Pack current, voltage and load switch"
+      (at 45 34 0)
+      (effects
+        (font
+          (size 1.27 1.27))
+        (justify left)))
+    (property "Sheetfile" "sense.kicad_sch"
+      (at 45 66 0)
+      (effects
+        (font
+          (size 1.27 1.27))
+        (justify left)))
+    (instances
+      (project "flashlight"
+        (path "/a654af7a-4ed0-5e65-a4cd-0e8aec7ef590"
+          (page "2")))))
+  (sheet
+    (at 45 83)
+    (size 180 30)
+    (stroke
+      (width 0.1524)
+      (type default))
+    (fill
+      (color 0 0 0 0))
+    (uuid "9ad4352c-e7e2-5437-936a-3ac2fd87f25c")
+    (property "Sheetname" "MCP16331 5V / LDO 3.3V"
+      (at 45 82 0)
+      (effects
+        (font
+          (size 1.27 1.27))
+        (justify left)))
+    (property "Sheetfile" "power.kicad_sch"
+      (at 45 114 0)
+      (effects
+        (font
+          (size 1.27 1.27))
+        (justify left)))
+    (instances
+      (project "flashlight"
+        (path "/a654af7a-4ed0-5e65-a4cd-0e8aec7ef590"
+          (page "3")))))
+  (sheet
+    (at 45 131)
+    (size 180 30)
+    (stroke
+      (width 0.1524)
+      (type default))
+    (fill
+      (color 0 0 0 0))
+    (uuid "b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59")
+    (property "Sheetname" "ESP32-C3 and user interfaces"
+      (at 45 130 0)
+      (effects
+        (font
+          (size 1.27 1.27))
+        (justify left)))
+    (property "Sheetfile" "controller.kicad_sch"
+      (at 45 162 0)
+      (effects
+        (font
+          (size 1.27 1.27))
+        (justify left)))
+    (instances
+      (project "flashlight"
+        (path "/a654af7a-4ed0-5e65-a4cd-0e8aec7ef590"
+          (page "4")))))
+  (symbol
+    (lib_id "power:PWR_FLAG")
+    (at 50.8 187.96 0)
+    (unit 1)
+    (in_bom no)
+    (on_board yes)
+    (uuid "c5780a92-8664-5218-aff3-1a65f8192f4a")
+    (property "Reference" "#FLG01"
+      (at 50.8 187.96 0)
+      (effects
+        (font
+          (size 1.27 1.27))
+        (hide yes)))
+    (property "Value" "PWR_FLAG"
+      (at 50.8 183.96 0)
+      (effects
+        (font
+          (size 1 1))))
+    (instances
+      (project "flashlight"
+        (path "/a654af7a-4ed0-5e65-a4cd-0e8aec7ef590"
+          (reference "#FLG01")
+          (unit 1)))))
+  (global_label "GND"
+    (shape bidirectional)
+    (at 50.8 187.96 0)
+    (effects
+      (font
+        (size 1 1))
+      (justify left))
+    (uuid "fc7d6f27-2fe2-53da-ad4d-07178a499298"))
+  (symbol
+    (lib_id "power:PWR_FLAG")
+    (at 101.6 187.96 0)
+    (unit 1)
+    (in_bom no)
+    (on_board yes)
+    (uuid "48d26c04-e8e8-52a7-964c-1dbecab1799d")
+    (property "Reference" "#FLG02"
+      (at 101.6 187.96 0)
+      (effects
+        (font
+          (size 1.27 1.27))
+        (hide yes)))
+    (property "Value" "PWR_FLAG"
+      (at 101.6 183.96 0)
+      (effects
+        (font
+          (size 1 1))))
+    (instances
+      (project "flashlight"
+        (path "/a654af7a-4ed0-5e65-a4cd-0e8aec7ef590"
+          (reference "#FLG02")
+          (unit 1)))))
+  (global_label "SYS_PLUS"
+    (shape bidirectional)
+    (at 101.6 187.96 0)
+    (effects
+      (font
+        (size 1 1))
+      (justify left))
+    (uuid "baf0a6db-385e-584b-aaaa-902d9652674a"))
+  (symbol
+    (lib_id "power:PWR_FLAG")
+    (at 152.4 187.96 0)
+    (unit 1)
+    (in_bom no)
+    (on_board yes)
+    (uuid "4c252972-4082-5548-a1de-44506fe5887b")
+    (property "Reference" "#FLG03"
+      (at 152.4 187.96 0)
+      (effects
+        (font
+          (size 1.27 1.27))
+        (hide yes)))
+    (property "Value" "PWR_FLAG"
+      (at 152.4 183.96 0)
+      (effects
+        (font
+          (size 1 1))))
+    (instances
+      (project "flashlight"
+        (path "/a654af7a-4ed0-5e65-a4cd-0e8aec7ef590"
+          (reference "#FLG03")
+          (unit 1)))))
+  (global_label "5V"
+    (shape bidirectional)
+    (at 152.4 187.96 0)
+    (effects
+      (font
+        (size 1 1))
+      (justify left))
+    (uuid "1cf9aeb3-d022-5978-ba33-95eb0e9cfbb8"))
+  (sheet_instances
+    (path "/"
+      (page "1"))))

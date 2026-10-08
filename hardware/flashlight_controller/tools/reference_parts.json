@@ -1,0 +1,494 @@
+[
+  {
+    "sheet": "ads.kicad_sch",
+    "reference": "R2",
+    "value": "330",
+    "footprint": "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
+  },
+  {
+    "sheet": "ads.kicad_sch",
+    "reference": "R7",
+    "value": "4k7",
+    "footprint": "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
+  },
+  {
+    "sheet": "ads.kicad_sch",
+    "reference": "J4",
+    "value": "Conn_01x02_Pin",
+    "footprint": "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Horizontal"
+  },
+  {
+    "sheet": "ads.kicad_sch",
+    "reference": "C2",
+    "value": "0.1",
+    "footprint": "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder"
+  },
+  {
+    "sheet": "ads.kicad_sch",
+    "reference": "J3",
+    "value": "Conn_01x02_Pin",
+    "footprint": "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Horizontal"
+  },
+  {
+    "sheet": "ads.kicad_sch",
+    "reference": "J2",
+    "value": "Conn_01x02_Pin",
+    "footprint": "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Horizontal"
+  },
+  {
+    "sheet": "ads.kicad_sch",
+    "reference": "U4",
+    "value": "ADS1115IDGS",
+    "footprint": "Ti:DGS0010A_N"
+  },
+  {
+    "sheet": "ads.kicad_sch",
+    "reference": "C4",
+    "value": "0.1",
+    "footprint": "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder"
+  },
+  {
+    "sheet": "ads.kicad_sch",
+    "reference": "J1",
+    "value": "Conn_01x02_Pin",
+    "footprint": "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Horizontal"
+  },
+  {
+    "sheet": "ads.kicad_sch",
+    "reference": "R3",
+    "value": "330",
+    "footprint": "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
+  },
+  {
+    "sheet": "ads.kicad_sch",
+    "reference": "R1",
+    "value": "330",
+    "footprint": "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
+  },
+  {
+    "sheet": "ads.kicad_sch",
+    "reference": "C3",
+    "value": "0.1",
+    "footprint": "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder"
+  },
+  {
+    "sheet": "ads.kicad_sch",
+    "reference": "C1",
+    "value": "0.1",
+    "footprint": "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder"
+  },
+  {
+    "sheet": "ads.kicad_sch",
+    "reference": "R5",
+    "value": "4k7",
+    "footprint": "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
+  },
+  {
+    "sheet": "ads.kicad_sch",
+    "reference": "R4",
+    "value": "330",
+    "footprint": "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
+  },
+  {
+    "sheet": "ads.kicad_sch",
+    "reference": "R8",
+    "value": "4k7",
+    "footprint": "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
+  },
+  {
+    "sheet": "ads.kicad_sch",
+    "reference": "R6",
+    "value": "4k7",
+    "footprint": "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
+  },
+  {
+    "sheet": "esp.kicad_sch",
+    "reference": "R26",
+    "value": "100",
+    "footprint": "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
+  },
+  {
+    "sheet": "esp.kicad_sch",
+    "reference": "U1",
+    "value": "ESP32-C3-WROOM-02",
+    "footprint": "RF_Module:ESP32-C3-WROOM-02"
+  },
+  {
+    "sheet": "esp.kicad_sch",
+    "reference": "R30",
+    "value": "4k7",
+    "footprint": "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
+  },
+  {
+    "sheet": "esp.kicad_sch",
+    "reference": "R15",
+    "value": "1k",
+    "footprint": "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
+  },
+  {
+    "sheet": "esp.kicad_sch",
+    "reference": "R23",
+    "value": "4k7",
+    "footprint": "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
+  },
+  {
+    "sheet": "esp.kicad_sch",
+    "reference": "SW2",
+    "value": "RESET",
+    "footprint": "Custom:smd button"
+  },
+  {
+    "sheet": "esp.kicad_sch",
+    "reference": "SW1",
+    "value": "PAIR",
+    "footprint": "Custom:smd button"
+  },
+  {
+    "sheet": "esp.kicad_sch",
+    "reference": "BZ1",
+    "value": "Buzzer",
+    "footprint": "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical"
+  },
+  {
+    "sheet": "esp.kicad_sch",
+    "reference": "Q3",
+    "value": "NXV40UNR",
+    "footprint": "Package_TO_SOT_SMD:SOT-23-3"
+  },
+  {
+    "sheet": "esp.kicad_sch",
+    "reference": "SW3",
+    "value": "BOOT",
+    "footprint": "Custom:smd button"
+  },
+  {
+    "sheet": "esp.kicad_sch",
+    "reference": "R25",
+    "value": "4k7",
+    "footprint": "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
+  },
+  {
+    "sheet": "esp.kicad_sch",
+    "reference": "R27",
+    "value": "100k",
+    "footprint": "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
+  },
+  {
+    "sheet": "esp.kicad_sch",
+    "reference": "D1",
+    "value": "D_Small",
+    "footprint": "Diode_SMD:D_0805_2012Metric_Pad1.15x1.40mm_HandSolder"
+  },
+  {
+    "sheet": "esp.kicad_sch",
+    "reference": "R20",
+    "value": "4k7",
+    "footprint": "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
+  },
+  {
+    "sheet": "esp.kicad_sch",
+    "reference": "R16",
+    "value": "1k",
+    "footprint": "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
+  },
+  {
+    "sheet": "esp.kicad_sch",
+    "reference": "R24",
+    "value": "4k7",
+    "footprint": "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
+  },
+  {
+    "sheet": "fan_power.kicad_sch",
+    "reference": "C24",
+    "value": "10",
+    "footprint": "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder"
+  },
+  {
+    "sheet": "fan_power.kicad_sch",
+    "reference": "C20",
+    "value": "0.1",
+    "footprint": "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder"
+  },
+  {
+    "sheet": "fan_power.kicad_sch",
+    "reference": "Q2",
+    "value": "NXV40UNR",
+    "footprint": "Package_TO_SOT_SMD:SOT-23-3"
+  },
+  {
+    "sheet": "fan_power.kicad_sch",
+    "reference": "L1",
+    "value": "SRN4018‑100M",
+    "footprint": "Custom:SRN4018"
+  },
+  {
+    "sheet": "fan_power.kicad_sch",
+    "reference": "R29",
+    "value": "61k9",
+    "footprint": "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
+  },
+  {
+    "sheet": "fan_power.kicad_sch",
+    "reference": "R34",
+    "value": "100k",
+    "footprint": "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
+  },
+  {
+    "sheet": "fan_power.kicad_sch",
+    "reference": "Q1",
+    "value": "MMFTP3334K",
+    "footprint": "Package_TO_SOT_SMD:SOT-23-3"
+  },
+  {
+    "sheet": "fan_power.kicad_sch",
+    "reference": "C21",
+    "value": "10p",
+    "footprint": "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder"
+  },
+  {
+    "sheet": "fan_power.kicad_sch",
+    "reference": "C22",
+    "value": "10",
+    "footprint": "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder"
+  },
+  {
+    "sheet": "fan_power.kicad_sch",
+    "reference": "D3",
+    "value": "1N4148WS-HG3_A-08",
+    "footprint": "Diode_SMD:D_SOD-323_HandSoldering"
+  },
+  {
+    "sheet": "fan_power.kicad_sch",
+    "reference": "R36",
+    "value": "100k",
+    "footprint": "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
+  },
+  {
+    "sheet": "fan_power.kicad_sch",
+    "reference": "D2",
+    "value": "PD3S120LQ",
+    "footprint": "Custom:323_2"
+  },
+  {
+    "sheet": "fan_power.kicad_sch",
+    "reference": "R22",
+    "value": "10k",
+    "footprint": "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
+  },
+  {
+    "sheet": "fan_power.kicad_sch",
+    "reference": "R35",
+    "value": "100",
+    "footprint": "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
+  },
+  {
+    "sheet": "fan_power.kicad_sch",
+    "reference": "C25",
+    "value": "1",
+    "footprint": "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder"
+  },
+  {
+    "sheet": "fan_power.kicad_sch",
+    "reference": "C17",
+    "value": "10",
+    "footprint": "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder"
+  },
+  {
+    "sheet": "fan_power.kicad_sch",
+    "reference": "C19",
+    "value": "10",
+    "footprint": "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder"
+  },
+  {
+    "sheet": "fan_power.kicad_sch",
+    "reference": "R21",
+    "value": "124k",
+    "footprint": "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
+  },
+  {
+    "sheet": "fan_power.kicad_sch",
+    "reference": "C23",
+    "value": "10",
+    "footprint": "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder"
+  },
+  {
+    "sheet": "fan_power.kicad_sch",
+    "reference": "R28",
+    "value": "4k02",
+    "footprint": "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
+  },
+  {
+    "sheet": "fan_power.kicad_sch",
+    "reference": "C18",
+    "value": "10",
+    "footprint": "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder"
+  },
+  {
+    "sheet": "fan_power.kicad_sch",
+    "reference": "U5",
+    "value": "MCP16331T-E/CH",
+    "footprint": "Package_TO_SOT_SMD:SOT-23-6"
+  },
+  {
+    "sheet": "fans.kicad_sch",
+    "reference": "U3",
+    "value": "TMUX1104DGSR",
+    "footprint": "Ti:DGS0010A-IPC_C"
+  },
+  {
+    "sheet": "fans.kicad_sch",
+    "reference": "R14",
+    "value": "4k7",
+    "footprint": "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
+  },
+  {
+    "sheet": "fans.kicad_sch",
+    "reference": "R12",
+    "value": "xxx",
+    "footprint": "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
+  },
+  {
+    "sheet": "fans.kicad_sch",
+    "reference": "Q4",
+    "value": "BCV71",
+    "footprint": "Package_TO_SOT_SMD:SOT-23-3"
+  },
+  {
+    "sheet": "fans.kicad_sch",
+    "reference": "C7",
+    "value": "1",
+    "footprint": "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder"
+  },
+  {
+    "sheet": "fans.kicad_sch",
+    "reference": "R10",
+    "value": "100k",
+    "footprint": "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
+  },
+  {
+    "sheet": "fans.kicad_sch",
+    "reference": "R9",
+    "value": "xxx",
+    "footprint": "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
+  },
+  {
+    "sheet": "fans.kicad_sch",
+    "reference": "R11",
+    "value": "2k2",
+    "footprint": "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
+  },
+  {
+    "sheet": "fans.kicad_sch",
+    "reference": "C8",
+    "value": "0.1",
+    "footprint": "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder"
+  },
+  {
+    "sheet": "fans.kicad_sch",
+    "reference": "J6",
+    "value": "Conn_01x04_Pin",
+    "footprint": "Connector:FanPinHeader_1x04_P2.54mm_Vertical"
+  },
+  {
+    "sheet": "fans.kicad_sch",
+    "reference": "J8",
+    "value": "Conn_01x04_Pin",
+    "footprint": "Connector:FanPinHeader_1x04_P2.54mm_Vertical"
+  },
+  {
+    "sheet": "fans.kicad_sch",
+    "reference": "C12",
+    "value": "xxx",
+    "footprint": "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder"
+  },
+  {
+    "sheet": "fans.kicad_sch",
+    "reference": "R13",
+    "value": "2k2",
+    "footprint": "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
+  },
+  {
+    "sheet": "fans.kicad_sch",
+    "reference": "J5",
+    "value": "Conn_01x04_Pin",
+    "footprint": "Connector:FanPinHeader_1x04_P2.54mm_Vertical"
+  },
+  {
+    "sheet": "fans.kicad_sch",
+    "reference": "J7",
+    "value": "Conn_01x04_Pin",
+    "footprint": "Connector:FanPinHeader_1x04_P2.54mm_Vertical"
+  },
+  {
+    "sheet": "ina.kicad_sch",
+    "reference": "R33",
+    "value": "1k",
+    "footprint": "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
+  },
+  {
+    "sheet": "ina.kicad_sch",
+    "reference": "U6",
+    "value": "INA226",
+    "footprint": "Package_SO:VSSOP-10_3x3mm_P0.5mm"
+  },
+  {
+    "sheet": "ina.kicad_sch",
+    "reference": "R31",
+    "value": "10",
+    "footprint": "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
+  },
+  {
+    "sheet": "ina.kicad_sch",
+    "reference": "C9",
+    "value": "0.1",
+    "footprint": "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder"
+  },
+  {
+    "sheet": "ina.kicad_sch",
+    "reference": "R17",
+    "value": "WSL2512R0470FEA",
+    "footprint": "Resistor_SMD:R_2512_6332Metric_Pad1.40x3.35mm_HandSolder"
+  },
+  {
+    "sheet": "ina.kicad_sch",
+    "reference": "R32",
+    "value": "10",
+    "footprint": "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
+  },
+  {
+    "sheet": "main.kicad_sch",
+    "reference": "J9",
+    "value": "Conn_01x03_Socket",
+    "footprint": "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical"
+  },
+  {
+    "sheet": "main.kicad_sch",
+    "reference": "J10",
+    "value": "Conn_01x03_Socket",
+    "footprint": "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical"
+  },
+  {
+    "sheet": "power.kicad_sch",
+    "reference": "J11",
+    "value": "Conn_01x03_Socket",
+    "footprint": "Custom:sata"
+  },
+  {
+    "sheet": "power.kicad_sch",
+    "reference": "U2",
+    "value": "TPS7A02-3.3",
+    "footprint": "Package_TO_SOT_SMD:SOT-23-5"
+  },
+  {
+    "sheet": "power.kicad_sch",
+    "reference": "C6",
+    "value": "1",
+    "footprint": "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder"
+  },
+  {
+    "sheet": "power.kicad_sch",
+    "reference": "C5",
+    "value": "4.7",
+    "footprint": "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder"
+  }
+]

@@ -1,0 +1,2756 @@
+(kicad_sch
+  (version 20250114)
+  (generator eeschema)
+  (uuid "51475041-4f7a-5871-96e8-34718d3f4f4c")
+  (paper "A3")
+  (title_block
+    (title "ESP32-C3, buttons, LED and temperature")
+    (rev "0.2")
+    (comment 1 "2S 6.0-8.4V; bottom assembly; verify sensor and mechanical dimensions"))
+  (lib_symbols
+    (symbol "RF_Module:ESP32-C3-WROOM-02"
+      (exclude_from_sim no)
+      (in_bom yes)
+      (on_board yes)
+      (in_pos_files yes)
+      (duplicate_pin_numbers_are_jumpers no)
+      (property "Reference" "U"
+        (at -12.192 21.336 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (property "Value" "ESP32-C3-WROOM-02"
+        (at 12.192 21.336 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (property "Footprint" "RF_Module:ESP32-C3-WROOM-02"
+        (at 0 0.635 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (hide yes)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (property "Datasheet" "https://www.espressif.com/sites/default/files/documentation/esp32-c3-wroom-02_datasheet_en.pdf"
+        (at 0 0.635 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (hide yes)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (property "Description" "802.11 b/g/n Wi­Fi and Bluetooth 5 module, ESP32­C3 SoC, RISC­V microprocessor, On-board antenna"
+        (at 0 0.635 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (hide yes)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (property "ki_keywords" "esp32 espressif WiFi Bluetooth LE"
+        (at 0 0 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (hide yes)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (property "ki_fp_filters" "ESP32?C3*WROOM?02*"
+        (at 0 0 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (hide yes)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (symbol "ESP32-C3-WROOM-02_1_1"
+        (rectangle
+          (start -12.7 20.32)
+          (end 12.7 -20.32)
+          (stroke
+            (width 0.254)
+            (type default))
+          (fill
+            (type background)))
+        (pin power_in line
+          (at 0 22.86 270)
+          (length 2.54)
+          (name "3V3"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "1"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+        (pin input line
+          (at -15.24 17.78 0)
+          (length 2.54)
+          (name "EN"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "2"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+        (pin bidirectional line
+          (at -15.24 2.54 0)
+          (length 2.54)
+          (name "IO4"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "3"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+        (pin bidirectional line
+          (at -15.24 0 0)
+          (length 2.54)
+          (name "IO5"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "4"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+        (pin bidirectional line
+          (at -15.24 -2.54 0)
+          (length 2.54)
+          (name "IO6"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "5"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+        (pin bidirectional line
+          (at -15.24 -5.08 0)
+          (length 2.54)
+          (name "IO7"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "6"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+        (pin bidirectional line
+          (at -15.24 -7.62 0)
+          (length 2.54)
+          (name "IO8"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "7"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+        (pin bidirectional line
+          (at -15.24 -10.16 0)
+          (length 2.54)
+          (name "IO9"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "8"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+        (pin power_in line
+          (at 0 -22.86 90)
+          (length 2.54)
+          (name "GND"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "9"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+        (pin bidirectional line
+          (at -15.24 -12.7 0)
+          (length 2.54)
+          (name "IO10"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "10"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+        (pin bidirectional line
+          (at 15.24 17.78 180)
+          (length 2.54)
+          (name "IO20/RXD"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "11"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+        (pin bidirectional line
+          (at 15.24 15.24 180)
+          (length 2.54)
+          (name "IO21/TXD"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "12"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+        (pin bidirectional line
+          (at -15.24 -15.24 0)
+          (length 2.54)
+          (name "IO18"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "13"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+        (pin bidirectional line
+          (at -15.24 -17.78 0)
+          (length 2.54)
+          (name "IO19"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "14"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+        (pin bidirectional line
+          (at -15.24 5.08 0)
+          (length 2.54)
+          (name "IO3"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "15"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+        (pin bidirectional line
+          (at -15.24 7.62 0)
+          (length 2.54)
+          (name "IO2"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "16"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+        (pin bidirectional line
+          (at -15.24 10.16 0)
+          (length 2.54)
+          (name "IO1"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "17"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+        (pin bidirectional line
+          (at -15.24 12.7 0)
+          (length 2.54)
+          (name "IO0"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "18"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+        (pin passive line
+          (at 0 -22.86 90)
+          (length 2.54)
+          (hide yes)
+          (name "GND"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "19"
+            (effects
+              (font
+                (size 1.27 1.27))))))
+      (embedded_fonts no))
+    (symbol "Device:C"
+      (pin_numbers
+        (hide yes))
+      (pin_names
+        (offset 0.254))
+      (exclude_from_sim no)
+      (in_bom yes)
+      (on_board yes)
+      (in_pos_files yes)
+      (duplicate_pin_numbers_are_jumpers no)
+      (property "Reference" "C"
+        (at 0.635 2.54 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (effects
+          (font
+            (size 1.27 1.27))
+          (justify left)))
+      (property "Value" "C"
+        (at 0.635 -2.54 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (effects
+          (font
+            (size 1.27 1.27))
+          (justify left)))
+      (property "Footprint" ""
+        (at 0.9652 -3.81 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (hide yes)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (property "Datasheet" ""
+        (at 0 0 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (hide yes)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (property "Description" "Unpolarized capacitor"
+        (at 0 0 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (hide yes)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (property "ki_keywords" "cap capacitor"
+        (at 0 0 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (hide yes)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (property "ki_fp_filters" "C_*"
+        (at 0 0 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (hide yes)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (symbol "C_0_1"
+        (polyline
+          (pts
+            (xy -2.032 0.762)
+            (xy 2.032 0.762))
+          (stroke
+            (width 0.508)
+            (type default))
+          (fill
+            (type none)))
+        (polyline
+          (pts
+            (xy -2.032 -0.762)
+            (xy 2.032 -0.762))
+          (stroke
+            (width 0.508)
+            (type default))
+          (fill
+            (type none))))
+      (symbol "C_1_1"
+        (pin passive line
+          (at 0 3.81 270)
+          (length 2.794)
+          (name ""
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "1"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+        (pin passive line
+          (at 0 -3.81 90)
+          (length 2.794)
+          (name ""
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "2"
+            (effects
+              (font
+                (size 1.27 1.27))))))
+      (embedded_fonts no))
+    (symbol "Device:R"
+      (pin_numbers
+        (hide yes))
+      (pin_names
+        (offset 0))
+      (exclude_from_sim no)
+      (in_bom yes)
+      (on_board yes)
+      (in_pos_files yes)
+      (duplicate_pin_numbers_are_jumpers no)
+      (property "Reference" "R"
+        (at 2.032 0 90)
+        (show_name no)
+        (do_not_autoplace no)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (property "Value" "R"
+        (at 0 0 90)
+        (show_name no)
+        (do_not_autoplace no)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (property "Footprint" ""
+        (at -1.778 0 90)
+        (show_name no)
+        (do_not_autoplace no)
+        (hide yes)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (property "Datasheet" ""
+        (at 0 0 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (hide yes)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (property "Description" "Resistor"
+        (at 0 0 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (hide yes)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (property "ki_keywords" "R res resistor"
+        (at 0 0 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (hide yes)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (property "ki_fp_filters" "R_*"
+        (at 0 0 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (hide yes)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (symbol "R_0_1"
+        (rectangle
+          (start -1.016 -2.54)
+          (end 1.016 2.54)
+          (stroke
+            (width 0.254)
+            (type default))
+          (fill
+            (type none))))
+      (symbol "R_1_1"
+        (pin passive line
+          (at 0 3.81 270)
+          (length 1.27)
+          (name ""
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "1"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+        (pin passive line
+          (at 0 -3.81 90)
+          (length 1.27)
+          (name ""
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "2"
+            (effects
+              (font
+                (size 1.27 1.27))))))
+      (embedded_fonts no))
+    (symbol "Switch:SW_Push"
+      (pin_numbers
+        (hide yes))
+      (pin_names
+        (offset 1.016)
+        (hide yes))
+      (exclude_from_sim no)
+      (in_bom yes)
+      (on_board yes)
+      (in_pos_files yes)
+      (duplicate_pin_numbers_are_jumpers no)
+      (property "Reference" "SW"
+        (at 1.27 2.54 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (effects
+          (font
+            (size 1.27 1.27))
+          (justify left)))
+      (property "Value" "SW_Push"
+        (at 0 -1.524 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (property "Footprint" ""
+        (at 0 5.08 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (hide yes)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (property "Datasheet" ""
+        (at 0 5.08 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (hide yes)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (property "Description" "Push button switch, generic, two pins"
+        (at 0 0 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (hide yes)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (property "ki_keywords" "switch normally-open pushbutton push-button"
+        (at 0 0 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (hide yes)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (symbol "SW_Push_0_1"
+        (circle
+          (center -2.032 0)
+          (radius 0.508)
+          (stroke
+            (width 0)
+            (type default))
+          (fill
+            (type none)))
+        (polyline
+          (pts
+            (xy 0 1.27)
+            (xy 0 3.048))
+          (stroke
+            (width 0)
+            (type default))
+          (fill
+            (type none)))
+        (circle
+          (center 2.032 0)
+          (radius 0.508)
+          (stroke
+            (width 0)
+            (type default))
+          (fill
+            (type none)))
+        (polyline
+          (pts
+            (xy 2.54 1.27)
+            (xy -2.54 1.27))
+          (stroke
+            (width 0)
+            (type default))
+          (fill
+            (type none)))
+        (pin passive line
+          (at -5.08 0 0)
+          (length 2.54)
+          (name "1"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "1"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+        (pin passive line
+          (at 5.08 0 180)
+          (length 2.54)
+          (name "2"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "2"
+            (effects
+              (font
+                (size 1.27 1.27))))))
+      (embedded_fonts no))
+    (symbol "Device:LED"
+      (pin_numbers
+        (hide yes))
+      (pin_names
+        (offset 1.016)
+        (hide yes))
+      (exclude_from_sim no)
+      (in_bom yes)
+      (on_board yes)
+      (in_pos_files yes)
+      (duplicate_pin_numbers_are_jumpers no)
+      (property "Reference" "D"
+        (at 0 2.54 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (property "Value" "LED"
+        (at 0 -2.54 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (property "Footprint" ""
+        (at 0 0 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (hide yes)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (property "Datasheet" ""
+        (at 0 0 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (hide yes)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (property "Description" "Light emitting diode"
+        (at 0 0 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (hide yes)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (property "Sim.Pins" "1=K 2=A"
+        (at 0 0 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (hide yes)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (property "ki_keywords" "LED diode"
+        (at 0 0 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (hide yes)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (property "ki_fp_filters" "LED* LED_SMD:* LED_THT:*"
+        (at 0 0 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (hide yes)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (symbol "LED_0_1"
+        (polyline
+          (pts
+            (xy -3.048 -0.762)
+            (xy -4.572 -2.286)
+            (xy -3.81 -2.286)
+            (xy -4.572 -2.286)
+            (xy -4.572 -1.524))
+          (stroke
+            (width 0)
+            (type default))
+          (fill
+            (type none)))
+        (polyline
+          (pts
+            (xy -1.778 -0.762)
+            (xy -3.302 -2.286)
+            (xy -2.54 -2.286)
+            (xy -3.302 -2.286)
+            (xy -3.302 -1.524))
+          (stroke
+            (width 0)
+            (type default))
+          (fill
+            (type none)))
+        (polyline
+          (pts
+            (xy -1.27 0)
+            (xy 1.27 0))
+          (stroke
+            (width 0)
+            (type default))
+          (fill
+            (type none)))
+        (polyline
+          (pts
+            (xy -1.27 -1.27)
+            (xy -1.27 1.27))
+          (stroke
+            (width 0.254)
+            (type default))
+          (fill
+            (type none)))
+        (polyline
+          (pts
+            (xy 1.27 -1.27)
+            (xy 1.27 1.27)
+            (xy -1.27 0)
+            (xy 1.27 -1.27))
+          (stroke
+            (width 0.254)
+            (type default))
+          (fill
+            (type none))))
+      (symbol "LED_1_1"
+        (pin passive line
+          (at -3.81 0 0)
+          (length 2.54)
+          (name "K"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "1"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+        (pin passive line
+          (at 3.81 0 180)
+          (length 2.54)
+          (name "A"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "2"
+            (effects
+              (font
+                (size 1.27 1.27))))))
+      (embedded_fonts no))
+    (symbol "Connector_Generic:Conn_01x02"
+      (pin_names
+        (offset 1.016)
+        (hide yes))
+      (exclude_from_sim no)
+      (in_bom yes)
+      (on_board yes)
+      (in_pos_files yes)
+      (duplicate_pin_numbers_are_jumpers no)
+      (property "Reference" "J"
+        (at 0 2.54 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (property "Value" "Conn_01x02"
+        (at 0 -5.08 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (property "Footprint" ""
+        (at 0 0 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (hide yes)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (property "Datasheet" ""
+        (at 0 0 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (hide yes)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (property "Description" "Generic connector, single row, 01x02, script generated (kicad-library-utils/schlib/autogen/connector/)"
+        (at 0 0 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (hide yes)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (property "ki_keywords" "connector"
+        (at 0 0 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (hide yes)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (property "ki_fp_filters" "Connector*:*_1x??_*"
+        (at 0 0 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (hide yes)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (symbol "Conn_01x02_1_1"
+        (rectangle
+          (start -1.27 1.27)
+          (end 1.27 -3.81)
+          (stroke
+            (width 0.254)
+            (type default))
+          (fill
+            (type background)))
+        (rectangle
+          (start -1.27 0.127)
+          (end 0 -0.127)
+          (stroke
+            (width 0.1524)
+            (type default))
+          (fill
+            (type none)))
+        (rectangle
+          (start -1.27 -2.413)
+          (end 0 -2.667)
+          (stroke
+            (width 0.1524)
+            (type default))
+          (fill
+            (type none)))
+        (pin passive line
+          (at -5.08 0 0)
+          (length 3.81)
+          (name "Pin_1"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "1"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+        (pin passive line
+          (at -5.08 -2.54 0)
+          (length 3.81)
+          (name "Pin_2"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "2"
+            (effects
+              (font
+                (size 1.27 1.27))))))
+      (embedded_fonts no))
+    (symbol "Connector_Generic:Conn_01x06"
+      (pin_names
+        (offset 1.016)
+        (hide yes))
+      (exclude_from_sim no)
+      (in_bom yes)
+      (on_board yes)
+      (in_pos_files yes)
+      (duplicate_pin_numbers_are_jumpers no)
+      (property "Reference" "J"
+        (at 0 7.62 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (property "Value" "Conn_01x06"
+        (at 0 -10.16 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (property "Footprint" ""
+        (at 0 0 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (hide yes)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (property "Datasheet" ""
+        (at 0 0 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (hide yes)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (property "Description" "Generic connector, single row, 01x06, script generated (kicad-library-utils/schlib/autogen/connector/)"
+        (at 0 0 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (hide yes)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (property "ki_keywords" "connector"
+        (at 0 0 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (hide yes)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (property "ki_fp_filters" "Connector*:*_1x??_*"
+        (at 0 0 0)
+        (show_name no)
+        (do_not_autoplace no)
+        (hide yes)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (symbol "Conn_01x06_1_1"
+        (rectangle
+          (start -1.27 6.35)
+          (end 1.27 -8.89)
+          (stroke
+            (width 0.254)
+            (type default))
+          (fill
+            (type background)))
+        (rectangle
+          (start -1.27 5.207)
+          (end 0 4.953)
+          (stroke
+            (width 0.1524)
+            (type default))
+          (fill
+            (type none)))
+        (rectangle
+          (start -1.27 2.667)
+          (end 0 2.413)
+          (stroke
+            (width 0.1524)
+            (type default))
+          (fill
+            (type none)))
+        (rectangle
+          (start -1.27 0.127)
+          (end 0 -0.127)
+          (stroke
+            (width 0.1524)
+            (type default))
+          (fill
+            (type none)))
+        (rectangle
+          (start -1.27 -2.413)
+          (end 0 -2.667)
+          (stroke
+            (width 0.1524)
+            (type default))
+          (fill
+            (type none)))
+        (rectangle
+          (start -1.27 -4.953)
+          (end 0 -5.207)
+          (stroke
+            (width 0.1524)
+            (type default))
+          (fill
+            (type none)))
+        (rectangle
+          (start -1.27 -7.493)
+          (end 0 -7.747)
+          (stroke
+            (width 0.1524)
+            (type default))
+          (fill
+            (type none)))
+        (pin passive line
+          (at -5.08 5.08 0)
+          (length 3.81)
+          (name "Pin_1"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "1"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+        (pin passive line
+          (at -5.08 2.54 0)
+          (length 3.81)
+          (name "Pin_2"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "2"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+        (pin passive line
+          (at -5.08 0 0)
+          (length 3.81)
+          (name "Pin_3"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "3"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+        (pin passive line
+          (at -5.08 -2.54 0)
+          (length 3.81)
+          (name "Pin_4"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "4"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+        (pin passive line
+          (at -5.08 -5.08 0)
+          (length 3.81)
+          (name "Pin_5"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "5"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+        (pin passive line
+          (at -5.08 -7.62 0)
+          (length 3.81)
+          (name "Pin_6"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "6"
+            (effects
+              (font
+                (size 1.27 1.27))))))
+      (embedded_fonts no)))
+  (symbol
+    (lib_id "RF_Module:ESP32-C3-WROOM-02")
+    (at 39.37 57.15 0)
+    (unit 1)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "5a026e43-9cea-5131-8dfd-813ab9a2ff7d")
+    (property "Reference" "U1"
+      (at 42.37 52.15 0)
+      (effects
+        (font
+          (size 0.95 0.95))))
+    (property "Value" "ESP32-C3-WROOM-02-N4"
+      (at 42.37 54.15 0)
+      (effects
+        (font
+          (size 0.95 0.95))))
+    (property "Footprint" "Flashlight:ESP32-C3-WROOM-02"
+      (at 42.37 56.15 0)
+      (effects
+        (font
+          (size 0.95 0.95))
+        (hide yes)))
+    (property "Datasheet" "https://www.espressif.com/sites/default/files/documentation/esp32-c3-wroom-02_datasheet_en.pdf"
+      (at 42.37 58.15 0)
+      (effects
+        (font
+          (size 0.95 0.95))
+        (hide yes)))
+    (instances
+      (project "flashlight"
+        (path "/a654af7a-4ed0-5e65-a4cd-0e8aec7ef590/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59"
+          (reference "U1")
+          (unit 1)))))
+  (wire
+    (pts
+      (xy 39.37 34.29)
+      (xy 39.37 29.21))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "46d6fb08-42e3-562d-bca2-9b50f71e7c68"))
+  (global_label "3V3"
+    (shape bidirectional)
+    (at 39.37 29.21 90)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify left))
+    (uuid "dec8c9ce-cdf9-5e9e-a47f-11fd196a1f34"))
+  (wire
+    (pts
+      (xy 24.13 39.37)
+      (xy 19.05 39.37))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "d7f91bcd-becf-5983-b239-7fdbd91247c3"))
+  (global_label "ESP_EN"
+    (shape bidirectional)
+    (at 19.05 39.37 180)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify right))
+    (uuid "1bd59c82-c56d-5691-b47a-0b464413c58a"))
+  (wire
+    (pts
+      (xy 24.13 54.61)
+      (xy 19.05 54.61))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "18eed32d-733d-5bce-b247-a43f2c73cac5"))
+  (global_label "SDA"
+    (shape bidirectional)
+    (at 19.05 54.61 180)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify right))
+    (uuid "836d524a-e6b2-53ae-a566-e468ac8ab3c6"))
+  (wire
+    (pts
+      (xy 24.13 57.15)
+      (xy 19.05 57.15))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "6ac15ec3-1de5-59da-8bf2-5e8f25045bf2"))
+  (global_label "SCL"
+    (shape bidirectional)
+    (at 19.05 57.15 180)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify right))
+    (uuid "7f9075f9-78ee-596a-a3b3-d9f623afd9c0"))
+  (wire
+    (pts
+      (xy 24.13 59.69)
+      (xy 19.05 59.69))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "5353658f-3715-505e-89dd-090c03ee9575"))
+  (global_label "LED_GPIO"
+    (shape bidirectional)
+    (at 19.05 59.69 180)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify right))
+    (uuid "8063a269-edf4-5a2e-8390-d15ee6bb125d"))
+  (no_connect
+    (at 24.13 62.23)
+    (uuid "8b17d683-a0d3-5658-a8d4-8502e1e60775"))
+  (wire
+    (pts
+      (xy 24.13 64.77)
+      (xy 19.05 64.77))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "aee65a7e-31c2-52a0-a054-fbc59296be35"))
+  (global_label "STRAP8"
+    (shape bidirectional)
+    (at 19.05 64.77 180)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify right))
+    (uuid "55c75919-fc57-5fcb-a490-60a9923c519c"))
+  (wire
+    (pts
+      (xy 24.13 67.31)
+      (xy 19.05 67.31))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "cfaee684-3b8d-5003-b3b9-c7389eac3187"))
+  (global_label "BOOT"
+    (shape bidirectional)
+    (at 19.05 67.31 180)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify right))
+    (uuid "94b264b0-9272-53f6-8553-7f06b9c5eb77"))
+  (wire
+    (pts
+      (xy 39.37 80.01)
+      (xy 39.37 85.09))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "32e4d8a8-adfd-512f-918f-72ded27ae743"))
+  (global_label "GND"
+    (shape bidirectional)
+    (at 39.37 85.09 270)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify right))
+    (uuid "f58ed94f-22a9-5f04-aa60-637f6ae4a21b"))
+  (wire
+    (pts
+      (xy 24.13 69.85)
+      (xy 19.05 69.85))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "fb477ec7-7fe3-5d09-8e51-b09979b49fae"))
+  (global_label "LOAD_EN"
+    (shape bidirectional)
+    (at 19.05 69.85 180)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify right))
+    (uuid "d6a03936-fbfa-5d42-8309-4b5eb679db73"))
+  (wire
+    (pts
+      (xy 54.61 39.37)
+      (xy 59.69 39.37))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "20368d89-a0d4-51c7-97f2-9201d5a2e6c4"))
+  (global_label "UART_RX"
+    (shape bidirectional)
+    (at 59.69 39.37 0)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify left))
+    (uuid "a27570e8-598d-5c81-9bdf-b0907b544628"))
+  (wire
+    (pts
+      (xy 54.61 41.91)
+      (xy 59.69 41.91))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "4c37fba6-e3b6-53f9-bbae-4aa7145a6071"))
+  (global_label "UART_TX"
+    (shape bidirectional)
+    (at 59.69 41.91 0)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify left))
+    (uuid "29318763-7dbe-5b4a-a0e2-6ca6bc37c419"))
+  (no_connect
+    (at 24.13 72.39)
+    (uuid "fe9a170f-e380-50d8-b75b-67847f4f8f8a"))
+  (no_connect
+    (at 24.13 74.93)
+    (uuid "0b1e8e91-d459-5626-b319-98105d931360"))
+  (wire
+    (pts
+      (xy 24.13 52.07)
+      (xy 19.05 52.07))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "c808bb34-5ea9-5748-bc38-85acd043d9b5"))
+  (global_label "USER_KEY"
+    (shape bidirectional)
+    (at 19.05 52.07 180)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify right))
+    (uuid "b49f5db2-9060-55e8-8c47-ab1b2a5b4d92"))
+  (wire
+    (pts
+      (xy 24.13 49.53)
+      (xy 19.05 49.53))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "81729e6c-5673-5033-b397-a1e5e40e3961"))
+  (global_label "STRAP2"
+    (shape bidirectional)
+    (at 19.05 49.53 180)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify right))
+    (uuid "49abbde1-7ad7-536b-a0d6-3c78324b73f7"))
+  (wire
+    (pts
+      (xy 24.13 46.99)
+      (xy 19.05 46.99))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "8ce280d0-8a53-52c4-9015-c67af24ec043"))
+  (global_label "TEMP_EXCITE"
+    (shape bidirectional)
+    (at 19.05 46.99 180)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify right))
+    (uuid "27508eed-bdae-5bd7-b9d9-001a5d7886de"))
+  (wire
+    (pts
+      (xy 24.13 44.45)
+      (xy 19.05 44.45))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "590bf39a-e398-5a5a-9d90-85d83824f486"))
+  (global_label "TEMP_ADC"
+    (shape bidirectional)
+    (at 19.05 44.45 180)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify right))
+    (uuid "3beec1ef-17c3-5a38-80e7-cf00faa8ff06"))
+  (symbol
+    (lib_id "Device:C")
+    (at 105.41 57.15 0)
+    (unit 1)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "d99ce85a-99cb-56ae-aa84-b7782de40e12")
+    (property "Reference" "C12"
+      (at 108.41 52.15 0)
+      (effects
+        (font
+          (size 0.95 0.95))))
+    (property "Value" "10u 10V X7R"
+      (at 108.41 54.15 0)
+      (effects
+        (font
+          (size 0.95 0.95))))
+    (property "Footprint" "Flashlight:C_0805_2012Metric"
+      (at 108.41 56.15 0)
+      (effects
+        (font
+          (size 0.95 0.95))
+        (hide yes)))
+    (property "Datasheet" ""
+      (at 108.41 58.15 0)
+      (effects
+        (font
+          (size 0.95 0.95))
+        (hide yes)))
+    (instances
+      (project "flashlight"
+        (path "/a654af7a-4ed0-5e65-a4cd-0e8aec7ef590/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59"
+          (reference "C12")
+          (unit 1)))))
+  (wire
+    (pts
+      (xy 105.41 53.34)
+      (xy 105.41 48.26))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "c0aadb9a-0ca3-5942-a196-02ff91e0d840"))
+  (global_label "3V3"
+    (shape bidirectional)
+    (at 105.41 48.26 90)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify left))
+    (uuid "802242f7-2a89-5760-b1ac-9411c06a2cdb"))
+  (wire
+    (pts
+      (xy 105.41 60.96)
+      (xy 105.41 66.04))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "58513cf4-9d15-5d5c-a5e3-323baa85423a"))
+  (global_label "GND"
+    (shape bidirectional)
+    (at 105.41 66.04 270)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify right))
+    (uuid "20126cd7-5330-59de-a8ff-b5e0e1a5dbee"))
+  (symbol
+    (lib_id "Device:C")
+    (at 170.18 57.15 0)
+    (unit 1)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "acc2d668-6092-518e-a230-ac655300f8a2")
+    (property "Reference" "C13"
+      (at 173.18 52.15 0)
+      (effects
+        (font
+          (size 0.95 0.95))))
+    (property "Value" "100n"
+      (at 173.18 54.15 0)
+      (effects
+        (font
+          (size 0.95 0.95))))
+    (property "Footprint" "Flashlight:C_0805_2012Metric"
+      (at 173.18 56.15 0)
+      (effects
+        (font
+          (size 0.95 0.95))
+        (hide yes)))
+    (property "Datasheet" ""
+      (at 173.18 58.15 0)
+      (effects
+        (font
+          (size 0.95 0.95))
+        (hide yes)))
+    (instances
+      (project "flashlight"
+        (path "/a654af7a-4ed0-5e65-a4cd-0e8aec7ef590/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59"
+          (reference "C13")
+          (unit 1)))))
+  (wire
+    (pts
+      (xy 170.18 53.34)
+      (xy 170.18 48.26))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "deab7cac-4604-5bd7-bb61-9a8273bab2b2"))
+  (global_label "3V3"
+    (shape bidirectional)
+    (at 170.18 48.26 90)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify left))
+    (uuid "ce22802f-d0b1-53fd-9f75-956d0f19f4f5"))
+  (wire
+    (pts
+      (xy 170.18 60.96)
+      (xy 170.18 66.04))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "1d58269b-58c1-54ea-a713-7507eb63acf6"))
+  (global_label "GND"
+    (shape bidirectional)
+    (at 170.18 66.04 270)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify right))
+    (uuid "04e84dc9-d3d8-58fe-a7fa-b69c3e404751"))
+  (symbol
+    (lib_id "Device:R")
+    (at 234.95 57.15 0)
+    (unit 1)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "f99f1110-fe17-5c29-967f-f25468fa4650")
+    (property "Reference" "R9"
+      (at 237.95 52.15 0)
+      (effects
+        (font
+          (size 0.95 0.95))))
+    (property "Value" "10k"
+      (at 237.95 54.15 0)
+      (effects
+        (font
+          (size 0.95 0.95))))
+    (property "Footprint" "Flashlight:R_0805_2012Metric"
+      (at 237.95 56.15 0)
+      (effects
+        (font
+          (size 0.95 0.95))
+        (hide yes)))
+    (property "Datasheet" ""
+      (at 237.95 58.15 0)
+      (effects
+        (font
+          (size 0.95 0.95))
+        (hide yes)))
+    (instances
+      (project "flashlight"
+        (path "/a654af7a-4ed0-5e65-a4cd-0e8aec7ef590/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59"
+          (reference "R9")
+          (unit 1)))))
+  (wire
+    (pts
+      (xy 234.95 53.34)
+      (xy 234.95 48.26))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "b546db9b-d85d-5232-8c79-2e6f7d215e93"))
+  (global_label "3V3"
+    (shape bidirectional)
+    (at 234.95 48.26 90)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify left))
+    (uuid "897d9e98-50f4-566d-ab38-452d21815b84"))
+  (wire
+    (pts
+      (xy 234.95 60.96)
+      (xy 234.95 66.04))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "304410ff-cf9c-5025-8aed-076370e93369"))
+  (global_label "ESP_EN"
+    (shape bidirectional)
+    (at 234.95 66.04 270)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify right))
+    (uuid "16ea3376-c267-5892-8539-18170793d4ec"))
+  (symbol
+    (lib_id "Device:C")
+    (at 299.72 57.15 0)
+    (unit 1)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "375e7eba-296c-5f6a-a49f-83f378024a68")
+    (property "Reference" "C14"
+      (at 302.72 52.15 0)
+      (effects
+        (font
+          (size 0.95 0.95))))
+    (property "Value" "1u"
+      (at 302.72 54.15 0)
+      (effects
+        (font
+          (size 0.95 0.95))))
+    (property "Footprint" "Flashlight:C_0805_2012Metric"
+      (at 302.72 56.15 0)
+      (effects
+        (font
+          (size 0.95 0.95))
+        (hide yes)))
+    (property "Datasheet" ""
+      (at 302.72 58.15 0)
+      (effects
+        (font
+          (size 0.95 0.95))
+        (hide yes)))
+    (instances
+      (project "flashlight"
+        (path "/a654af7a-4ed0-5e65-a4cd-0e8aec7ef590/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59"
+          (reference "C14")
+          (unit 1)))))
+  (wire
+    (pts
+      (xy 299.72 53.34)
+      (xy 299.72 48.26))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "98127810-2f7d-5a41-aa2a-d54a925206e1"))
+  (global_label "ESP_EN"
+    (shape bidirectional)
+    (at 299.72 48.26 90)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify left))
+    (uuid "f6d8d963-6fe4-519c-a22e-63e46c341a8a"))
+  (wire
+    (pts
+      (xy 299.72 60.96)
+      (xy 299.72 66.04))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "621b8845-d90e-5495-b8af-1f0f397ba97b"))
+  (global_label "GND"
+    (shape bidirectional)
+    (at 299.72 66.04 270)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify right))
+    (uuid "5514eb4e-e32e-5a99-b20a-b29488d18c33"))
+  (symbol
+    (lib_id "Device:R")
+    (at 364.49 57.15 0)
+    (unit 1)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "93af734a-5f77-5903-9e9d-5cc720072aec")
+    (property "Reference" "R10"
+      (at 367.49 52.15 0)
+      (effects
+        (font
+          (size 0.95 0.95))))
+    (property "Value" "10k"
+      (at 367.49 54.15 0)
+      (effects
+        (font
+          (size 0.95 0.95))))
+    (property "Footprint" "Flashlight:R_0805_2012Metric"
+      (at 367.49 56.15 0)
+      (effects
+        (font
+          (size 0.95 0.95))
+        (hide yes)))
+    (property "Datasheet" ""
+      (at 367.49 58.15 0)
+      (effects
+        (font
+          (size 0.95 0.95))
+        (hide yes)))
+    (instances
+      (project "flashlight"
+        (path "/a654af7a-4ed0-5e65-a4cd-0e8aec7ef590/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59"
+          (reference "R10")
+          (unit 1)))))
+  (wire
+    (pts
+      (xy 364.49 53.34)
+      (xy 364.49 48.26))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "702eaa66-c432-5606-8581-dba2b5ccb5ba"))
+  (global_label "3V3"
+    (shape bidirectional)
+    (at 364.49 48.26 90)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify left))
+    (uuid "e0c13cff-4dc1-5dc9-be2e-f9e30d6817fb"))
+  (wire
+    (pts
+      (xy 364.49 60.96)
+      (xy 364.49 66.04))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "72884f30-40a0-5d3a-85ff-d5c806aa7291"))
+  (global_label "BOOT"
+    (shape bidirectional)
+    (at 364.49 66.04 270)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify right))
+    (uuid "d5e72ec3-c365-52c0-98e5-4895ab41205d"))
+  (symbol
+    (lib_id "Device:R")
+    (at 39.37 115.57 0)
+    (unit 1)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "e520ae8f-3a90-5dc5-a6b9-670a3025732b")
+    (property "Reference" "R11"
+      (at 42.37 110.57 0)
+      (effects
+        (font
+          (size 0.95 0.95))))
+    (property "Value" "10k"
+      (at 42.37 112.57 0)
+      (effects
+        (font
+          (size 0.95 0.95))))
+    (property "Footprint" "Flashlight:R_0805_2012Metric"
+      (at 42.37 114.57 0)
+      (effects
+        (font
+          (size 0.95 0.95))
+        (hide yes)))
+    (property "Datasheet" ""
+      (at 42.37 116.57 0)
+      (effects
+        (font
+          (size 0.95 0.95))
+        (hide yes)))
+    (instances
+      (project "flashlight"
+        (path "/a654af7a-4ed0-5e65-a4cd-0e8aec7ef590/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59"
+          (reference "R11")
+          (unit 1)))))
+  (wire
+    (pts
+      (xy 39.37 111.76)
+      (xy 39.37 106.68))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "102f7d47-f9be-5c4a-87ca-9e0019b7f11a"))
+  (global_label "3V3"
+    (shape bidirectional)
+    (at 39.37 106.68 90)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify left))
+    (uuid "487fede0-415b-5b5f-828a-cfd02563b89e"))
+  (wire
+    (pts
+      (xy 39.37 119.38)
+      (xy 39.37 124.46))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "e2abb079-d0c8-5e93-8d62-b33c2c5f6af6"))
+  (global_label "STRAP8"
+    (shape bidirectional)
+    (at 39.37 124.46 270)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify right))
+    (uuid "3b258218-37ee-53c6-8d18-106994cec4e6"))
+  (symbol
+    (lib_id "Device:R")
+    (at 105.41 115.57 0)
+    (unit 1)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "4d4a0afe-d1c6-5f6e-a2b4-4e71c99b667c")
+    (property "Reference" "R12"
+      (at 108.41 110.57 0)
+      (effects
+        (font
+          (size 0.95 0.95))))
+    (property "Value" "10k"
+      (at 108.41 112.57 0)
+      (effects
+        (font
+          (size 0.95 0.95))))
+    (property "Footprint" "Flashlight:R_0805_2012Metric"
+      (at 108.41 114.57 0)
+      (effects
+        (font
+          (size 0.95 0.95))
+        (hide yes)))
+    (property "Datasheet" ""
+      (at 108.41 116.57 0)
+      (effects
+        (font
+          (size 0.95 0.95))
+        (hide yes)))
+    (instances
+      (project "flashlight"
+        (path "/a654af7a-4ed0-5e65-a4cd-0e8aec7ef590/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59"
+          (reference "R12")
+          (unit 1)))))
+  (wire
+    (pts
+      (xy 105.41 111.76)
+      (xy 105.41 106.68))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "f3806956-41c7-58f9-9cc4-bc8ede7058fd"))
+  (global_label "3V3"
+    (shape bidirectional)
+    (at 105.41 106.68 90)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify left))
+    (uuid "e14dc0b5-d54b-52be-918b-94d2fc1bfdd6"))
+  (wire
+    (pts
+      (xy 105.41 119.38)
+      (xy 105.41 124.46))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "d1200298-4910-5fa2-a16a-fd573833ba65"))
+  (global_label "STRAP2"
+    (shape bidirectional)
+    (at 105.41 124.46 270)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify right))
+    (uuid "b533f4d7-0561-511f-ab0a-247247d437fb"))
+  (symbol
+    (lib_id "Device:R")
+    (at 170.18 115.57 0)
+    (unit 1)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "2ac97129-f439-5cde-ab0c-4939be0d6060")
+    (property "Reference" "R13"
+      (at 173.18 110.57 0)
+      (effects
+        (font
+          (size 0.95 0.95))))
+    (property "Value" "4.7k"
+      (at 173.18 112.57 0)
+      (effects
+        (font
+          (size 0.95 0.95))))
+    (property "Footprint" "Flashlight:R_0805_2012Metric"
+      (at 173.18 114.57 0)
+      (effects
+        (font
+          (size 0.95 0.95))
+        (hide yes)))
+    (property "Datasheet" ""
+      (at 173.18 116.57 0)
+      (effects
+        (font
+          (size 0.95 0.95))
+        (hide yes)))
+    (instances
+      (project "flashlight"
+        (path "/a654af7a-4ed0-5e65-a4cd-0e8aec7ef590/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59"
+          (reference "R13")
+          (unit 1)))))
+  (wire
+    (pts
+      (xy 170.18 111.76)
+      (xy 170.18 106.68))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "44807fe3-7afe-515e-8573-4ec39fb3cd7d"))
+  (global_label "3V3"
+    (shape bidirectional)
+    (at 170.18 106.68 90)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify left))
+    (uuid "68fa1225-2bac-5b82-b105-91f2232085fd"))
+  (wire
+    (pts
+      (xy 170.18 119.38)
+      (xy 170.18 124.46))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "51a739ad-76f6-55b5-a43c-581e5eb438ef"))
+  (global_label "SDA"
+    (shape bidirectional)
+    (at 170.18 124.46 270)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify right))
+    (uuid "d6f0203a-c871-5e46-a528-353f5406c907"))
+  (symbol
+    (lib_id "Device:R")
+    (at 234.95 115.57 0)
+    (unit 1)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "9c257d1b-feaa-5964-910d-b4d8a52f6cfe")
+    (property "Reference" "R14"
+      (at 237.95 110.57 0)
+      (effects
+        (font
+          (size 0.95 0.95))))
+    (property "Value" "4.7k"
+      (at 237.95 112.57 0)
+      (effects
+        (font
+          (size 0.95 0.95))))
+    (property "Footprint" "Flashlight:R_0805_2012Metric"
+      (at 237.95 114.57 0)
+      (effects
+        (font
+          (size 0.95 0.95))
+        (hide yes)))
+    (property "Datasheet" ""
+      (at 237.95 116.57 0)
+      (effects
+        (font
+          (size 0.95 0.95))
+        (hide yes)))
+    (instances
+      (project "flashlight"
+        (path "/a654af7a-4ed0-5e65-a4cd-0e8aec7ef590/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59"
+          (reference "R14")
+          (unit 1)))))
+  (wire
+    (pts
+      (xy 234.95 111.76)
+      (xy 234.95 106.68))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "979de134-c3fe-57d6-9cfb-357901f04c8f"))
+  (global_label "3V3"
+    (shape bidirectional)
+    (at 234.95 106.68 90)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify left))
+    (uuid "f6830c22-03a0-5c40-bae9-5c849577da13"))
+  (wire
+    (pts
+      (xy 234.95 119.38)
+      (xy 234.95 124.46))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "7f8f9c45-6742-5290-8b5a-ff9395e1255b"))
+  (global_label "SCL"
+    (shape bidirectional)
+    (at 234.95 124.46 270)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify right))
+    (uuid "e85ee5ab-fd67-51bb-b01e-7b1fdc285953"))
+  (symbol
+    (lib_id "Switch:SW_Push")
+    (at 299.72 115.57 0)
+    (unit 1)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "bc984d5a-547f-50d4-9ddc-1b90329bd3e3")
+    (property "Reference" "SW1"
+      (at 302.72 110.57 0)
+      (effects
+        (font
+          (size 0.95 0.95))))
+    (property "Value" "BOOT"
+      (at 302.72 112.57 0)
+      (effects
+        (font
+          (size 0.95 0.95))))
+    (property "Footprint" "Flashlight:Reference_Button"
+      (at 302.72 114.57 0)
+      (effects
+        (font
+          (size 0.95 0.95))
+        (hide yes)))
+    (property "Datasheet" ""
+      (at 302.72 116.57 0)
+      (effects
+        (font
+          (size 0.95 0.95))
+        (hide yes)))
+    (instances
+      (project "flashlight"
+        (path "/a654af7a-4ed0-5e65-a4cd-0e8aec7ef590/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59"
+          (reference "SW1")
+          (unit 1)))))
+  (wire
+    (pts
+      (xy 294.64 115.57)
+      (xy 289.56 115.57))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "81b18687-729c-5064-bf07-3cfe5b30da29"))
+  (global_label "BOOT"
+    (shape bidirectional)
+    (at 289.56 115.57 180)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify right))
+    (uuid "4c3f7a7c-f686-5b1b-9fee-1b485ac720a5"))
+  (wire
+    (pts
+      (xy 304.8 115.57)
+      (xy 309.88 115.57))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "7f1d3789-9dd7-57ca-a6ec-2f6871756333"))
+  (global_label "GND"
+    (shape bidirectional)
+    (at 309.88 115.57 0)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify left))
+    (uuid "02be39d9-c6fc-5fff-a1d4-e19ba194f5e0"))
+  (symbol
+    (lib_id "Switch:SW_Push")
+    (at 364.49 115.57 0)
+    (unit 1)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c8de8542-29ea-5bff-8ae6-352b9f4f4e3f")
+    (property "Reference" "SW2"
+      (at 367.49 110.57 0)
+      (effects
+        (font
+          (size 0.95 0.95))))
+    (property "Value" "USER / GPIO3"
+      (at 367.49 112.57 0)
+      (effects
+        (font
+          (size 0.95 0.95))))
+    (property "Footprint" "Flashlight:Reference_Button"
+      (at 367.49 114.57 0)
+      (effects
+        (font
+          (size 0.95 0.95))
+        (hide yes)))
+    (property "Datasheet" ""
+      (at 367.49 116.57 0)
+      (effects
+        (font
+          (size 0.95 0.95))
+        (hide yes)))
+    (instances
+      (project "flashlight"
+        (path "/a654af7a-4ed0-5e65-a4cd-0e8aec7ef590/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59"
+          (reference "SW2")
+          (unit 1)))))
+  (wire
+    (pts
+      (xy 359.41 115.57)
+      (xy 354.33 115.57))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "d1ff3c8e-7485-5780-83e7-4d37eb76d59a"))
+  (global_label "USER_KEY"
+    (shape bidirectional)
+    (at 354.33 115.57 180)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify right))
+    (uuid "343e6a0d-2732-5f56-a278-b14d1c98e235"))
+  (wire
+    (pts
+      (xy 369.57 115.57)
+      (xy 374.65 115.57))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "01db0e29-7852-5037-b316-6c67aa76dd5f"))
+  (global_label "GND"
+    (shape bidirectional)
+    (at 374.65 115.57 0)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify left))
+    (uuid "2c5bf84f-9a76-53d3-bd31-448a69871807"))
+  (symbol
+    (lib_id "Device:R")
+    (at 39.37 172.72 0)
+    (unit 1)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "cfa189b3-1fe2-5297-b81c-067393e2a1cb")
+    (property "Reference" "R15"
+      (at 42.37 167.72 0)
+      (effects
+        (font
+          (size 0.95 0.95))))
+    (property "Value" "10k"
+      (at 42.37 169.72 0)
+      (effects
+        (font
+          (size 0.95 0.95))))
+    (property "Footprint" "Flashlight:R_0805_2012Metric"
+      (at 42.37 171.72 0)
+      (effects
+        (font
+          (size 0.95 0.95))
+        (hide yes)))
+    (property "Datasheet" ""
+      (at 42.37 173.72 0)
+      (effects
+        (font
+          (size 0.95 0.95))
+        (hide yes)))
+    (instances
+      (project "flashlight"
+        (path "/a654af7a-4ed0-5e65-a4cd-0e8aec7ef590/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59"
+          (reference "R15")
+          (unit 1)))))
+  (wire
+    (pts
+      (xy 39.37 168.91)
+      (xy 39.37 163.83))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "d24751c7-1ef7-560c-b1b7-474994751560"))
+  (global_label "3V3"
+    (shape bidirectional)
+    (at 39.37 163.83 90)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify left))
+    (uuid "40a8923b-5ff2-57db-8813-6b2309dc7b7a"))
+  (wire
+    (pts
+      (xy 39.37 176.53)
+      (xy 39.37 181.61))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "eb8ddfe9-add7-577e-8681-d436f5eadbb0"))
+  (global_label "USER_KEY"
+    (shape bidirectional)
+    (at 39.37 181.61 270)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify right))
+    (uuid "060cb618-516c-53a7-8230-1c6e911468a5"))
+  (symbol
+    (lib_id "Device:C")
+    (at 105.41 172.72 0)
+    (unit 1)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "5bc8c689-9bc7-5c28-98be-68fbdb8ec6b9")
+    (property "Reference" "C15"
+      (at 108.41 167.72 0)
+      (effects
+        (font
+          (size 0.95 0.95))))
+    (property "Value" "100n"
+      (at 108.41 169.72 0)
+      (effects
+        (font
+          (size 0.95 0.95))))
+    (property "Footprint" "Flashlight:C_0805_2012Metric"
+      (at 108.41 171.72 0)
+      (effects
+        (font
+          (size 0.95 0.95))
+        (hide yes)))
+    (property "Datasheet" ""
+      (at 108.41 173.72 0)
+      (effects
+        (font
+          (size 0.95 0.95))
+        (hide yes)))
+    (instances
+      (project "flashlight"
+        (path "/a654af7a-4ed0-5e65-a4cd-0e8aec7ef590/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59"
+          (reference "C15")
+          (unit 1)))))
+  (wire
+    (pts
+      (xy 105.41 168.91)
+      (xy 105.41 163.83))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "e93c9b3a-7654-5d8a-9856-80727f640bbb"))
+  (global_label "USER_KEY"
+    (shape bidirectional)
+    (at 105.41 163.83 90)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify left))
+    (uuid "0660d8f8-4279-53d0-a148-94f8ce69e249"))
+  (wire
+    (pts
+      (xy 105.41 176.53)
+      (xy 105.41 181.61))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "6fb5eeb8-559a-5b78-bbf4-bd6674179830"))
+  (global_label "GND"
+    (shape bidirectional)
+    (at 105.41 181.61 270)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify right))
+    (uuid "043c3e71-45b3-5619-80e5-fa916ec25712"))
+  (symbol
+    (lib_id "Device:LED")
+    (at 170.18 172.72 0)
+    (unit 1)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "e98d1537-0621-5d16-aba4-15426a6979f4")
+    (property "Reference" "D3"
+      (at 173.18 167.72 0)
+      (effects
+        (font
+          (size 0.95 0.95))))
+    (property "Value" "LED GREEN"
+      (at 173.18 169.72 0)
+      (effects
+        (font
+          (size 0.95 0.95))))
+    (property "Footprint" "Flashlight:LED_0805_2012Metric"
+      (at 173.18 171.72 0)
+      (effects
+        (font
+          (size 0.95 0.95))
+        (hide yes)))
+    (property "Datasheet" ""
+      (at 173.18 173.72 0)
+      (effects
+        (font
+          (size 0.95 0.95))
+        (hide yes)))
+    (instances
+      (project "flashlight"
+        (path "/a654af7a-4ed0-5e65-a4cd-0e8aec7ef590/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59"
+          (reference "D3")
+          (unit 1)))))
+  (wire
+    (pts
+      (xy 166.37 172.72)
+      (xy 161.29 172.72))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "1b96098a-2c4a-5aeb-a9dc-a7b2d94104c5"))
+  (global_label "GND"
+    (shape bidirectional)
+    (at 161.29 172.72 180)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify right))
+    (uuid "3d549555-85b2-56ac-94a9-8a1629f4f6d8"))
+  (wire
+    (pts
+      (xy 173.99 172.72)
+      (xy 179.07 172.72))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "064e78a9-8056-5c02-a8ba-e0793d2cf475"))
+  (global_label "LED_A"
+    (shape bidirectional)
+    (at 179.07 172.72 0)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify left))
+    (uuid "042fa2a7-8a24-5696-8f5f-0643ab22b64c"))
+  (symbol
+    (lib_id "Device:R")
+    (at 234.95 172.72 0)
+    (unit 1)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "9063b47f-88d2-5d7d-804d-04c48907f786")
+    (property "Reference" "R16"
+      (at 237.95 167.72 0)
+      (effects
+        (font
+          (size 0.95 0.95))))
+    (property "Value" "1k"
+      (at 237.95 169.72 0)
+      (effects
+        (font
+          (size 0.95 0.95))))
+    (property "Footprint" "Flashlight:R_0805_2012Metric"
+      (at 237.95 171.72 0)
+      (effects
+        (font
+          (size 0.95 0.95))
+        (hide yes)))
+    (property "Datasheet" ""
+      (at 237.95 173.72 0)
+      (effects
+        (font
+          (size 0.95 0.95))
+        (hide yes)))
+    (instances
+      (project "flashlight"
+        (path "/a654af7a-4ed0-5e65-a4cd-0e8aec7ef590/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59"
+          (reference "R16")
+          (unit 1)))))
+  (wire
+    (pts
+      (xy 234.95 168.91)
+      (xy 234.95 163.83))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "8ae6d54b-98a6-5f45-af48-866f14f74a4f"))
+  (global_label "LED_GPIO"
+    (shape bidirectional)
+    (at 234.95 163.83 90)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify left))
+    (uuid "dbfbb5a3-8f0b-5e9a-85f1-a276ed5a9ba0"))
+  (wire
+    (pts
+      (xy 234.95 176.53)
+      (xy 234.95 181.61))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "0fdd97fb-a745-5cb9-86d7-7e8e098b7dbe"))
+  (global_label "LED_A"
+    (shape bidirectional)
+    (at 234.95 181.61 270)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify right))
+    (uuid "b3bac988-b928-5263-8a04-b49e1b035c4c"))
+  (symbol
+    (lib_id "Connector_Generic:Conn_01x02")
+    (at 299.72 172.72 0)
+    (unit 1)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "8551dc4e-c957-573a-bebf-9d31acb79883")
+    (property "Reference" "J3"
+      (at 302.72 167.72 0)
+      (effects
+        (font
+          (size 0.95 0.95))))
+    (property "Value" "NTC SENSOR"
+      (at 302.72 169.72 0)
+      (effects
+        (font
+          (size 0.95 0.95))))
+    (property "Footprint" "Flashlight:SensorPads_2"
+      (at 302.72 171.72 0)
+      (effects
+        (font
+          (size 0.95 0.95))
+        (hide yes)))
+    (property "Datasheet" ""
+      (at 302.72 173.72 0)
+      (effects
+        (font
+          (size 0.95 0.95))
+        (hide yes)))
+    (instances
+      (project "flashlight"
+        (path "/a654af7a-4ed0-5e65-a4cd-0e8aec7ef590/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59"
+          (reference "J3")
+          (unit 1)))))
+  (wire
+    (pts
+      (xy 294.64 172.72)
+      (xy 289.56 172.72))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "c4e9d8d2-372c-5cff-818b-f9b4b9a38a0c"))
+  (global_label "TEMP_RAW"
+    (shape bidirectional)
+    (at 289.56 172.72 180)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify right))
+    (uuid "9b265e95-cdd3-588a-99f2-ab108fd69771"))
+  (wire
+    (pts
+      (xy 294.64 175.26)
+      (xy 289.56 175.26))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "731c73cf-d7bd-54f8-9b4b-d871b8d0ca6a"))
+  (global_label "GND"
+    (shape bidirectional)
+    (at 289.56 175.26 180)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify right))
+    (uuid "951d3ef1-c800-5665-b668-2a65990892a2"))
+  (symbol
+    (lib_id "Device:R")
+    (at 364.49 172.72 0)
+    (unit 1)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "5c7934b7-9fd7-5045-99e7-c00c499a4355")
+    (property "Reference" "R17"
+      (at 367.49 167.72 0)
+      (effects
+        (font
+          (size 0.95 0.95))))
+    (property "Value" "12.4k 1%"
+      (at 367.49 169.72 0)
+      (effects
+        (font
+          (size 0.95 0.95))))
+    (property "Footprint" "Flashlight:R_0805_2012Metric"
+      (at 367.49 171.72 0)
+      (effects
+        (font
+          (size 0.95 0.95))
+        (hide yes)))
+    (property "Datasheet" ""
+      (at 367.49 173.72 0)
+      (effects
+        (font
+          (size 0.95 0.95))
+        (hide yes)))
+    (instances
+      (project "flashlight"
+        (path "/a654af7a-4ed0-5e65-a4cd-0e8aec7ef590/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59"
+          (reference "R17")
+          (unit 1)))))
+  (wire
+    (pts
+      (xy 364.49 168.91)
+      (xy 364.49 163.83))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "715a4f62-24b0-536e-b6cf-5ada28d17537"))
+  (global_label "TEMP_EXCITE"
+    (shape bidirectional)
+    (at 364.49 163.83 90)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify left))
+    (uuid "bcc65c17-425e-549d-8f57-560d2080994d"))
+  (wire
+    (pts
+      (xy 364.49 176.53)
+      (xy 364.49 181.61))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "65717020-19e9-57f6-9e86-a1f483e47f97"))
+  (global_label "TEMP_RAW"
+    (shape bidirectional)
+    (at 364.49 181.61 270)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify right))
+    (uuid "85a6c714-21a9-5421-ad0c-8b907f63cfd1"))
+  (symbol
+    (lib_id "Device:R")
+    (at 39.37 231.14 0)
+    (unit 1)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "00139b83-5f96-5ac0-9bc4-e76f4386f2e1")
+    (property "Reference" "R18"
+      (at 42.37 226.14 0)
+      (effects
+        (font
+          (size 0.95 0.95))))
+    (property "Value" "1k"
+      (at 42.37 228.14 0)
+      (effects
+        (font
+          (size 0.95 0.95))))
+    (property "Footprint" "Flashlight:R_0805_2012Metric"
+      (at 42.37 230.14 0)
+      (effects
+        (font
+          (size 0.95 0.95))
+        (hide yes)))
+    (property "Datasheet" ""
+      (at 42.37 232.14 0)
+      (effects
+        (font
+          (size 0.95 0.95))
+        (hide yes)))
+    (instances
+      (project "flashlight"
+        (path "/a654af7a-4ed0-5e65-a4cd-0e8aec7ef590/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59"
+          (reference "R18")
+          (unit 1)))))
+  (wire
+    (pts
+      (xy 39.37 227.33)
+      (xy 39.37 222.25))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "79d223b4-2a8e-501e-b3a3-3cbb00e941a3"))
+  (global_label "TEMP_RAW"
+    (shape bidirectional)
+    (at 39.37 222.25 90)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify left))
+    (uuid "50bc431d-7f35-550f-bae5-113e390a0a91"))
+  (wire
+    (pts
+      (xy 39.37 234.95)
+      (xy 39.37 240.03))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "13e0b3f6-e07b-5b20-ba7a-69cdcae62725"))
+  (global_label "TEMP_ADC"
+    (shape bidirectional)
+    (at 39.37 240.03 270)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify right))
+    (uuid "8eaa3747-cfee-5aac-b66c-03ce80f13a50"))
+  (symbol
+    (lib_id "Device:C")
+    (at 105.41 231.14 0)
+    (unit 1)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "01dce86b-c0e4-59c9-9ad9-01b3fab308b4")
+    (property "Reference" "C16"
+      (at 108.41 226.14 0)
+      (effects
+        (font
+          (size 0.95 0.95))))
+    (property "Value" "100n"
+      (at 108.41 228.14 0)
+      (effects
+        (font
+          (size 0.95 0.95))))
+    (property "Footprint" "Flashlight:C_0805_2012Metric"
+      (at 108.41 230.14 0)
+      (effects
+        (font
+          (size 0.95 0.95))
+        (hide yes)))
+    (property "Datasheet" ""
+      (at 108.41 232.14 0)
+      (effects
+        (font
+          (size 0.95 0.95))
+        (hide yes)))
+    (instances
+      (project "flashlight"
+        (path "/a654af7a-4ed0-5e65-a4cd-0e8aec7ef590/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59"
+          (reference "C16")
+          (unit 1)))))
+  (wire
+    (pts
+      (xy 105.41 227.33)
+      (xy 105.41 222.25))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "c8cae839-dd14-5969-9fb6-7caf9fe1c237"))
+  (global_label "TEMP_ADC"
+    (shape bidirectional)
+    (at 105.41 222.25 90)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify left))
+    (uuid "54f0542b-a6b4-5f61-90e0-79d767fcc1e7"))
+  (wire
+    (pts
+      (xy 105.41 234.95)
+      (xy 105.41 240.03))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "78c4a3d7-3988-536e-b892-23667c3e665e"))
+  (global_label "GND"
+    (shape bidirectional)
+    (at 105.41 240.03 270)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify right))
+    (uuid "0a6d5f42-07e0-586f-9b3e-14aecc43bb7a"))
+  (symbol
+    (lib_id "Connector_Generic:Conn_01x06")
+    (at 170.18 231.14 0)
+    (unit 1)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "8d0546c1-3759-5f1a-870f-5deee8238529")
+    (property "Reference" "J4"
+      (at 173.18 226.14 0)
+      (effects
+        (font
+          (size 0.95 0.95))))
+    (property "Value" "UART 3V3 LOGIC"
+      (at 173.18 228.14 0)
+      (effects
+        (font
+          (size 0.95 0.95))))
+    (property "Footprint" "Flashlight:UART_Pads_6"
+      (at 173.18 230.14 0)
+      (effects
+        (font
+          (size 0.95 0.95))
+        (hide yes)))
+    (property "Datasheet" ""
+      (at 173.18 232.14 0)
+      (effects
+        (font
+          (size 0.95 0.95))
+        (hide yes)))
+    (instances
+      (project "flashlight"
+        (path "/a654af7a-4ed0-5e65-a4cd-0e8aec7ef590/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59"
+          (reference "J4")
+          (unit 1)))))
+  (wire
+    (pts
+      (xy 165.1 226.06)
+      (xy 160.02 226.06))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "83b08659-f598-5d67-9a66-7d5956961714"))
+  (global_label "GND"
+    (shape bidirectional)
+    (at 160.02 226.06 180)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify right))
+    (uuid "7b0f2877-8615-507e-9e2d-5ec606856466"))
+  (wire
+    (pts
+      (xy 165.1 228.6)
+      (xy 160.02 228.6))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "f99f6c88-08b3-5f9b-9efb-59cfdd3a364c"))
+  (global_label "UART_TX"
+    (shape bidirectional)
+    (at 160.02 228.6 180)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify right))
+    (uuid "41fee017-7974-5e54-adb6-f2c1c7bbe123"))
+  (wire
+    (pts
+      (xy 165.1 231.14)
+      (xy 160.02 231.14))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "2d23363f-6531-5227-8d52-1e769b6ed5e1"))
+  (global_label "UART_RX"
+    (shape bidirectional)
+    (at 160.02 231.14 180)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify right))
+    (uuid "5b36722b-ddef-5e7d-85f5-8b5a4599af28"))
+  (wire
+    (pts
+      (xy 165.1 233.68)
+      (xy 160.02 233.68))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "c7128587-9268-520b-be30-5ab02ab03f94"))
+  (global_label "ESP_EN"
+    (shape bidirectional)
+    (at 160.02 233.68 180)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify right))
+    (uuid "85428867-0854-50e3-80e5-c853fc23bed8"))
+  (wire
+    (pts
+      (xy 165.1 236.22)
+      (xy 160.02 236.22))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "8aeb8885-5ee1-5e8f-9271-ee2ee2a32f67"))
+  (global_label "BOOT"
+    (shape bidirectional)
+    (at 160.02 236.22 180)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify right))
+    (uuid "c3e60f42-03b1-5010-968a-6d9bdb1c152e"))
+  (wire
+    (pts
+      (xy 165.1 238.76)
+      (xy 160.02 238.76))
+    (stroke
+      (width 0)
+      (type default))
+    (uuid "6655331b-4dc8-5f56-9d36-ed7ca4bab37d"))
+  (global_label "3V3"
+    (shape bidirectional)
+    (at 160.02 238.76 180)
+    (effects
+      (font
+        (size 0.85 0.85))
+      (justify right))
+    (uuid "5ec6a63c-159b-553a-a86b-3be0e05def36"))
+  (text "PROVISIONAL: NTC 10k/B3950, 0..100 C. GPIO1 excitation; wait 15 ms, sample ADC1_CH0, drive GPIO1 low.\nADC ATTEN3 / 12 dB: calibrated range 0..2.5 V; 100 nF at GPIO0. Confirm actual sensor before assembly."
+    (at 25.4 266.7 0)
+    (effects
+      (font
+        (size 1.27 1.27))
+      (justify left))
+    (uuid "1bc9124c-f739-5929-a065-d6c6f409fabe")))

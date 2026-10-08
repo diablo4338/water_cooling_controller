@@ -1,0 +1,51 @@
+﻿Reference,Value,Footprint,Notes
+J1,PACK 2S / 6.0-8.4V,Flashlight:WirePads_2x_5mm,
+J2,LAMP / 1A nominal,Flashlight:WirePads_2x_5mm,
+R1,WSL2512R0470FEA,Flashlight:R_2512_6332Metric,Reference ina R17; 47mOhm 1% 1W; INA226 full scale 1.743A; update calibration
+Q1,MMFTP3334K,Flashlight:SOT-23,"Reference fan_power Q1; verified G1 S2 D3; slow lamp on/off, not high-frequency PWM"
+Q2,NXV40UNR,Flashlight:SOT-23,Reference fan_power Q2 / esp Q3; verified G1 S2 D3
+R2,61.9k,Flashlight:R_0805_2012Metric,Reference 61k9; 11uA combined gate/sink leakage gives 0.681V off-state Vgs
+R3,1k,Flashlight:R_0805_2012Metric,
+R4,100k,Flashlight:R_0805_2012Metric,
+C1,470u 16V low-ESR,Flashlight:Electrolytic_D10_P5,Bulk buffer for lamp pulses; mounted on bottom
+U4,INA226AIDGSR,Flashlight:MSOP-10_3x3mm_P0.5mm,I2C address 0x40; VBUS senses raw pack voltage
+R5,10R,Flashlight:R_0805_2012Metric,
+R6,10R,Flashlight:R_0805_2012Metric,
+C2,100n,Flashlight:C_0805_2012Metric,
+C3,100n,Flashlight:C_0805_2012Metric,
+U2,MCP16331T-E/CH,Flashlight:SOT-23-6,
+C4,10u 16V X7R,Flashlight:C_0805_2012Metric,
+C5,10u 16V X7R,Flashlight:C_0805_2012Metric,
+C6,100n 16V,Flashlight:C_0805_2012Metric,
+D1,PD3S120LQ,Flashlight:Reference_PowerDI323,"Reference fan_power D2; 20V 1A; cathode SW, anode GND"
+L1,22uH / Isat>=1.2A,Flashlight:L_Bourns_SRN6045TA,SRN6045TA-220M or electrically equivalent footprint-compatible part
+C7,100n 16V,Flashlight:C_0805_2012Metric,
+D2,1N4148WS-HG3_A-08,Flashlight:D_SOD-323,"Reference fan_power D3; cathode BOOST, anode 5V"
+C8,22u 10V X7R,Flashlight:C_1206_3216Metric,
+C9,22u 10V X7R,Flashlight:C_1206_3216Metric,
+R7,523k 1%,Flashlight:R_0805_2012Metric,Feedback current 8uA; verify stability on assembled board
+R8,100k 1%,Flashlight:R_0805_2012Metric,"Reference 100k; practical design ceiling, no manufacturer maximum specified"
+U3,TPS7A02-3.3,Flashlight:SOT-23-5,Reference power U2; TPS7A0233PDBVR; IN1 GND2 EN3 NC4 OUT5; rated 200mA
+C10,1u 10V X7R,Flashlight:C_0805_2012Metric,Reference power C6; local LDO input bypass
+C11,4.7u 10V X7R,Flashlight:C_0805_2012Metric,Reference power C5; local LDO output bypass
+U1,ESP32-C3-WROOM-02-N4,Flashlight:ESP32-C3-WROOM-02,"GPIO0 ADC1_CH0, GPIO1 switched NTC excitation; antenna overhang ~6.5mm"
+C12,10u 10V X7R,Flashlight:C_0805_2012Metric,
+C13,100n,Flashlight:C_0805_2012Metric,
+R9,10k,Flashlight:R_0805_2012Metric,
+C14,1u,Flashlight:C_0805_2012Metric,
+R10,10k,Flashlight:R_0805_2012Metric,
+R11,10k,Flashlight:R_0805_2012Metric,
+R12,10k,Flashlight:R_0805_2012Metric,
+R13,4.7k,Flashlight:R_0805_2012Metric,
+R14,4.7k,Flashlight:R_0805_2012Metric,
+SW1,BOOT,Flashlight:Reference_Button,Reference esp button footprint
+SW2,USER / GPIO3,Flashlight:Reference_Button,Reference esp button footprint
+R15,10k,Flashlight:R_0805_2012Metric,
+C15,100n,Flashlight:C_0805_2012Metric,
+D3,LED GREEN,Flashlight:LED_0805_2012Metric,
+R16,1k,Flashlight:R_0805_2012Metric,
+J3,NTC SENSOR,Flashlight:SensorPads_2,"External NTC to ground; provisional 10k/B3950, confirm actual sensor"
+R17,12.4k 1%,Flashlight:R_0805_2012Metric,Provisional NTC10k B3950 0..100C; GPIO1 high during sampling only; settle 15ms
+R18,1k,Flashlight:R_0805_2012Metric,
+C16,100n,Flashlight:C_0805_2012Metric,
+J4,UART 3V3 LOGIC,Flashlight:UART_Pads_6,Pin 6 voltage reference only; power board from pack; boot hold + EN low pulse
