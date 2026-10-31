@@ -4,6 +4,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "esp_err.h"
+
 #define INA226_ADDR        0x40
 
 #define REG_CONFIG         0x00
@@ -33,6 +35,8 @@ bool ina226_has_error(void);
 bool ina226_get_sample(ina226_sample_t *out);
 /* Reads one internally averaged shunt+bus result. */
 bool ina226_get_single_sample(ina226_sample_t *out);
+/* Same operation with an explicit error for structured failure events. */
+bool ina226_get_single_sample_ex(ina226_sample_t *out, esp_err_t *error);
 float ina226_bus_raw_to_v(uint16_t raw);
 float ina226_current_raw_to_ma(int16_t raw);
 

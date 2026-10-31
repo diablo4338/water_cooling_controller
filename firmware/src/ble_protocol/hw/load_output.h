@@ -3,8 +3,10 @@
 
 #include <stdbool.h>
 
-void load_output_restore(bool enabled);
-void load_output_set(bool enabled);
-void load_output_hold(void);
+#include "esp_err.h"
+
+esp_err_t load_output_restore(bool enabled);
+esp_err_t load_output_set(bool enabled);
+esp_err_t load_output_hold(void);
 
 #endif

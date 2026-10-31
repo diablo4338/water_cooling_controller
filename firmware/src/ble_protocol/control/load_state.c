@@ -19,8 +19,9 @@ bool load_button_is_pressed(const load_state_t *state, const load_policy_t *poli
     return temperature_c - sorted[2] >= policy->button_delta_c;
 }
 
-void load_state_step(load_state_t *state, const load_policy_t *policy,
-                     float temperature_c, float current_ma, int64_t now_us) {
+bool load_state_update_button(load_state_t *state, const load_policy_t *policy,
+                              float temperature_c) {
+    if (!state || !policy) return false;
     bool pressed = load_button_is_pressed(state, policy, temperature_c);
     bool start = pressed && (!policy->require_new_press || !state->button_was_pressed);
     /* A failed ADC read must not manufacture a release or enter the history. */
@@ -30,6 +31,12 @@ void load_state_step(load_state_t *state, const load_policy_t *policy,
         state->temperature_next = (state->temperature_next + 1) % 5;
         if (state->temperature_count < 5) ++state->temperature_count;
     }
+    return start;
+}
+
+void load_state_step(load_state_t *state, const load_policy_t *policy,
+                     float temperature_c, float current_ma, int64_t now_us) {
+    bool start = load_state_update_button(state, policy, temperature_c);
 
     if (state->mode == LOAD_IDLE) {
         state->low_current_pending = false;

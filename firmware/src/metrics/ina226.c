@@ -189,12 +189,21 @@ bool ina226_get_sample(ina226_sample_t *out) {
     return true;
 }
 
-bool ina226_get_single_sample(ina226_sample_t *out) {
-    if (!out || !ina226_init()) return false;
+bool ina226_get_single_sample_ex(ina226_sample_t *out, esp_err_t *error) {
+    if (error) *error = ESP_OK;
+    if (!out) {
+        if (error) *error = ESP_ERR_INVALID_ARG;
+        return false;
+    }
+    if (!ina226_init()) {
+        if (error) *error = ESP_ERR_INVALID_STATE;
+        return false;
+    }
     uint16_t status = 0;
     esp_err_t err = ina226_write_reg(REG_CONFIG, INA226_CONFIG_VALUE);
     if (err != ESP_OK) {
         ina226_recover("start conversion", err);
+        if (error) *error = err;
         return false;
     }
     bool ready = false;
@@ -203,6 +212,7 @@ bool ina226_get_single_sample(ina226_sample_t *out) {
         err = ina226_read_reg(REG_MASK_ENABLE, &status);
         if (err != ESP_OK) {
             ina226_recover("conversion status", err);
+            if (error) *error = err;
             return false;
         }
         if (status & (1U << 3)) {
@@ -212,13 +222,16 @@ bool ina226_get_single_sample(ina226_sample_t *out) {
     }
     if (!ready) {
         ina226_recover("conversion timeout", ESP_ERR_TIMEOUT);
+        if (error) *error = ESP_ERR_TIMEOUT;
         return false;
     }
     uint16_t bus_raw = 0;
     uint16_t current_raw = 0;
-    if (ina226_read_reg(REG_BUS_VOLTAGE, &bus_raw) != ESP_OK ||
-        ina226_read_reg(REG_CURRENT, &current_raw) != ESP_OK) {
-        ina226_recover("read sample", ESP_FAIL);
+    err = ina226_read_reg(REG_BUS_VOLTAGE, &bus_raw);
+    if (err == ESP_OK) err = ina226_read_reg(REG_CURRENT, &current_raw);
+    if (err != ESP_OK) {
+        ina226_recover("read sample", err);
+        if (error) *error = err;
         return false;
     }
     *out = (ina226_sample_t) {
@@ -233,6 +246,10 @@ bool ina226_get_single_sample(ina226_sample_t *out) {
              (unsigned)out->bus_raw, (int)out->current_raw,
              (double)out->voltage_v, (double)out->current_ma);
     return true;
+}
+
+bool ina226_get_single_sample(ina226_sample_t *out) {
+    return ina226_get_single_sample_ex(out, NULL);
 }
 
 float ina226_bus_raw_to_v(uint16_t raw) {

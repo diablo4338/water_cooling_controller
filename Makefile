@@ -8,7 +8,7 @@ IDF_DIR ?= firmware
 CLI_PYTHONPATH ?= pcwcc/src
 APP_ARGS ?=
 
-.PHONY: test test-integration test-unit install-app build-exe run-app run-buttons fw fw-test fw-tests
+.PHONY: test test-integration test-unit install-app build-exe run-app run-buttons fw fw-test fw-tests fw-host-test
 
 test:
 	PYTHONPATH=$(CLI_PYTHONPATH) $(PYTHON) -m pytest -c pcwcc/pytest.ini -q
@@ -36,3 +36,6 @@ fw:
 
 fw-test:
 	bash -lc '. $(IDF_EXPORT) && $(IDF_PY) -C $(IDF_DIR) -DPAIR_RUN_TESTS=1 fullclean build flash'
+
+fw-host-test:
+	$(MAKE) -C firmware/tests/host test

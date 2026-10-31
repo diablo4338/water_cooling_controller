@@ -31,6 +31,11 @@ typedef struct {
 bool load_button_is_pressed(const load_state_t *state, const load_policy_t *policy,
                             float temperature_c);
 
+/* Update the rolling temperature history and return true only on a new press
+ * edge.  Invalid samples neither release nor add to the history. */
+bool load_state_update_button(load_state_t *state, const load_policy_t *policy,
+                              float temperature_c);
+
 void load_state_step(load_state_t *state, const load_policy_t *policy,
                      float temperature_c, float current_ma, int64_t now_us);
 

@@ -22,7 +22,9 @@ release/
 *.sha256
 
 firmware/build/
+firmware/build-tests/
 firmware/managed_components/
+firmware/tests/host/test_runtime_fsm
 firmware/sdkconfig.old
 
 pcwcc/build/
