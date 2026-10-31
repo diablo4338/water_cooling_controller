@@ -39,6 +39,7 @@ typedef struct {
     uint16_t off_ms;
     uint8_t repeats;
     uint16_t conn_handle;
+    int32_t error;
     bool bool_value;
 } runtime_command_t;
 

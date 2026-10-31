@@ -18,6 +18,7 @@ typedef enum {
     BUZZER_FSM_WAIT_SETTLE,
     BUZZER_FSM_MEASURING,
     BUZZER_FSM_BEEPING,
+    BUZZER_FSM_ERROR,
 } buzzer_fsm_state_t;
 
 typedef struct {
@@ -48,6 +49,9 @@ typedef struct {
     uint32_t pending_startup_id;
     uint32_t last_startup_operation_id;
     uint32_t last_shutdown_operation_id;
+    uint32_t cancelled_operation_id;
+    bool cancel_failed;
+    bool shutdown_measurement_done;
 } buzzer_fsm_t;
 
 void buzzer_fsm_init(buzzer_fsm_t *fsm, const buzzer_fsm_config_t *config,

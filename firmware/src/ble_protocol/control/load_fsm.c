@@ -10,6 +10,7 @@ const char *load_fsm_state_name(load_fsm_state_t state) {
         case LOAD_FSM_STARTING: return "STARTING";
         case LOAD_FSM_WORKING: return "WORKING";
         case LOAD_FSM_STOPPING: return "STOPPING";
+        case LOAD_FSM_ERROR: return "ERROR";
         default: return "UNKNOWN";
     }
 }
@@ -56,12 +57,32 @@ static void begin_shutdown(load_fsm_t *fsm, runtime_command_list_t *commands) {
     runtime_command_list_push(commands, &request);
 }
 
+static void fail_load_off(load_fsm_t *fsm, runtime_command_list_t *commands) {
+    if (fsm->off_retries < LOAD_OFF_MAX_RETRIES) {
+        ++fsm->off_retries;
+        command_output(fsm, commands, RCMD_LOAD_OUTPUT_OFF);
+    } else {
+        fsm->state = LOAD_FSM_ERROR;
+        fsm->output_on = true;
+    }
+}
+
 void load_fsm_step(load_fsm_t *fsm, const runtime_event_t *event,
                    const load_fsm_config_t *config,
                    runtime_command_list_t *commands) {
     if (!fsm || !event || !config || !commands) return;
 
     switch (event->kind) {
+        case RTEVT_EVENT_BUS_FAULT:
+            if (fsm->state == LOAD_FSM_STARTING ||
+                fsm->state == LOAD_FSM_WORKING ||
+                fsm->state == LOAD_FSM_STOPPING) {
+                fsm->output_on = true;
+            }
+            fsm->state = LOAD_FSM_ERROR;
+            fsm->low_current_pending = false;
+            return;
+
         case RTEVT_THERMAL_BUTTON_PRESSED:
             if (fsm->state == LOAD_FSM_IDLE) {
                 begin_startup(fsm, commands);
@@ -97,12 +118,21 @@ void load_fsm_step(load_fsm_t *fsm, const runtime_event_t *event,
                 fsm->state = LOAD_FSM_IDLE;
                 fsm->low_current_pending = false;
             } else if (fsm->state == LOAD_FSM_STOPPING && fsm->off_requested) {
-                if (fsm->off_retries < LOAD_OFF_MAX_RETRIES) {
-                    ++fsm->off_retries;
-                    command_output(fsm, commands, RCMD_LOAD_OUTPUT_OFF);
-                }
-                /* Stay STOPPING so power management cannot sleep with an
-                 * unconfirmed output. */
+                fail_load_off(fsm, commands);
+            }
+            return;
+
+        case RTEVT_ACTION_FAILED:
+            if (event->operation_id != fsm->operation_id) return;
+            if (event->command_kind == RCMD_LOAD_OUTPUT_ON &&
+                fsm->state == LOAD_FSM_STARTING) {
+                fsm->output_on = false;
+                fsm->state = LOAD_FSM_IDLE;
+                fsm->low_current_pending = false;
+            } else if (event->command_kind == RCMD_LOAD_OUTPUT_OFF &&
+                       fsm->state == LOAD_FSM_STOPPING &&
+                       fsm->off_requested) {
+                fail_load_off(fsm, commands);
             }
             return;
 
@@ -110,8 +140,10 @@ void load_fsm_step(load_fsm_t *fsm, const runtime_event_t *event,
             if (fsm->state == LOAD_FSM_STARTING &&
                 event->buzzer_operation == BUZZER_OP_STARTUP &&
                 event->operation_id == fsm->startup_operation_id) {
-                fsm->state = LOAD_FSM_WORKING;
+                fsm->state = event->error == 0 ? LOAD_FSM_WORKING
+                                               : LOAD_FSM_ERROR;
                 fsm->operation_id = fsm->startup_operation_id;
+                fsm->output_on = true;
                 fsm->low_current_pending = false;
             } else if (fsm->state == LOAD_FSM_STOPPING &&
                        event->buzzer_operation == BUZZER_OP_SHUTDOWN &&

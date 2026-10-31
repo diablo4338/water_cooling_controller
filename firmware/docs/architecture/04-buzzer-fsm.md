@@ -1,6 +1,18 @@
 # 04 — Buzzer FSM and INA errors
 
-States: `IDLE`, `WAIT_SETTLE`, `MEASURING`, `BEEPING`; completion is `BUZZER_DONE(context, operation_id)`, not necessarily a persistent DONE state. Keep Buzzer operation `STARTUP`, `SHUTDOWN`, `WARNING` separate from phase state.
+States: `IDLE`, `WAIT_SETTLE`, `MEASURING`, `BEEPING`, terminal `ERROR`; completion is `BUZZER_DONE(context, operation_id)`, not necessarily a persistent DONE state. Keep Buzzer operation `STARTUP`, `SHUTDOWN`, `WARNING` separate from phase state.
+
+Timer-start, INA-request submission, and buzzer-play submission failures are
+correlated `ACTION_FAILED` events. A startup settle/measurement failure selects the
+same single three-short-beep error pattern; failed shutdown measurement completes
+silently so Load can command OFF. If buzzer playback itself is rejected or cannot
+arm its timer, it does not emit `BEEP_FINISHED`; it terminates the cue operation
+with an error result so Load enters terminal `ERROR` rather than claiming startup
+success. If stopping a warning for shutdown is rejected, the Buzzer retains the
+warning operation ID and waits for its real completion before acknowledging
+shutdown, so Load does not switch OFF while playback may still be active. A bus
+delivery fault moves any active buzzer operation to terminal `ERROR` and prevents
+sleep.
 
 | State | Event | Next/action |
 |---|---|---|

@@ -18,6 +18,22 @@ Action completion callbacks       â”˜                                         â”
 
 FSM steps are deterministic state + event -> next state + *commands*. Hardware callbacks and timers **publish events only**, do not call other FSMs or directly enter Deep Sleep. All events/state mutations serialized in one worker context. Use a bounded queue or equivalent serializing mechanism for asynchronous producers; non-blocking ISR publication. Ordering across simultaneous producers must not be relied on for correctness.
 
+The FreeRTOS event queue has an eight-event overflow staging ring. If both are full,
+publication fails and a sticky delivery fault is raised; sleep remains prohibited and
+the dispatcher moves active FSMs to explicit error states. The ISR publisher uses
+only `xQueueSendFromISR`, ISR critical sections, and `portYIELD_FROM_ISR`; it never
+takes a mutex or logs. A publication made while the sleep gate is armed is still
+queued and marks the gate aborted.
+
+The dispatcher acquires its serialization lock before receiving, so no event can be
+removed from the queue and hidden in a local variable while the sleep evaluator sees
+an empty queue. Arming the gate serializes task-context publication and waits for
+in-flight ISR publication; the final queue/fault check also runs before output hold
+and once again immediately before the ESP-IDF sleep call. This is an application
+publication boundary, not an atomic check-and-sleep guarantee: an interrupt may
+arrive after the last check and before `esp_deep_sleep_start()`. Only hardware wake
+sources configured for Deep Sleep can recover an event in that final interval.
+
 ## Event envelope
 
 Suggested C contracts (illustrative, not drop-in SDK code):
@@ -60,6 +76,7 @@ A combined INA226 sample can be represented as one `INA_SAMPLE_OK` with both val
 | BLE adapter | `BLE_STOPPED/FAILED` | BLE | Confirm host/controller truly quiescent before OFF |
 | Buzzer executor | `BEEP_FINISHED` | Buzzer | One completion per pattern ID |
 | Buzzer FSM | `BUZZER_DONE(reason, operation_id)` | Load | `SHUTDOWN` completion unblocks physical load OFF; `STARTUP` merely completes the cue |
+| Dispatcher/action executor | `ACTION_FAILED(command_kind, operation_id, request_id)` | Owning FSM | Report rejected submissions and timer/buzzer execution failures; never synthesize hardware success |
 
 ## Critical rules
 - `REQUEST_ID`: unique within uptime; late/stale voltage results must never change another operation or cause a beep.
@@ -68,3 +85,4 @@ A combined INA226 sample can be represented as one `INA_SAMPLE_OK` with both val
 - Never block dispatcher for the one-second load settling, audio playback, INA conversion, or BLE shutdown. Completion events are the synchronization point.
 - `gettimeofday()` is wall-clock, **not monotonic**. Specify a monotonic-across-deep-sleep source or robust elapsed-time strategy for load low-current timing; `esp_timer_get_time()` alone resets after deep sleep. If preserving existing wall-clock approach, test time discontinuities and record its limitation.
 - Runtime snapshot used by GATT reflects confirmed physical output and fresh measurement, not a prematurely changed FSM mode.
+- Action-queue submission failure is delivered synchronously to the FSMs under the dispatcher lock as `ACTION_FAILED`. An accepted command is not an acknowledgment; only physical/action completion events advance success states. Exhausted GPIO-off retries enter `LOAD_ERROR` and never claim `LOAD_IDLE`.

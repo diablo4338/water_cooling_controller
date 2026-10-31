@@ -28,6 +28,7 @@ Write pure host-runnable tests for each FSM and orchestrator sequence; hardware 
 - ADVERTISING connects -> CONNECTED; CLIENT_DISCONNECTED -> STOPPING always; no advertising restart despite remaining time.
 - CONNECTED window timeout -> stay connected; eventual disconnect -> STOPPING.
 - STOPPING press -> pending restart; after BLE_STOPPED -> STARTING exactly once.
+- BLE disconnect submission failure -> stop the session instead of waiting for a callback that was never requested.
 - Late GAP callbacks cannot mutate a new session.
 - GPIO19 pairing/reset behavior preserved.
 
@@ -37,6 +38,11 @@ Write pure host-runnable tests for each FSM and orchestrator sequence; hardware 
 - Request shutdown -> voltage read and optional cue -> GPIO OFF, never opposite order.
 - Two simultaneous callbacks don't break state or generate duplicate beep.
 - Timeout/failure paths have finite cleanup; no infinite wait or stale work preventing sleep.
+- ISR publication during sleep preparation is delivered and aborts sleep; queue overflow is staged or raises a sticky sleep-blocking delivery fault.
+- Action-queue rejection for LOAD_ON, LOAD_OFF, BLE start/stop, buzzer playback, settle timer, and INA request is delivered to the owning FSM; LOAD_OFF rejection never reports IDLE while output is confirmed/possibly ON.
+- Rejected buzzer cancellation during shutdown waits for the active warning's correlated completion before GPIO OFF.
+- Timer-start failures during startup and shutdown do not leave WAIT_SETTLE/MEASURING active; startup emits one error pattern, shutdown reaches the GPIO-OFF attempt.
+- INA226 host fault injection verifies conversion timeout, I2C timeout, and the 10.45 s maximum expected call path under timeout assumptions.
 - Build succeeds with installed ESP-IDF version; no silent changes in BLE security/storage/GATT contract.
 
 ## Deliverable evidence

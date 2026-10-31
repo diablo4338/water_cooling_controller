@@ -75,6 +75,7 @@ static portMUX_TYPE s_pair_button_mux = portMUX_INITIALIZER_UNLOCKED;
 static volatile bool s_pair_button_irq_pending;
 
 static bool s_boot_measurement_pending;
+static bool s_event_bus_fault_reported;
 static int64_t s_boot_started_us;
 static bool s_periodic_pending;
 static uint32_t s_periodic_request_id;
@@ -250,6 +251,18 @@ static void apply_commands_locked(const runtime_command_list_t *commands,
         if (!action_executor_submit(command)) {
             ESP_LOGE(TAG, "action submit failed kind=%d op=%u",
                      (int)command->kind, (unsigned)command->operation_id);
+            runtime_event_t failed = runtime_event_make(
+                RTEVT_ACTION_FAILED, now_us);
+            failed.command_kind = (int32_t)command->kind;
+            failed.operation_id = command->operation_id;
+            failed.request_id = command->request_id;
+            failed.context = command->context;
+            failed.error = RUNTIME_ERROR_ACTION_REJECTED;
+            if (follow_up_count < RUNTIME_COMMAND_MAX) {
+                follow_up[follow_up_count++] = failed;
+            } else {
+                ESP_LOGE(TAG, "action failure event capacity exhausted");
+            }
         }
     }
 
@@ -320,6 +333,10 @@ static void process_event_locked(const runtime_event_t *event) {
     if (event->kind == RTEVT_SLEEP_ABORTED) {
         s_sleep_requested = false;
         ESP_LOGI(TAG, "sleep request aborted");
+    }
+    if (event->kind == RTEVT_ACTION_FAILED &&
+        event->command_kind == RCMD_ENTER_DEEP_SLEEP) {
+        s_sleep_requested = false;
     }
 
     /* Pairing mode has no meaning once the radio is fully off. */
@@ -417,11 +434,16 @@ static void periodic_cycle_locked(int64_t now_us) {
         runtime_command_t request = runtime_command_make(RCMD_INA_REQUEST, 0);
         request.request_id = runtime_event_next_id();
         request.context = MEASURE_PERIODIC;
-        if (action_executor_submit(&request)) {
-            s_periodic_pending = true;
-            s_periodic_request_id = request.request_id;
-        } else {
+        s_periodic_pending = true;
+        s_periodic_request_id = request.request_id;
+        if (!action_executor_submit(&request)) {
             ESP_LOGW(TAG, "periodic INA request not submitted");
+            runtime_event_t failed = runtime_event_make(
+                RTEVT_INA_SAMPLE_FAILED, now_us);
+            failed.request_id = request.request_id;
+            failed.context = MEASURE_PERIODIC;
+            failed.error = RUNTIME_ERROR_ACTION_REJECTED;
+            process_event_locked(&failed);
         }
     }
 
@@ -571,15 +593,7 @@ void load_runtime_init(void) {
 void load_runtime_task(void *arg) {
     (void)arg;
 
-    runtime_event_t pending_event;
-    bool has_pending_event = false;
-
     for (;;) {
-        if (!has_pending_event) {
-            has_pending_event = event_bus_receive(
-                &pending_event, DISPATCH_RECEIVE_TIMEOUT_MS);
-        }
-
         if (!event_bus_lock_dispatch(DISPATCH_LOCK_TIMEOUT_MS)) {
             /* The action executor is evaluating/entering Deep Sleep.  Hold
              * the event until the dispatcher lock is available again. */
@@ -587,9 +601,17 @@ void load_runtime_task(void *arg) {
             continue;
         }
 
-        if (has_pending_event) {
+        if (event_bus_delivery_faulted() && !s_event_bus_fault_reported) {
+            runtime_event_t fault =
+                runtime_event_make(RTEVT_EVENT_BUS_FAULT, wall_time_us());
+            process_event_locked(&fault);
+            s_event_bus_fault_reported = true;
+            ESP_LOGE(TAG, "event bus lost an event; runtime failed closed");
+        }
+
+        runtime_event_t pending_event;
+        if (event_bus_receive(&pending_event, DISPATCH_RECEIVE_TIMEOUT_MS)) {
             process_event_locked(&pending_event);
-            has_pending_event = false;
         }
         scheduler_locked(wall_time_us());
         event_bus_unlock_dispatch();
@@ -615,7 +637,8 @@ void load_runtime_get_power_snapshot(power_snapshot_t *out) {
     out->action_pending = action_executor_pending() > 0;
     out->event_pending = event_bus_pending() > 0;
     out->critical_pending = pair_button_irq_pending() ||
-                            s_boot_measurement_pending;
+                            s_boot_measurement_pending ||
+                            event_bus_delivery_faulted();
 }
 
 bool load_runtime_prepare_sleep(void) {
@@ -629,8 +652,10 @@ bool load_runtime_prepare_sleep(void) {
         s_core.ble.conn_handle != UINT16_MAX ||
         s_core.load.state == LOAD_FSM_STARTING ||
         s_core.load.state == LOAD_FSM_STOPPING ||
+        s_core.load.state == LOAD_FSM_ERROR ||
         s_core.buzzer.state != BUZZER_FSM_IDLE ||
-        event_bus_pending() != 0 || action_executor_pending() != 0) {
+        event_bus_pending() != 0 || action_executor_pending() != 0 ||
+        event_bus_delivery_faulted() || event_bus_sleep_abort_requested()) {
         ESP_LOGW(TAG, "sleep aborted: runtime state changed");
         return false;
     }
@@ -658,6 +683,12 @@ bool load_runtime_prepare_sleep(void) {
     }
 
     (void)gpio_set_level(GPIO_NUM_0, 0);
+    if (event_bus_pending() != 0 || event_bus_delivery_faulted() ||
+        event_bus_sleep_abort_requested() || pair_button_irq_pending() ||
+        gpio_get_level(PAIR_BUTTON_GPIO) == PAIR_BUTTON_ACTIVE_LEVEL) {
+        ESP_LOGW(TAG, "sleep aborted: event arrived during final preparation");
+        return false;
+    }
     ESP_LOGI(TAG, "entering deep sleep for %u ms",
              (unsigned)config.deep_sleep_ms);
     esp_deep_sleep_start();

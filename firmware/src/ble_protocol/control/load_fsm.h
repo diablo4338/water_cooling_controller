@@ -12,6 +12,7 @@ typedef enum {
     LOAD_FSM_STARTING,
     LOAD_FSM_WORKING,
     LOAD_FSM_STOPPING,
+    LOAD_FSM_ERROR,
 } load_fsm_state_t;
 
 typedef struct {

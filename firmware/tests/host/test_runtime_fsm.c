@@ -82,6 +82,7 @@ typedef struct {
 
     int beep_count;
     beep_record_t beeps[32];
+    int buzzer_cancel_count;
 
     int ble_start_count;
     int ble_stop_count;
@@ -171,6 +172,21 @@ static runtime_event_t timeout_event(uint32_t request_id,
     return event;
 }
 
+static runtime_event_t action_failed_event(runtime_command_kind_t command_kind,
+                                           uint32_t operation_id,
+                                           uint32_t request_id,
+                                           measure_context_t context,
+                                           int32_t error,
+                                           int64_t now_us) {
+    runtime_event_t event = make_event(RTEVT_ACTION_FAILED, now_us);
+    event.command_kind = command_kind;
+    event.operation_id = operation_id;
+    event.request_id = request_id;
+    event.context = context;
+    event.error = error;
+    return event;
+}
+
 static runtime_event_t beep_finished_event(uint32_t operation_id,
                                            int64_t now_us) {
     runtime_event_t event = make_event(RTEVT_BEEP_FINISHED, now_us);
@@ -231,6 +247,9 @@ static void mock_record(mock_t *mock, const runtime_command_t *command) {
                     .repeats = command->repeats,
                 };
             }
+            break;
+        case RCMD_BUZZER_CANCEL:
+            ++mock->buzzer_cancel_count;
             break;
         case RCMD_BLE_START:
             ++mock->ble_start_count;
@@ -1049,6 +1068,267 @@ static void test_stale_startup_result_ignored(void) {
     CHECK_INT(mock.beep_count, 1);
 }
 
+static void test_action_queue_full_load_on(void) {
+    runtime_core_t core;
+    mock_t mock;
+    memset(&mock, 0, sizeof(mock));
+    init_core(&core, false, true);
+
+    step(&core, &mock, make_event(RTEVT_THERMAL_BUTTON_PRESSED, 0), 0);
+    uint32_t operation_id = core.load.operation_id;
+    step(&core, &mock,
+         action_failed_event(RCMD_LOAD_OUTPUT_ON, operation_id, 0,
+                             MEASURE_PERIODIC, -1, 1000), 1000);
+
+    CHECK_INT(core.load.state, LOAD_FSM_IDLE);
+    CHECK(!core.load.output_on);
+    CHECK_INT(core.buzzer.state, BUZZER_FSM_IDLE);
+    CHECK_INT(mock.settle_count, 0);
+}
+
+static void test_action_queue_full_load_off(void) {
+    runtime_core_t core;
+    mock_t mock;
+    memset(&mock, 0, sizeof(mock));
+    init_core(&core, true, true);
+
+    step(&core, &mock, ina_event(true, 1, 0, MEASURE_PERIODIC,
+                                 12.0f, 50.0f, 0), 0);
+    step(&core, &mock, ina_event(true, 2, 0, MEASURE_PERIODIC,
+                                 12.0f, 50.0f, 300000000LL), 300000000LL);
+    uint32_t operation_id = core.load.shutdown_operation_id;
+    uint32_t request_id = core.buzzer.request_id;
+    step(&core, &mock, ina_event(false, request_id, operation_id,
+                                 MEASURE_SHUTDOWN, NAN, NAN, 300100000LL),
+         300100000LL);
+    CHECK_INT(core.load.state, LOAD_FSM_STOPPING);
+    CHECK(core.load.output_on);
+
+    for (unsigned attempt = 0; attempt < 4; ++attempt) {
+        step(&core, &mock,
+             action_failed_event(RCMD_LOAD_OUTPUT_OFF, operation_id, 0,
+                                 MEASURE_PERIODIC, -1,
+                                 300200000LL + (int64_t)attempt), 300200000LL);
+    }
+
+    CHECK_INT(core.load.state, LOAD_FSM_ERROR);
+    CHECK(core.load.output_on);
+    CHECK_INT(core.load.state, LOAD_FSM_ERROR);
+}
+
+static void test_settle_timer_failure_startup(void) {
+    runtime_core_t core;
+    mock_t mock;
+    memset(&mock, 0, sizeof(mock));
+    init_core(&core, false, true);
+    step(&core, &mock, make_event(RTEVT_THERMAL_BUTTON_PRESSED, 0), 0);
+    uint32_t operation_id = core.load.operation_id;
+    step(&core, &mock, load_ack_event(true, operation_id, 1000), 1000);
+
+    step(&core, &mock,
+         action_failed_event(RCMD_START_SETTLE_TIMER, operation_id, 0,
+                             MEASURE_STARTUP, -1, 2000), 2000);
+    CHECK_INT(core.buzzer.state, BUZZER_FSM_BEEPING);
+    CHECK_INT(mock.beep_count, 1);
+    CHECK_INT(mock.beeps[0].pattern, BUZZER_PATTERN_ERROR);
+    CHECK_INT(mock.beeps[0].repeats, 3);
+}
+
+static void test_measure_timeout_start_failure_shutdown(void) {
+    runtime_core_t core;
+    mock_t mock;
+    memset(&mock, 0, sizeof(mock));
+    init_core(&core, true, true);
+
+    step(&core, &mock, ina_event(true, 1, 0, MEASURE_PERIODIC,
+                                 12.0f, 50.0f, 0), 0);
+    runtime_event_t low = ina_event(true, 2, 0, MEASURE_PERIODIC,
+                                    12.0f, 50.0f, 300000000LL);
+    step(&core, &mock, low, 300000000LL);
+    uint32_t operation_id = core.load.shutdown_operation_id;
+    uint32_t request_id = core.buzzer.request_id;
+
+    step(&core, &mock,
+         action_failed_event(RCMD_START_MEASURE_TIMEOUT, operation_id,
+                             request_id, MEASURE_SHUTDOWN, -1, 300001000LL),
+         300001000LL);
+    CHECK_INT(core.buzzer.state, BUZZER_FSM_IDLE);
+    CHECK_INT(core.load.state, LOAD_FSM_STOPPING);
+    CHECK_INT(mock.load_off_count, 1);
+    CHECK_INT(mock.beep_count, 0);
+}
+
+static void test_ina_request_submission_failures(void) {
+    runtime_core_t startup;
+    mock_t startup_mock;
+    memset(&startup_mock, 0, sizeof(startup_mock));
+    init_core(&startup, false, true);
+    uint32_t startup_operation = 0;
+    uint32_t startup_request = 0;
+    start_to_measuring(&startup, &startup_mock, &startup_operation,
+                       &startup_request);
+    step(&startup, &startup_mock,
+         action_failed_event(RCMD_INA_REQUEST, startup_operation,
+                             startup_request, MEASURE_STARTUP, -1,
+                             1200000), 1200000);
+    CHECK_INT(startup.buzzer.state, BUZZER_FSM_BEEPING);
+    CHECK_INT(startup_mock.beep_count, 1);
+    CHECK_INT(startup_mock.beeps[0].pattern, BUZZER_PATTERN_ERROR);
+    CHECK_INT(startup_mock.beeps[0].repeats, 3);
+
+    runtime_core_t shutdown;
+    mock_t shutdown_mock;
+    memset(&shutdown_mock, 0, sizeof(shutdown_mock));
+    init_core(&shutdown, true, true);
+    step(&shutdown, &shutdown_mock,
+         ina_event(true, 1, 0, MEASURE_PERIODIC, 12.0f, 50.0f, 0), 0);
+    step(&shutdown, &shutdown_mock,
+         ina_event(true, 2, 0, MEASURE_PERIODIC, 12.0f, 50.0f,
+                   300000000LL), 300000000LL);
+    uint32_t shutdown_operation = shutdown.load.shutdown_operation_id;
+    uint32_t shutdown_request = shutdown.buzzer.request_id;
+    step(&shutdown, &shutdown_mock,
+         action_failed_event(RCMD_INA_REQUEST, shutdown_operation,
+                             shutdown_request, MEASURE_SHUTDOWN, -1,
+                             300001000LL), 300001000LL);
+    CHECK_INT(shutdown.buzzer.state, BUZZER_FSM_IDLE);
+    CHECK_INT(shutdown.load.state, LOAD_FSM_STOPPING);
+    CHECK_INT(shutdown_mock.load_off_count, 1);
+    CHECK_INT(shutdown_mock.beep_count, 0);
+}
+
+static void test_ble_action_submission_failures(void) {
+    runtime_core_t core;
+    mock_t mock;
+    memset(&mock, 0, sizeof(mock));
+    init_core(&core, false, true);
+    step(&core, &mock, make_event(RTEVT_THERMAL_BUTTON_PRESSED, 0), 0);
+    uint32_t start_id = core.ble.operation_id;
+
+    step(&core, &mock,
+         action_failed_event(RCMD_BLE_START, start_id, 0, MEASURE_PERIODIC,
+                             -1, 1000), 1000);
+    CHECK_INT(core.ble.state, BLE_FSM_STOPPING);
+
+    uint32_t stop_id = core.ble.stop_operation_id;
+    for (unsigned attempt = 0; attempt < 3; ++attempt) {
+        step(&core, &mock,
+             action_failed_event(RCMD_BLE_STOP, stop_id, 0,
+                                 MEASURE_PERIODIC, -1,
+                                 2000 + (int64_t)attempt), 2000);
+    }
+    CHECK_INT(core.ble.state, BLE_FSM_ERROR);
+}
+
+static void test_buzzer_action_submission_failure(void) {
+    runtime_core_t core;
+    mock_t mock;
+    memset(&mock, 0, sizeof(mock));
+    init_core(&core, false, true);
+    uint32_t operation_id = 0;
+    uint32_t request_id = 0;
+    start_to_measuring(&core, &mock, &operation_id, &request_id);
+    step(&core, &mock,
+         ina_event(true, request_id, operation_id, MEASURE_STARTUP,
+                   12.0f, 50.0f, 1200000), 1200000);
+    CHECK_INT(core.buzzer.state, BUZZER_FSM_BEEPING);
+
+    step(&core, &mock,
+         action_failed_event(RCMD_BUZZER_PLAY, operation_id, 0,
+                             MEASURE_PERIODIC, -1, 1300000), 1300000);
+    CHECK_INT(core.buzzer.state, BUZZER_FSM_IDLE);
+    CHECK_INT(core.load.state, LOAD_FSM_ERROR);
+    CHECK(core.load.output_on);
+    CHECK_INT(mock.beep_count, 1);
+}
+
+static void test_buzzer_cancel_submission_failure(void) {
+    runtime_core_t core;
+    mock_t mock;
+    memset(&mock, 0, sizeof(mock));
+    init_core(&core, true, true);
+
+    step(&core, &mock, ina_event(true, 1, 0, MEASURE_PERIODIC,
+                                 6.9f, 50.0f, 0), 0);
+    step(&core, &mock, ina_event(true, 2, 0, MEASURE_PERIODIC,
+                                 6.9f, 50.0f, 11000000LL), 11000000LL);
+    CHECK_INT(core.buzzer.state, BUZZER_FSM_BEEPING);
+    uint32_t warning_id = core.buzzer.operation_id;
+
+    step(&core, &mock, ina_event(true, 3, 0, MEASURE_PERIODIC,
+                                 6.9f, 50.0f, 300000000LL), 300000000LL);
+    CHECK_INT(mock.buzzer_cancel_count, 1);
+    CHECK_INT(core.buzzer.state, BUZZER_FSM_MEASURING);
+    uint32_t shutdown_id = core.load.shutdown_operation_id;
+    uint32_t shutdown_request = core.buzzer.request_id;
+    step(&core, &mock,
+         action_failed_event(RCMD_BUZZER_CANCEL, warning_id, 0,
+                             MEASURE_PERIODIC, -1, 300001000LL), 300001000LL);
+    step(&core, &mock,
+         ina_event(false, shutdown_request, shutdown_id, MEASURE_SHUTDOWN,
+                   NAN, NAN, 300002000LL), 300002000LL);
+    CHECK_INT(core.buzzer.state, BUZZER_FSM_MEASURING);
+    CHECK_INT(mock.load_off_count, 0);
+
+    step(&core, &mock, beep_finished_event(warning_id, 300003000LL),
+         300003000LL);
+    CHECK_INT(core.buzzer.state, BUZZER_FSM_IDLE);
+    CHECK_INT(mock.load_off_count, 1);
+}
+
+static void test_ble_disconnect_submission_failure(void) {
+    runtime_core_t core;
+    mock_t mock;
+    memset(&mock, 0, sizeof(mock));
+    init_core(&core, false, true);
+
+    step(&core, &mock, make_event(RTEVT_THERMAL_BUTTON_PRESSED, 0), 0);
+    ble_ready(&core, &mock, 1000);
+    runtime_event_t connected = make_event(RTEVT_CLIENT_CONNECTED, 1100);
+    connected.operation_id = core.ble.operation_id;
+    connected.request_id = core.ble.adv_request_id;
+    connected.conn_handle = 7;
+    step(&core, &mock, connected, 1100);
+    CHECK_INT(core.ble.state, BLE_FSM_CONNECTED);
+
+    uint32_t operation_id = core.ble.operation_id;
+    step(&core, &mock, make_event(RTEVT_BLE_PAIRING_REQUEST, 1200), 1200);
+    CHECK_INT(mock.ble_disconnect_count, 1);
+    step(&core, &mock,
+         action_failed_event(RCMD_BLE_DISCONNECT, operation_id, 0,
+                            MEASURE_PERIODIC, -1, 1300), 1300);
+    CHECK_INT(core.ble.state, BLE_FSM_STOPPING);
+    CHECK_INT(mock.ble_stop_count, 1);
+}
+
+static void test_event_bus_fault_fails_closed(void) {
+    runtime_core_t core;
+    mock_t mock;
+    memset(&mock, 0, sizeof(mock));
+    init_core(&core, false, true);
+    step(&core, &mock, make_event(RTEVT_THERMAL_BUTTON_PRESSED, 0), 0);
+    step(&core, &mock,
+         load_ack_event(true, core.load.operation_id, 1), 1);
+    step(&core, &mock, make_event(RTEVT_EVENT_BUS_FAULT, 1), 1);
+
+    CHECK_INT(core.load.state, LOAD_FSM_ERROR);
+    CHECK(core.load.output_on);
+    CHECK_INT(core.buzzer.state, BUZZER_FSM_ERROR);
+    CHECK_INT(core.ble.state, BLE_FSM_ERROR);
+    power_snapshot_t snapshot = {
+        .ble_state = core.ble.state,
+        .load_state = core.load.state,
+        .buzzer_state = core.buzzer.state,
+        .ble_radio_quiet = false,
+    };
+    CHECK_INT(power_manager_sleep_block_reason(&snapshot),
+              POWER_BLOCK_BLE);
+    snapshot.ble_state = BLE_FSM_OFF;
+    snapshot.ble_radio_quiet = true;
+    CHECK_INT(power_manager_sleep_block_reason(&snapshot),
+              POWER_BLOCK_LOAD_ERROR);
+}
+
 /* ----------------------------------------------------------------- runner */
 
 typedef void (*test_fn_t)(void);
@@ -1083,6 +1363,21 @@ static const test_case_t k_tests[] = {
     {"power_manager", test_power_manager},
     {"thermal_edge_and_window", test_thermal_edge_and_window},
     {"stale_startup_result_ignored", test_stale_startup_result_ignored},
+    {"action_queue_full_load_on", test_action_queue_full_load_on},
+    {"action_queue_full_load_off", test_action_queue_full_load_off},
+    {"settle_timer_failure_startup", test_settle_timer_failure_startup},
+    {"measure_timeout_start_failure_shutdown",
+     test_measure_timeout_start_failure_shutdown},
+    {"ina_request_submission_failures",
+     test_ina_request_submission_failures},
+    {"ble_action_submission_failures", test_ble_action_submission_failures},
+    {"buzzer_action_submission_failure",
+     test_buzzer_action_submission_failure},
+    {"buzzer_cancel_submission_failure",
+     test_buzzer_cancel_submission_failure},
+    {"ble_disconnect_submission_failure",
+     test_ble_disconnect_submission_failure},
+    {"event_bus_fault_fails_closed", test_event_bus_fault_fails_closed},
 };
 
 int main(void) {

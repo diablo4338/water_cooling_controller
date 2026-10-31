@@ -50,6 +50,7 @@ bool runtime_core_command_event(const runtime_command_t *command,
             *event = runtime_event_make(RTEVT_BUZZER_DONE, 0);
             event->operation_id = command->operation_id;
             event->buzzer_operation = command->buzzer_operation;
+            event->error = command->error;
             return true;
 
         default:

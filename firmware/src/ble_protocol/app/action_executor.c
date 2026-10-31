@@ -58,6 +58,21 @@ static void publish_simple(runtime_event_kind_t kind, uint32_t operation_id) {
     event_bus_publish(&event);
 }
 
+static void publish_action_failure(runtime_command_kind_t command_kind,
+                                   uint32_t operation_id,
+                                   uint32_t request_id,
+                                   measure_context_t context,
+                                   int32_t error) {
+    runtime_event_t event = runtime_event_make(RTEVT_ACTION_FAILED,
+                                               wall_time_us());
+    event.command_kind = (int32_t)command_kind;
+    event.operation_id = operation_id;
+    event.request_id = request_id;
+    event.context = context;
+    event.error = error;
+    event_bus_publish(&event);
+}
+
 static void settle_timer_cb(void *arg) {
     (void)arg;
     runtime_event_t event = runtime_event_make(RTEVT_SETTLE_ELAPSED,
@@ -81,6 +96,11 @@ static void beep_finish(uint32_t operation_id) {
                                                wall_time_us());
     event.operation_id = operation_id;
     event_bus_publish(&event);
+}
+
+static void beep_fail(uint32_t operation_id) {
+    publish_action_failure(RCMD_BUZZER_PLAY, operation_id, 0,
+                           MEASURE_PERIODIC, ESP_FAIL);
 }
 
 static void beep_timer_cb(void *arg);
@@ -140,7 +160,7 @@ static void beep_timer_cb(void *arg) {
             gpio_set_level(BUZZER_GPIO, 0);
         }
         portEXIT_CRITICAL(&s_beep_mux);
-        if (current) beep_finish(operation_id);
+        if (current) beep_fail(operation_id);
     }
 }
 
@@ -174,7 +194,7 @@ static void beep_start(const runtime_command_t *command) {
             gpio_set_level(BUZZER_GPIO, 0);
         }
         portEXIT_CRITICAL(&s_beep_mux);
-        if (current) beep_finish(command->operation_id);
+        if (current) beep_fail(command->operation_id);
     }
 }
 
@@ -312,10 +332,17 @@ static void execute_command(const runtime_command_t *command) {
         case RCMD_START_SETTLE_TIMER:
             s_settle_operation_id = command->operation_id;
             esp_timer_stop(s_settle_timer);
-            if (esp_timer_start_once(s_settle_timer,
-                                     (uint64_t)command->duration_ms * 1000ULL) !=
-                ESP_OK) {
-                ESP_LOGE(TAG, "settle timer start failed");
+            {
+                esp_err_t err = esp_timer_start_once(
+                    s_settle_timer,
+                    (uint64_t)command->duration_ms * 1000ULL);
+                if (err != ESP_OK) {
+                    ESP_LOGE(TAG, "settle timer start failed: %s",
+                             esp_err_to_name(err));
+                    publish_action_failure(RCMD_START_SETTLE_TIMER,
+                                           command->operation_id, 0,
+                                           MEASURE_STARTUP, err);
+                }
             }
             break;
         case RCMD_CANCEL_SETTLE_TIMER:
@@ -331,10 +358,18 @@ static void execute_command(const runtime_command_t *command) {
             s_measure_operation_id = command->operation_id;
             s_measure_context = command->context;
             esp_timer_stop(s_measure_timer);
-            if (esp_timer_start_once(s_measure_timer,
-                                     (uint64_t)command->duration_ms * 1000ULL) !=
-                ESP_OK) {
-                ESP_LOGE(TAG, "measure timeout start failed");
+            {
+                esp_err_t err = esp_timer_start_once(
+                    s_measure_timer,
+                    (uint64_t)command->duration_ms * 1000ULL);
+                if (err != ESP_OK) {
+                    ESP_LOGE(TAG, "measure timeout start failed: %s",
+                             esp_err_to_name(err));
+                    publish_action_failure(RCMD_START_MEASURE_TIMEOUT,
+                                           command->operation_id,
+                                           command->request_id,
+                                           command->context, err);
+                }
             }
             break;
         case RCMD_CANCEL_MEASURE_TIMEOUT:

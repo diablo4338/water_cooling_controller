@@ -8,6 +8,7 @@ const char *buzzer_fsm_state_name(buzzer_fsm_state_t state) {
         case BUZZER_FSM_WAIT_SETTLE: return "WAIT_SETTLE";
         case BUZZER_FSM_MEASURING: return "MEASURING";
         case BUZZER_FSM_BEEPING: return "BEEPING";
+        case BUZZER_FSM_ERROR: return "ERROR";
         default: return "UNKNOWN";
     }
 }
@@ -30,10 +31,11 @@ bool buzzer_fsm_is_active(const buzzer_fsm_t *fsm) {
 }
 
 static void emit_done(runtime_command_list_t *commands, uint32_t operation_id,
-                      buzzer_operation_t operation) {
+                      buzzer_operation_t operation, int32_t error) {
     runtime_command_t command = runtime_command_make(
         RCMD_EMIT_BUZZER_DONE, operation_id);
     command.buzzer_operation = operation;
+    command.error = error;
     runtime_command_list_push(commands, &command);
 }
 
@@ -58,6 +60,9 @@ static void reset_low_state(buzzer_fsm_t *fsm) {
 static void begin_startup(buzzer_fsm_t *fsm, const buzzer_fsm_config_t *config,
                           uint32_t operation_id,
                           runtime_command_list_t *commands) {
+    fsm->cancelled_operation_id = 0;
+    fsm->cancel_failed = false;
+    fsm->shutdown_measurement_done = false;
     fsm->pending_startup = false;
     fsm->pending_startup_id = 0;
     fsm->operation = BUZZER_OP_STARTUP;
@@ -69,7 +74,7 @@ static void begin_startup(buzzer_fsm_t *fsm, const buzzer_fsm_config_t *config,
     if (!config->enabled) {
         fsm->state = BUZZER_FSM_IDLE;
         fsm->last_startup_operation_id = operation_id;
-        emit_done(commands, operation_id, BUZZER_OP_STARTUP);
+        emit_done(commands, operation_id, BUZZER_OP_STARTUP, 0);
         return;
     }
 
@@ -115,7 +120,7 @@ static void begin_shutdown(buzzer_fsm_t *fsm, const buzzer_fsm_config_t *config,
     if (!config->enabled) {
         fsm->state = BUZZER_FSM_IDLE;
         fsm->last_shutdown_operation_id = operation_id;
-        emit_done(commands, operation_id, BUZZER_OP_SHUTDOWN);
+        emit_done(commands, operation_id, BUZZER_OP_SHUTDOWN, 0);
         return;
     }
 
@@ -137,16 +142,13 @@ static void begin_shutdown(buzzer_fsm_t *fsm, const buzzer_fsm_config_t *config,
 }
 
 static void complete_startup(buzzer_fsm_t *fsm,
-                             runtime_command_list_t *commands) {
+                             runtime_command_list_t *commands,
+                             int32_t error) {
     fsm->state = BUZZER_FSM_IDLE;
     fsm->last_startup_operation_id = fsm->operation_id;
     fsm->request_id = 0;
     reset_low_state(fsm);
-    emit_done(commands, fsm->operation_id, BUZZER_OP_STARTUP);
-    if (fsm->pending_startup) {
-        /* A pending startup is picked up by the next event; this keeps command
-         * generation bounded and avoids recursive FSM calls. */
-    }
+    emit_done(commands, fsm->operation_id, BUZZER_OP_STARTUP, error);
 }
 
 static void complete_shutdown(buzzer_fsm_t *fsm,
@@ -154,7 +156,27 @@ static void complete_shutdown(buzzer_fsm_t *fsm,
     fsm->state = BUZZER_FSM_IDLE;
     fsm->last_shutdown_operation_id = fsm->operation_id;
     fsm->request_id = 0;
-    emit_done(commands, fsm->operation_id, BUZZER_OP_SHUTDOWN);
+    emit_done(commands, fsm->operation_id, BUZZER_OP_SHUTDOWN, 0);
+    fsm->cancelled_operation_id = 0;
+    fsm->cancel_failed = false;
+    fsm->shutdown_measurement_done = false;
+}
+
+static void finish_shutdown_measurement(
+    buzzer_fsm_t *fsm, runtime_command_list_t *commands) {
+    if (fsm->cancel_failed && fsm->cancelled_operation_id != 0) {
+        fsm->shutdown_measurement_done = true;
+        return;
+    }
+    complete_shutdown(fsm, commands);
+}
+
+static void finish_cancelled_playback(
+    buzzer_fsm_t *fsm, runtime_command_list_t *commands) {
+    fsm->cancelled_operation_id = 0;
+    if (fsm->shutdown_measurement_done) {
+        complete_shutdown(fsm, commands);
+    }
 }
 
 static void startup_measurement_failed(buzzer_fsm_t *fsm,
@@ -162,7 +184,7 @@ static void startup_measurement_failed(buzzer_fsm_t *fsm,
                                        runtime_command_list_t *commands) {
     fsm->request_id = 0;
     if (!config->enabled) {
-        complete_startup(fsm, commands);
+        complete_startup(fsm, commands, 0);
         return;
     }
     fsm->state = BUZZER_FSM_BEEPING;
@@ -222,6 +244,13 @@ void buzzer_fsm_step(buzzer_fsm_t *fsm, const runtime_event_t *event,
     if (!fsm || !event || !config || !commands) return;
 
     switch (event->kind) {
+        case RTEVT_EVENT_BUS_FAULT:
+            if (fsm->state != BUZZER_FSM_IDLE) {
+                fsm->state = BUZZER_FSM_ERROR;
+                fsm->request_id = 0;
+            }
+            return;
+
         case RTEVT_LOAD_GPIO_APPLIED:
             if (!event->bool_value) return;
             if (event->operation_id == fsm->last_startup_operation_id) return;
@@ -239,11 +268,17 @@ void buzzer_fsm_step(buzzer_fsm_t *fsm, const runtime_event_t *event,
             if (event->operation_id == fsm->last_shutdown_operation_id) return;
             if (fsm->state == BUZZER_FSM_BEEPING &&
                 fsm->operation == BUZZER_OP_WARNING) {
+                fsm->cancelled_operation_id = fsm->operation_id;
+                fsm->cancel_failed = false;
+                fsm->shutdown_measurement_done = false;
                 runtime_command_t cancel = runtime_command_make(
                     RCMD_BUZZER_CANCEL, fsm->operation_id);
                 runtime_command_list_push(commands, &cancel);
                 begin_shutdown(fsm, config, event->operation_id, commands);
             } else if (fsm->state == BUZZER_FSM_IDLE) {
+                fsm->cancelled_operation_id = 0;
+                fsm->cancel_failed = false;
+                fsm->shutdown_measurement_done = false;
                 begin_shutdown(fsm, config, event->operation_id, commands);
             }
             return;
@@ -280,7 +315,7 @@ void buzzer_fsm_step(buzzer_fsm_t *fsm, const runtime_event_t *event,
                                  duration, 0, 1);
                 } else if (fsm->operation == BUZZER_OP_SHUTDOWN) {
                     /* No shutdown tone is defined by the approved contract. */
-                    complete_shutdown(fsm, commands);
+                    finish_shutdown_measurement(fsm, commands);
                 }
             } else if (fsm->state == BUZZER_FSM_IDLE &&
                        event->context == MEASURE_PERIODIC) {
@@ -298,7 +333,7 @@ void buzzer_fsm_step(buzzer_fsm_t *fsm, const runtime_event_t *event,
                 if (fsm->operation == BUZZER_OP_STARTUP) {
                     startup_measurement_failed(fsm, config, commands);
                 } else if (fsm->operation == BUZZER_OP_SHUTDOWN) {
-                    complete_shutdown(fsm, commands);
+                    finish_shutdown_measurement(fsm, commands);
                 }
             } else if (fsm->state == BUZZER_FSM_IDLE &&
                        event->context == MEASURE_PERIODIC) {
@@ -317,18 +352,71 @@ void buzzer_fsm_step(buzzer_fsm_t *fsm, const runtime_event_t *event,
                 if (fsm->operation == BUZZER_OP_STARTUP) {
                     startup_measurement_failed(fsm, config, commands);
                 } else if (fsm->operation == BUZZER_OP_SHUTDOWN) {
+                    finish_shutdown_measurement(fsm, commands);
+                }
+            }
+            return;
+
+        case RTEVT_ACTION_FAILED:
+            if (event->command_kind == RCMD_BUZZER_CANCEL &&
+                fsm->operation == BUZZER_OP_SHUTDOWN &&
+                event->operation_id == fsm->cancelled_operation_id &&
+                fsm->cancelled_operation_id != 0) {
+                fsm->cancel_failed = true;
+                return;
+            }
+            if (event->command_kind == RCMD_BUZZER_PLAY &&
+                fsm->operation == BUZZER_OP_SHUTDOWN &&
+                event->operation_id == fsm->cancelled_operation_id &&
+                fsm->cancel_failed && fsm->cancelled_operation_id != 0) {
+                finish_cancelled_playback(fsm, commands);
+                return;
+            }
+            if (event->operation_id != fsm->operation_id) return;
+            if (event->command_kind == RCMD_START_SETTLE_TIMER &&
+                fsm->state == BUZZER_FSM_WAIT_SETTLE &&
+                fsm->operation == BUZZER_OP_STARTUP) {
+                startup_measurement_failed(fsm, config, commands);
+            } else if (fsm->state == BUZZER_FSM_MEASURING &&
+                       event->request_id == fsm->request_id &&
+                       event->context ==
+                           (fsm->operation == BUZZER_OP_STARTUP
+                                ? MEASURE_STARTUP
+                                : MEASURE_SHUTDOWN) &&
+                       (event->command_kind == RCMD_START_MEASURE_TIMEOUT ||
+                        event->command_kind == RCMD_INA_REQUEST)) {
+                if (fsm->operation == BUZZER_OP_STARTUP) {
+                    startup_measurement_failed(fsm, config, commands);
+                } else {
+                    finish_shutdown_measurement(fsm, commands);
+                }
+            } else if (fsm->state == BUZZER_FSM_BEEPING &&
+                       event->command_kind == RCMD_BUZZER_PLAY) {
+                if (fsm->operation == BUZZER_OP_STARTUP) {
+                    complete_startup(fsm, commands, event->error);
+                } else if (fsm->operation == BUZZER_OP_SHUTDOWN) {
                     complete_shutdown(fsm, commands);
+                } else {
+                    fsm->state = BUZZER_FSM_IDLE;
+                    fsm->request_id = 0;
                 }
             }
             return;
 
         case RTEVT_BEEP_FINISHED:
+            if (fsm->operation == BUZZER_OP_SHUTDOWN &&
+                fsm->cancel_failed &&
+                event->operation_id == fsm->cancelled_operation_id &&
+                fsm->cancelled_operation_id != 0) {
+                finish_cancelled_playback(fsm, commands);
+                return;
+            }
             if (fsm->state != BUZZER_FSM_BEEPING ||
                 event->operation_id != fsm->operation_id) {
                 return;
             }
             if (fsm->operation == BUZZER_OP_STARTUP) {
-                complete_startup(fsm, commands);
+                complete_startup(fsm, commands, 0);
             } else if (fsm->operation == BUZZER_OP_SHUTDOWN) {
                 complete_shutdown(fsm, commands);
             } else {

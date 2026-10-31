@@ -110,6 +110,12 @@ void ble_fsm_step(ble_fsm_t *fsm, const runtime_event_t *event,
     if (!fsm || !event || !config || !commands) return;
 
     switch (event->kind) {
+        case RTEVT_EVENT_BUS_FAULT:
+            if (fsm->state != BLE_FSM_OFF) {
+                fsm->state = BLE_FSM_ERROR;
+            }
+            return;
+
         case RTEVT_THERMAL_BUTTON_PRESSED:
         case RTEVT_BLE_WINDOW_REQUEST:
             switch (fsm->state) {
@@ -264,6 +270,36 @@ void ble_fsm_step(ble_fsm_t *fsm, const runtime_event_t *event,
                 } else {
                     fsm->state = BLE_FSM_ERROR;
                 }
+            }
+            return;
+
+        case RTEVT_ACTION_FAILED:
+            if ((event->command_kind == RCMD_BLE_START ||
+                 event->command_kind == RCMD_BLE_START_ADVERTISING ||
+                 event->command_kind == RCMD_BLE_REFRESH_ADVERTISING) &&
+                (fsm->state == BLE_FSM_STARTING ||
+                 fsm->state == BLE_FSM_ADVERTISING) &&
+                event->operation_id == fsm->operation_id) {
+                begin_stop(fsm, commands);
+            } else if (event->command_kind == RCMD_BLE_STOP &&
+                       fsm->state == BLE_FSM_STOPPING &&
+                       event->operation_id == fsm->stop_operation_id) {
+                if (fsm->stop_retries < config->max_stop_retries) {
+                    ++fsm->stop_retries;
+                    runtime_command_t command = runtime_command_make(
+                        RCMD_BLE_STOP, fsm->stop_operation_id);
+                    runtime_command_list_push(commands, &command);
+                } else {
+                    fsm->state = BLE_FSM_ERROR;
+                }
+            } else if (event->command_kind == RCMD_BLE_STOP_ADVERTISING &&
+                       fsm->state == BLE_FSM_ADVERTISING &&
+                       event->operation_id == fsm->operation_id) {
+                begin_stop(fsm, commands);
+            } else if (event->command_kind == RCMD_BLE_DISCONNECT &&
+                       fsm->state == BLE_FSM_CONNECTED &&
+                       event->operation_id == fsm->operation_id) {
+                begin_stop(fsm, commands);
             }
             return;
 

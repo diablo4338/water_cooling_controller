@@ -7,6 +7,7 @@ const char *power_manager_block_reason_name(power_sleep_block_reason_t reason) {
         case POWER_BLOCK_BLE_CONNECTED: return "ble_connected";
         case POWER_BLOCK_BLE_RADIO: return "ble_radio_not_quiet";
         case POWER_BLOCK_LOAD_TRANSITION: return "load_transition";
+        case POWER_BLOCK_LOAD_ERROR: return "load_error";
         case POWER_BLOCK_BUZZER: return "buzzer_active";
         case POWER_BLOCK_ACTION: return "action_pending";
         case POWER_BLOCK_EVENT: return "event_pending";
@@ -25,6 +26,7 @@ power_sleep_block_reason_t power_manager_sleep_block_reason(
         snapshot->load_state == LOAD_FSM_STOPPING) {
         return POWER_BLOCK_LOAD_TRANSITION;
     }
+    if (snapshot->load_state == LOAD_FSM_ERROR) return POWER_BLOCK_LOAD_ERROR;
     if (snapshot->buzzer_state != BUZZER_FSM_IDLE) return POWER_BLOCK_BUZZER;
     if (snapshot->action_pending) return POWER_BLOCK_ACTION;
     if (snapshot->event_pending) return POWER_BLOCK_EVENT;
