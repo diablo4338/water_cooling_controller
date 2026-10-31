@@ -6,6 +6,9 @@
 
 #include "runtime_events.h"
 
+/* Matches NimBLE's BLE_HS_FOREVER sentinel for GAP advertising duration. */
+#define RUNTIME_BLE_ADVERTISING_FOREVER_MS ((uint32_t)INT32_MAX)
+
 typedef enum {
     RCMD_NONE = 0,
     RCMD_LOAD_OUTPUT_ON,
@@ -20,10 +23,8 @@ typedef enum {
     RCMD_BUZZER_REQUEST_SHUTDOWN,
     RCMD_EMIT_BUZZER_DONE,
     RCMD_BLE_START,
-    RCMD_BLE_STOP,
     RCMD_BLE_START_ADVERTISING,
     RCMD_BLE_REFRESH_ADVERTISING,
-    RCMD_BLE_STOP_ADVERTISING,
     RCMD_BLE_DISCONNECT,
     RCMD_ENTER_DEEP_SLEEP,
 } runtime_command_kind_t;

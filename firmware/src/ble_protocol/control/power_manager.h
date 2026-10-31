@@ -10,8 +10,6 @@
 typedef enum {
     POWER_SLEEP_ALLOWED = 0,
     POWER_BLOCK_BLE,
-    POWER_BLOCK_BLE_CONNECTED,
-    POWER_BLOCK_BLE_RADIO,
     POWER_BLOCK_LOAD_TRANSITION,
     POWER_BLOCK_LOAD_ERROR,
     POWER_BLOCK_BUZZER,
@@ -24,8 +22,6 @@ typedef struct {
     ble_fsm_state_t ble_state;
     load_fsm_state_t load_state;
     buzzer_fsm_state_t buzzer_state;
-    bool ble_connected;
-    bool ble_radio_quiet;
     bool action_pending;
     bool event_pending;
     bool critical_pending;

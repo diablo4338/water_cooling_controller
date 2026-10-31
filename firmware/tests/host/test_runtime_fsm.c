@@ -116,7 +116,6 @@ static const buzzer_fsm_config_t k_buzzer_config = {
 
 static const ble_fsm_config_t k_ble_config = {
     .window_us = 60000000LL,
-    .max_stop_retries = 2,
 };
 
 static runtime_event_t make_event(runtime_event_kind_t kind, int64_t now_us) {
@@ -255,10 +254,6 @@ static void mock_record(mock_t *mock, const runtime_command_t *command) {
             ++mock->ble_start_count;
             mock->last_ble_start_op = command->operation_id;
             break;
-        case RCMD_BLE_STOP:
-            ++mock->ble_stop_count;
-            mock->last_ble_stop_op = command->operation_id;
-            break;
         case RCMD_BLE_START_ADVERTISING:
             ++mock->ble_adv_start_count;
             mock->last_adv_request_id = command->request_id;
@@ -291,8 +286,6 @@ static void step(runtime_core_t *core, mock_t *mock,
 }
 
 static void ble_ready(runtime_core_t *core, mock_t *mock, int64_t now_us);
-static void ble_stopped(runtime_core_t *core, mock_t *mock, int64_t now_us);
-
 static void apply_commands(runtime_core_t *core, mock_t *mock,
                            const runtime_command_list_t *commands,
                            int64_t now_us) {
@@ -717,30 +710,25 @@ static void test_ble_lazy_start_and_deadline(void) {
     (void)op;
     CHECK_INT(core.ble.state, BLE_FSM_ADVERTISING);
     CHECK_INT(mock.ble_adv_start_count, 1);
-    CHECK(mock.last_adv_duration_ms > 0);
-    CHECK(mock.last_adv_duration_ms <= 60000);
+    CHECK_INT(mock.last_adv_duration_ms,
+              RUNTIME_BLE_ADVERTISING_FOREVER_MS);
 
     step(&core, &mock, make_event(RTEVT_DEADLINE_CHECK, 71000000), 71000000);
     CHECK_INT(core.ble.state, BLE_FSM_ADVERTISING);
 
     step(&core, &mock, make_event(RTEVT_DEADLINE_CHECK, 72000000), 72000000);
-    CHECK_INT(core.ble.state, BLE_FSM_STOPPING);
-    CHECK_INT(mock.ble_stop_count, 1);
-
-    ble_stopped(&core, &mock, 73000000);
-    CHECK_INT(core.ble.state, BLE_FSM_OFF);
+    CHECK_INT(core.ble.state, BLE_FSM_READY_TO_SLEEP);
+    CHECK_INT(mock.ble_stop_count, 0);
+    step(&core, &mock, make_event(RTEVT_THERMAL_BUTTON_PRESSED, 73000000),
+         73000000);
+    CHECK_INT(core.ble.state, BLE_FSM_READY_TO_SLEEP);
+    CHECK_INT(mock.ble_start_count, 1);
     CHECK_INT(mock.ble_adv_start_count, 1);
 }
 
 static void ble_ready(runtime_core_t *core, mock_t *mock, int64_t now_us) {
     runtime_event_t event = make_event(RTEVT_BLE_READY, now_us);
     event.operation_id = core->ble.operation_id;
-    step(core, mock, event, now_us);
-}
-
-static void ble_stopped(runtime_core_t *core, mock_t *mock, int64_t now_us) {
-    runtime_event_t event = make_event(RTEVT_BLE_STOPPED, now_us);
-    event.operation_id = core->ble.stop_operation_id;
     step(core, mock, event, now_us);
 }
 
@@ -753,7 +741,7 @@ static void connect_current_advertisement(runtime_core_t *core, mock_t *mock,
     step(core, mock, event, now_us);
 }
 
-static void test_ble_disconnect_always_stops(void) {
+static void test_ble_disconnect_completes_lifecycle(void) {
     runtime_core_t core;
     mock_t mock;
     memset(&mock, 0, sizeof(mock));
@@ -779,15 +767,12 @@ static void test_ble_disconnect_always_stops(void) {
                                             122000000LL);
     disconnect.conn_handle = 7;
     step(&core, &mock, disconnect, 122000000LL);
-    CHECK_INT(core.ble.state, BLE_FSM_STOPPING);
-    CHECK_INT(mock.ble_stop_count, 1);
-
-    ble_stopped(&core, &mock, 123000000LL);
-    CHECK_INT(core.ble.state, BLE_FSM_OFF);
+    CHECK_INT(core.ble.state, BLE_FSM_READY_TO_SLEEP);
+    CHECK_INT(mock.ble_stop_count, 0);
     CHECK_INT(mock.ble_adv_start_count, 1);
 }
 
-static void test_ble_stopping_press_restarts_once(void) {
+static void test_ble_ready_ignores_press(void) {
     runtime_core_t core;
     mock_t mock;
     memset(&mock, 0, sizeof(mock));
@@ -797,29 +782,16 @@ static void test_ble_stopping_press_restarts_once(void) {
     ble_ready(&core, &mock, 1000000);
     step(&core, &mock, make_event(RTEVT_DEADLINE_CHECK, 60000000LL),
          60000000LL);
-    CHECK_INT(core.ble.state, BLE_FSM_STOPPING);
-    uint32_t stop_op = core.ble.stop_operation_id;
-    CHECK_INT(mock.ble_stop_count, 1);
+    CHECK_INT(core.ble.state, BLE_FSM_READY_TO_SLEEP);
 
     step(&core, &mock, make_event(RTEVT_THERMAL_BUTTON_PRESSED, 61000000LL),
          61000000LL);
-    CHECK_INT(core.ble.state, BLE_FSM_STOPPING);
-    CHECK(core.ble.pending_restart);
+    CHECK_INT(core.ble.state, BLE_FSM_READY_TO_SLEEP);
     CHECK_INT(mock.ble_start_count, 1);
-
-    ble_stopped(&core, &mock, 62000000LL);
-    CHECK_INT(core.ble.state, BLE_FSM_STARTING);
-    CHECK_INT(mock.ble_start_count, 2);
-    CHECK(!core.ble.pending_restart);
-
-    runtime_event_t duplicate = make_event(RTEVT_BLE_STOPPED, 63000000LL);
-    duplicate.operation_id = stop_op;
-    step(&core, &mock, duplicate, 63000000LL);
-    CHECK_INT(core.ble.state, BLE_FSM_STARTING);
-    CHECK_INT(mock.ble_start_count, 2);
+    CHECK_INT(mock.ble_stop_count, 0);
 }
 
-static void test_ble_adv_complete_stops_or_restarts(void) {
+static void test_ble_adv_complete_does_not_control_lifecycle(void) {
     runtime_core_t core;
     mock_t mock;
     memset(&mock, 0, sizeof(mock));
@@ -830,8 +802,8 @@ static void test_ble_adv_complete_stops_or_restarts(void) {
     runtime_event_t complete = make_event(RTEVT_ADV_COMPLETE, 5000000);
     complete.request_id = core.ble.adv_request_id;
     step(&core, &mock, complete, 5000000);
-    CHECK_INT(core.ble.state, BLE_FSM_STOPPING);
-    CHECK_INT(mock.ble_stop_count, 1);
+    CHECK_INT(core.ble.state, BLE_FSM_ADVERTISING);
+    CHECK_INT(mock.ble_stop_count, 0);
 
     runtime_core_t second;
     mock_t second_mock;
@@ -847,7 +819,7 @@ static void test_ble_adv_complete_stops_or_restarts(void) {
     extended_complete.request_id = second.ble.adv_request_id;
     step(&second, &second_mock, extended_complete, 60000000LL);
     CHECK_INT(second.ble.state, BLE_FSM_ADVERTISING);
-    CHECK_INT(second_mock.ble_adv_start_count, 2);
+    CHECK_INT(second_mock.ble_adv_start_count, 1);
     CHECK_INT(second_mock.ble_stop_count, 0);
 }
 
@@ -866,34 +838,25 @@ static void test_ble_late_callbacks_ignored(void) {
                                             3000000);
     disconnect.conn_handle = 9;
     step(&core, &mock, disconnect, 3000000);
-    uint32_t old_stop = core.ble.stop_operation_id;
-    ble_stopped(&core, &mock, 4000000);
-    CHECK_INT(core.ble.state, BLE_FSM_OFF);
+    CHECK_INT(core.ble.state, BLE_FSM_READY_TO_SLEEP);
 
     step(&core, &mock, make_event(RTEVT_THERMAL_BUTTON_PRESSED, 5000000),
          5000000);
-    ble_ready(&core, &mock, 6000000);
-    CHECK_INT(core.ble.state, BLE_FSM_ADVERTISING);
-    uint32_t new_adv = core.ble.adv_request_id;
-    CHECK(new_adv != old_adv);
+    CHECK_INT(core.ble.state, BLE_FSM_READY_TO_SLEEP);
 
     runtime_event_t late_complete = make_event(RTEVT_ADV_COMPLETE, 7000000);
     late_complete.operation_id = old_op;
     late_complete.request_id = old_adv;
     step(&core, &mock, late_complete, 7000000);
-    CHECK_INT(core.ble.state, BLE_FSM_ADVERTISING);
+    CHECK_INT(core.ble.state, BLE_FSM_READY_TO_SLEEP);
 
     runtime_event_t late_disconnect = make_event(RTEVT_CLIENT_DISCONNECTED,
                                                  8000000);
     late_disconnect.conn_handle = 9;
     step(&core, &mock, late_disconnect, 8000000);
-    CHECK_INT(core.ble.state, BLE_FSM_ADVERTISING);
-
-    runtime_event_t late_stop = make_event(RTEVT_BLE_STOPPED, 9000000);
-    late_stop.operation_id = old_stop;
-    step(&core, &mock, late_stop, 9000000);
-    CHECK_INT(core.ble.state, BLE_FSM_ADVERTISING);
-    CHECK_INT(mock.ble_stop_count, 1);
+    CHECK_INT(core.ble.state, BLE_FSM_READY_TO_SLEEP);
+    CHECK_INT(mock.ble_start_count, 1);
+    CHECK_INT(mock.ble_stop_count, 0);
 }
 
 static void test_ble_pair_timeout(void) {
@@ -914,8 +877,8 @@ static void test_ble_pair_timeout(void) {
     runtime_event_t timeout = make_event(RTEVT_BLE_PAIR_TIMEOUT, 4000000);
     timeout.bool_value = true;
     step(&core, &mock, timeout, 4000000);
-    CHECK_INT(core.ble.state, BLE_FSM_STOPPING);
-    CHECK_INT(mock.ble_stop_count, 1);
+    CHECK_INT(core.ble.state, BLE_FSM_CONNECTED);
+    CHECK_INT(mock.ble_disconnect_count, 1);
 
     runtime_core_t second;
     mock_t second_mock;
@@ -952,7 +915,6 @@ static void test_restored_working_sleepable(void) {
         .ble_state = core.ble.state,
         .load_state = core.load.state,
         .buzzer_state = core.buzzer.state,
-        .ble_radio_quiet = true,
     };
     CHECK_INT(power_manager_sleep_block_reason(&snapshot), POWER_SLEEP_ALLOWED);
 
@@ -971,7 +933,6 @@ static void test_power_manager(void) {
         .ble_state = BLE_FSM_OFF,
         .load_state = LOAD_FSM_IDLE,
         .buzzer_state = BUZZER_FSM_IDLE,
-        .ble_radio_quiet = true,
     };
     CHECK_INT(power_manager_sleep_block_reason(&snapshot), POWER_SLEEP_ALLOWED);
     CHECK(power_manager_can_sleep(&snapshot));
@@ -991,19 +952,11 @@ static void test_power_manager(void) {
     CHECK_INT(power_manager_sleep_block_reason(&snapshot), POWER_BLOCK_BLE);
     snapshot.ble_state = BLE_FSM_ADVERTISING;
     CHECK_INT(power_manager_sleep_block_reason(&snapshot), POWER_BLOCK_BLE);
-    snapshot.ble_state = BLE_FSM_STOPPING;
-    CHECK_INT(power_manager_sleep_block_reason(&snapshot), POWER_BLOCK_BLE);
     snapshot.ble_state = BLE_FSM_CONNECTED;
     CHECK_INT(power_manager_sleep_block_reason(&snapshot), POWER_BLOCK_BLE);
+    snapshot.ble_state = BLE_FSM_READY_TO_SLEEP;
+    CHECK_INT(power_manager_sleep_block_reason(&snapshot), POWER_SLEEP_ALLOWED);
     snapshot.ble_state = BLE_FSM_OFF;
-    snapshot.ble_connected = true;
-    CHECK_INT(power_manager_sleep_block_reason(&snapshot),
-              POWER_BLOCK_BLE_CONNECTED);
-    snapshot.ble_connected = false;
-
-    snapshot.ble_radio_quiet = false;
-    CHECK_INT(power_manager_sleep_block_reason(&snapshot), POWER_BLOCK_BLE_RADIO);
-    snapshot.ble_radio_quiet = true;
 
     snapshot.buzzer_state = BUZZER_FSM_WAIT_SETTLE;
     CHECK_INT(power_manager_sleep_block_reason(&snapshot), POWER_BLOCK_BUZZER);
@@ -1208,16 +1161,8 @@ static void test_ble_action_submission_failures(void) {
     step(&core, &mock,
          action_failed_event(RCMD_BLE_START, start_id, 0, MEASURE_PERIODIC,
                              -1, 1000), 1000);
-    CHECK_INT(core.ble.state, BLE_FSM_STOPPING);
-
-    uint32_t stop_id = core.ble.stop_operation_id;
-    for (unsigned attempt = 0; attempt < 3; ++attempt) {
-        step(&core, &mock,
-             action_failed_event(RCMD_BLE_STOP, stop_id, 0,
-                                 MEASURE_PERIODIC, -1,
-                                 2000 + (int64_t)attempt), 2000);
-    }
-    CHECK_INT(core.ble.state, BLE_FSM_ERROR);
+    CHECK_INT(core.ble.state, BLE_FSM_READY_TO_SLEEP);
+    CHECK_INT(mock.ble_stop_count, 0);
 }
 
 static void test_buzzer_action_submission_failure(void) {
@@ -1297,11 +1242,11 @@ static void test_ble_disconnect_submission_failure(void) {
     step(&core, &mock,
          action_failed_event(RCMD_BLE_DISCONNECT, operation_id, 0,
                             MEASURE_PERIODIC, -1, 1300), 1300);
-    CHECK_INT(core.ble.state, BLE_FSM_STOPPING);
-    CHECK_INT(mock.ble_stop_count, 1);
+    CHECK_INT(core.ble.state, BLE_FSM_CONNECTED);
+    CHECK_INT(mock.ble_stop_count, 0);
 }
 
-static void test_event_bus_fault_fails_closed(void) {
+static void test_event_bus_fault_does_not_change_ble_lifecycle(void) {
     runtime_core_t core;
     mock_t mock;
     memset(&mock, 0, sizeof(mock));
@@ -1314,17 +1259,15 @@ static void test_event_bus_fault_fails_closed(void) {
     CHECK_INT(core.load.state, LOAD_FSM_ERROR);
     CHECK(core.load.output_on);
     CHECK_INT(core.buzzer.state, BUZZER_FSM_ERROR);
-    CHECK_INT(core.ble.state, BLE_FSM_ERROR);
+    CHECK_INT(core.ble.state, BLE_FSM_STARTING);
     power_snapshot_t snapshot = {
         .ble_state = core.ble.state,
         .load_state = core.load.state,
         .buzzer_state = core.buzzer.state,
-        .ble_radio_quiet = false,
     };
     CHECK_INT(power_manager_sleep_block_reason(&snapshot),
               POWER_BLOCK_BLE);
-    snapshot.ble_state = BLE_FSM_OFF;
-    snapshot.ble_radio_quiet = true;
+    snapshot.ble_state = BLE_FSM_READY_TO_SLEEP;
     CHECK_INT(power_manager_sleep_block_reason(&snapshot),
               POWER_BLOCK_LOAD_ERROR);
 }
@@ -1352,11 +1295,11 @@ static const test_case_t k_tests[] = {
     {"invalid_current_resets_low_timer", test_invalid_current_resets_low_timer},
     {"buzzer_disabled_completes", test_buzzer_disabled_completes},
     {"ble_lazy_start_and_deadline", test_ble_lazy_start_and_deadline},
-    {"ble_disconnect_always_stops", test_ble_disconnect_always_stops},
-    {"ble_stopping_press_restarts_once",
-     test_ble_stopping_press_restarts_once},
-    {"ble_adv_complete_stops_or_restarts",
-     test_ble_adv_complete_stops_or_restarts},
+    {"ble_disconnect_completes_lifecycle",
+     test_ble_disconnect_completes_lifecycle},
+    {"ble_ready_ignores_press", test_ble_ready_ignores_press},
+    {"ble_adv_complete_does_not_control_lifecycle",
+     test_ble_adv_complete_does_not_control_lifecycle},
     {"ble_late_callbacks_ignored", test_ble_late_callbacks_ignored},
     {"ble_pair_timeout", test_ble_pair_timeout},
     {"restored_working_sleepable", test_restored_working_sleepable},
@@ -1377,7 +1320,8 @@ static const test_case_t k_tests[] = {
      test_buzzer_cancel_submission_failure},
     {"ble_disconnect_submission_failure",
      test_ble_disconnect_submission_failure},
-    {"event_bus_fault_fails_closed", test_event_bus_fault_fails_closed},
+    {"event_bus_fault_does_not_change_ble_lifecycle",
+     test_event_bus_fault_does_not_change_ble_lifecycle},
 };
 
 int main(void) {

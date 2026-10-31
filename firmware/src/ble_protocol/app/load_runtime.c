@@ -10,6 +10,7 @@
 #include "esp_log.h"
 #include "esp_sleep.h"
 #include "esp_system.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -18,7 +19,6 @@
 #include "buzzer_fsm.h"
 #include "connect_window.h"
 #include "event_bus.h"
-#include "gap.h"
 #include "ina226.h"
 #include "load_fsm.h"
 #include "load_metrics_ble.h"
@@ -47,6 +47,7 @@
 #define BOOT_MEASUREMENT_TIMEOUT_US (10LL * 1000LL * 1000LL)
 #define DISPATCH_RECEIVE_TIMEOUT_MS 50U
 #define DISPATCH_LOCK_TIMEOUT_MS 100U
+#define DISPATCH_EVENT_BATCH_MAX 8U
 
 typedef struct {
     uint32_t magic;
@@ -135,7 +136,6 @@ static void refresh_configs(void) {
     };
 
     s_ble_config.window_us = CONNECT_WINDOW_US;
-    s_ble_config.max_stop_retries = 2;
 
     s_core.load_config = s_load_config;
     s_core.buzzer_config = s_buzzer_config;
@@ -326,7 +326,10 @@ static void process_event_locked(const runtime_event_t *event) {
 
     runtime_command_list_t commands;
     runtime_command_list_init(&commands);
-    runtime_core_step(&s_core, event, now_us, &commands);
+    int64_t ble_now_us = event->monotonic_timestamp_us > 0
+                             ? event->monotonic_timestamp_us
+                             : esp_timer_get_time();
+    runtime_core_step(&s_core, event, ble_now_us, &commands);
 
     log_transitions(previous_load, previous_buzzer, previous_ble);
 
@@ -477,24 +480,25 @@ static void maybe_request_sleep_locked(int64_t now_us) {
     }
 }
 
-static void scheduler_locked(int64_t now_us) {
-    handle_pair_button_locked(now_us);
+static void scheduler_locked(int64_t wall_now_us, int64_t monotonic_now_us) {
+    handle_pair_button_locked(wall_now_us);
 
-    if (now_us >= s_next_periodic_us) {
-        s_next_periodic_us = now_us + PERIODIC_INTERVAL_US;
-        periodic_cycle_locked(now_us);
+    if (wall_now_us >= s_next_periodic_us) {
+        s_next_periodic_us = wall_now_us + PERIODIC_INTERVAL_US;
+        periodic_cycle_locked(wall_now_us);
     }
 
-    if (now_us >= s_next_deadline_us) {
-        s_next_deadline_us = now_us + DEADLINE_CHECK_INTERVAL_US;
+    if (monotonic_now_us >= s_next_deadline_us) {
+        s_next_deadline_us = monotonic_now_us + DEADLINE_CHECK_INTERVAL_US;
         runtime_event_t event = runtime_event_make(RTEVT_DEADLINE_CHECK,
-                                                   now_us);
+                                                   wall_now_us);
+        event.monotonic_timestamp_us = monotonic_now_us;
         process_event_locked(&event);
     }
 
-    if (now_us >= s_next_sleep_us) {
-        s_next_sleep_us = now_us + SLEEP_CHECK_INTERVAL_US;
-        maybe_request_sleep_locked(now_us);
+    if (wall_now_us >= s_next_sleep_us) {
+        s_next_sleep_us = wall_now_us + SLEEP_CHECK_INTERVAL_US;
+        maybe_request_sleep_locked(wall_now_us);
     }
 }
 
@@ -602,18 +606,22 @@ void load_runtime_task(void *arg) {
         }
 
         if (event_bus_delivery_faulted() && !s_event_bus_fault_reported) {
-            runtime_event_t fault =
-                runtime_event_make(RTEVT_EVENT_BUS_FAULT, wall_time_us());
-            process_event_locked(&fault);
             s_event_bus_fault_reported = true;
-            ESP_LOGE(TAG, "event bus lost an event; runtime failed closed");
+            ESP_LOGW(TAG, "event bus dropped an event; deadlines remain active");
         }
 
         runtime_event_t pending_event;
+        unsigned processed = 0;
         if (event_bus_receive(&pending_event, DISPATCH_RECEIVE_TIMEOUT_MS)) {
             process_event_locked(&pending_event);
+            ++processed;
         }
-        scheduler_locked(wall_time_us());
+        while (processed < DISPATCH_EVENT_BATCH_MAX &&
+               event_bus_receive(&pending_event, 0)) {
+            process_event_locked(&pending_event);
+            ++processed;
+        }
+        scheduler_locked(wall_time_us(), esp_timer_get_time());
         event_bus_unlock_dispatch();
     }
 }
@@ -632,13 +640,10 @@ void load_runtime_get_power_snapshot(power_snapshot_t *out) {
     out->ble_state = s_core.ble.state;
     out->load_state = s_core.load.state;
     out->buzzer_state = s_core.buzzer.state;
-    out->ble_connected = s_core.ble.conn_handle != UINT16_MAX;
-    out->ble_radio_quiet = gap_is_radio_quiet();
     out->action_pending = action_executor_pending() > 0;
     out->event_pending = event_bus_pending() > 0;
     out->critical_pending = pair_button_irq_pending() ||
-                            s_boot_measurement_pending ||
-                            event_bus_delivery_faulted();
+                            s_boot_measurement_pending;
 }
 
 bool load_runtime_prepare_sleep(void) {
@@ -648,14 +653,14 @@ bool load_runtime_prepare_sleep(void) {
         return false;
     }
 
-    if (s_core.ble.state != BLE_FSM_OFF ||
-        s_core.ble.conn_handle != UINT16_MAX ||
+    if ((s_core.ble.state != BLE_FSM_OFF &&
+         s_core.ble.state != BLE_FSM_READY_TO_SLEEP) ||
         s_core.load.state == LOAD_FSM_STARTING ||
         s_core.load.state == LOAD_FSM_STOPPING ||
         s_core.load.state == LOAD_FSM_ERROR ||
         s_core.buzzer.state != BUZZER_FSM_IDLE ||
         event_bus_pending() != 0 || action_executor_pending() != 0 ||
-        event_bus_delivery_faulted() || event_bus_sleep_abort_requested()) {
+        event_bus_sleep_abort_requested()) {
         ESP_LOGW(TAG, "sleep aborted: runtime state changed");
         return false;
     }
@@ -683,8 +688,8 @@ bool load_runtime_prepare_sleep(void) {
     }
 
     (void)gpio_set_level(GPIO_NUM_0, 0);
-    if (event_bus_pending() != 0 || event_bus_delivery_faulted() ||
-        event_bus_sleep_abort_requested() || pair_button_irq_pending() ||
+    if (event_bus_pending() != 0 || event_bus_sleep_abort_requested() ||
+        pair_button_irq_pending() ||
         gpio_get_level(PAIR_BUTTON_GPIO) == PAIR_BUTTON_ACTIVE_LEVEL) {
         ESP_LOGW(TAG, "sleep aborted: event arrived during final preparation");
         return false;

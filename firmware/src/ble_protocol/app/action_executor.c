@@ -250,13 +250,6 @@ static void execute_ble_command(const runtime_command_t *command) {
                 publish_simple(RTEVT_BLE_START_FAILED, command->operation_id);
             }
             break;
-        case RCMD_BLE_STOP:
-            if (!gap_ble_stop(command->operation_id)) {
-                publish_simple(RTEVT_BLE_STOP_FAILED, command->operation_id);
-            } else {
-                publish_simple(RTEVT_BLE_STOPPED, command->operation_id);
-            }
-            break;
         case RCMD_BLE_START_ADVERTISING:
             if (!gap_start_advertising(command->operation_id,
                                        command->request_id,
@@ -270,9 +263,6 @@ static void execute_ble_command(const runtime_command_t *command) {
                                          command->duration_ms)) {
                 publish_simple(RTEVT_BLE_START_FAILED, command->operation_id);
             }
-            break;
-        case RCMD_BLE_STOP_ADVERTISING:
-            gap_stop_advertising();
             break;
         case RCMD_BLE_DISCONNECT:
             gap_disconnect_client();
@@ -384,10 +374,8 @@ static void execute_command(const runtime_command_t *command) {
             break;
 
         case RCMD_BLE_START:
-        case RCMD_BLE_STOP:
         case RCMD_BLE_START_ADVERTISING:
         case RCMD_BLE_REFRESH_ADVERTISING:
-        case RCMD_BLE_STOP_ADVERTISING:
         case RCMD_BLE_DISCONNECT:
             execute_ble_command(command);
             break;

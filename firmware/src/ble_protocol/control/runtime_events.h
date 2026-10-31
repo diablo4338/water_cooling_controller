@@ -28,8 +28,6 @@ typedef enum {
     RTEVT_BLE_ADV_REFRESH,
     RTEVT_BLE_READY,
     RTEVT_BLE_START_FAILED,
-    RTEVT_BLE_STOPPED,
-    RTEVT_BLE_STOP_FAILED,
     RTEVT_CLIENT_CONNECTED,
     RTEVT_CLIENT_DISCONNECTED,
     RTEVT_ADV_COMPLETE,
@@ -67,7 +65,8 @@ typedef struct {
     uint32_t request_id;        /* correlated asynchronous request, 0 if none */
     measure_context_t context;
     buzzer_operation_t buzzer_operation;
-    int64_t timestamp_us;       /* monotonic wall clock microseconds */
+    int64_t timestamp_us;
+    int64_t monotonic_timestamp_us;
     float voltage_v;
     float current_ma;
     int32_t error;

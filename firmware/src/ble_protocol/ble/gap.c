@@ -1,9 +1,7 @@
 #include <string.h>
 
-#include "esp_bt.h"
+#include "esp_timer.h"
 #include "esp_log.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
 
@@ -28,18 +26,11 @@
 static const char *GAP_TAG = "ble-lifecycle";
 
 static bool s_initialized;
-static bool s_controller_enabled;
-static bool s_host_stopped = true;
 static bool s_radio_quiet = true;
-/* A failed one-time service registration cannot be recovered without a full
- * NimBLE teardown, which is deliberately avoided in repeatable awake
- * sessions.  Refuse further starts instead of re-entering a corrupt init. */
+/* A failed one-time service registration cannot be retried in this wake cycle. */
 static bool s_fatal_error;
 static volatile uint32_t s_operation_id;
-static TaskHandle_t s_host_task_handle;
-
 static struct ble_npl_event s_advertise_event;
-static struct ble_npl_event s_stop_advertise_event;
 static struct ble_npl_event s_disconnect_event;
 
 static volatile uint32_t s_adv_duration_ms;
@@ -54,7 +45,6 @@ static volatile uint32_t s_active_adv_request_id;
 
 static int gap_event(struct ble_gap_event *event, void *arg);
 static bool start_advertising_now(uint32_t duration_ms);
-static void stop_advertising_now(void);
 
 static void publish_event(runtime_event_kind_t kind, uint32_t operation_id,
                           uint32_t request_id, uint16_t conn_handle,
@@ -64,17 +54,13 @@ static void publish_event(runtime_event_kind_t kind, uint32_t operation_id,
     event.request_id = request_id;
     event.conn_handle = conn_handle;
     event.reason = reason;
+    event.monotonic_timestamp_us = esp_timer_get_time();
     event_bus_publish(&event);
 }
 
 static void advertise_cb(struct ble_npl_event *event) {
     (void)event;
     (void)start_advertising_now(s_adv_duration_ms);
-}
-
-static void stop_advertise_cb(struct ble_npl_event *event) {
-    (void)event;
-    stop_advertising_now();
 }
 
 static void disconnect_client_cb(struct ble_npl_event *event) {
@@ -90,9 +76,7 @@ static void disconnect_client_cb(struct ble_npl_event *event) {
 
 void gap_init(void) {
     ble_npl_event_init(&s_advertise_event, advertise_cb, NULL);
-    ble_npl_event_init(&s_stop_advertise_event, stop_advertise_cb, NULL);
     ble_npl_event_init(&s_disconnect_event, disconnect_client_cb, NULL);
-    s_host_stopped = true;
     s_radio_quiet = true;
     s_fatal_error = false;
     s_adv_operation_id = 0;
@@ -234,21 +218,9 @@ static bool start_advertising_now(uint32_t duration_ms) {
     return true;
 }
 
-static void stop_advertising_now(void) {
-    int rc = ble_gap_adv_stop();
-    if (rc == 0 || rc == BLE_HS_EALREADY) {
-        s_radio_quiet = true;
-    } else {
-        ESP_LOGW(GAP_TAG, "ble_gap_adv_stop rc=%d", rc);
-    }
-    s_active_adv_operation_id = 0;
-    s_active_adv_request_id = 0;
-}
-
 bool gap_start_advertising(uint32_t operation_id, uint32_t request_id,
                            uint32_t duration_ms) {
-    if (!s_initialized || s_host_stopped ||
-        nimble_port_get_dflt_eventq() == NULL) {
+    if (!s_initialized || nimble_port_get_dflt_eventq() == NULL) {
         return false;
     }
     s_adv_operation_id = operation_id;
@@ -263,18 +235,8 @@ bool gap_refresh_advertising(uint32_t operation_id, uint32_t request_id,
     return gap_start_advertising(operation_id, request_id, duration_ms);
 }
 
-void gap_stop_advertising(void) {
-    if (!s_initialized || s_host_stopped ||
-        nimble_port_get_dflt_eventq() == NULL) {
-        s_radio_quiet = true;
-        return;
-    }
-    ble_npl_eventq_put(nimble_port_get_dflt_eventq(), &s_stop_advertise_event);
-}
-
 void gap_disconnect_client(void) {
-    if (!s_initialized || s_host_stopped ||
-        nimble_port_get_dflt_eventq() == NULL) {
+    if (!s_initialized || nimble_port_get_dflt_eventq() == NULL) {
         return;
     }
     ble_npl_eventq_put(nimble_port_get_dflt_eventq(), &s_disconnect_event);
@@ -305,123 +267,29 @@ bool gap_ble_start(uint32_t operation_id) {
 
     if (s_fatal_error) return false;
 
-    if (!s_initialized) {
-        esp_err_t err = nimble_port_init();
-        if (err != ESP_OK) {
-            ESP_LOGE(GAP_TAG, "nimble_port_init failed: %s",
-                     esp_err_to_name(err));
-            return false;
-        }
-        s_initialized = true;
-        s_controller_enabled = true;
-        if (!setup_services()) {
-            (void)esp_bt_controller_disable();
-            s_controller_enabled = false;
-            s_initialized = false;
-            s_fatal_error = true;
-            return false;
-        }
-        ble_hs_cfg.sync_cb = ble_app_on_sync;
-        s_host_stopped = false;
-        s_radio_quiet = false;
-        nimble_port_freertos_init(ble_host_task);
-        ESP_LOGI(GAP_TAG, "NimBLE initialized lazily operation=%u",
-                 (unsigned)operation_id);
-        return true;
-    }
+    if (s_initialized) return true;
 
-    if (s_host_stopped) {
-        if (!s_controller_enabled) {
-            esp_err_t err = esp_bt_controller_enable(ESP_BT_MODE_BLE);
-            if (err != ESP_OK) {
-                ESP_LOGE(GAP_TAG, "controller enable failed: %s",
-                         esp_err_to_name(err));
-                return false;
-            }
-            s_controller_enabled = true;
-        }
-        if (!s_host_task_handle) return false;
-        s_host_stopped = false;
-        s_radio_quiet = false;
-        xTaskNotifyGive(s_host_task_handle);
-        ESP_LOGI(GAP_TAG, "NimBLE host restart operation=%u",
-                 (unsigned)operation_id);
-        return true;
+    esp_err_t err = nimble_port_init();
+    if (err != ESP_OK) {
+        ESP_LOGE(GAP_TAG, "nimble_port_init failed: %s", esp_err_to_name(err));
+        return false;
     }
-
-    /* Already running; this can happen for a duplicate lifecycle command.
-     * Re-publish READY only when the host is already synced so the BLE FSM
-     * cannot remain stuck in STARTING. */
-    if (ble_hs_synced()) {
-        publish_event(RTEVT_BLE_READY, s_operation_id, 0,
-                      BLE_HS_CONN_HANDLE_NONE, 0);
+    s_initialized = true;
+    if (!setup_services()) {
+        s_fatal_error = true;
+        return false;
     }
-    return true;
-}
-
-static bool wait_host_stopped(uint32_t timeout_ms) {
-    for (uint32_t elapsed = 0; elapsed < timeout_ms; ++elapsed) {
-        if (s_host_stopped) return true;
-        vTaskDelay(pdMS_TO_TICKS(1));
-    }
-    return s_host_stopped;
-}
-
-bool gap_ble_stop(uint32_t operation_id) {
-    (void)operation_id;
-    if (!s_initialized) {
-        s_radio_quiet = true;
-        s_active_adv_operation_id = 0;
-        s_active_adv_request_id = 0;
-        return true;
-    }
-
-    if (!s_host_stopped) {
-        int rc = nimble_port_stop();
-        if (rc != 0 && rc != BLE_HS_EALREADY) {
-            ESP_LOGE(GAP_TAG, "nimble_port_stop rc=%d", rc);
-            return false;
-        }
-        if (!wait_host_stopped(2000)) {
-            ESP_LOGE(GAP_TAG, "host task did not stop in time");
-            return false;
-        }
-    }
-    if (s_controller_enabled) {
-        esp_err_t err = esp_bt_controller_disable();
-        if (err != ESP_OK) {
-            ESP_LOGE(GAP_TAG, "controller disable failed: %s",
-                     esp_err_to_name(err));
-            return false;
-        }
-        s_controller_enabled = false;
-    }
-    s_radio_quiet = true;
-    s_active_adv_operation_id = 0;
-    s_active_adv_request_id = 0;
-    ESP_LOGI(GAP_TAG, "NimBLE stopped, radio quiet");
+    ble_hs_cfg.sync_cb = ble_app_on_sync;
+    s_radio_quiet = false;
+    nimble_port_freertos_init(ble_host_task);
+    ESP_LOGI(GAP_TAG, "NimBLE initialized lazily operation=%u",
+             (unsigned)operation_id);
     return true;
 }
 
 void ble_host_task(void *param) {
     (void)param;
-    s_host_task_handle = xTaskGetCurrentTaskHandle();
-    for (;;) {
-        nimble_port_run();
-        s_host_stopped = true;
-        for (;;) {
-            ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-            s_host_stopped = false;
-            int rc = ble_hs_start();
-            if (rc == 0 || rc == BLE_HS_EALREADY) {
-                break;
-            }
-            ESP_LOGE(GAP_TAG, "ble_hs_start rc=%d", rc);
-            s_host_stopped = true;
-            publish_event(RTEVT_BLE_START_FAILED, s_operation_id, 0,
-                          BLE_HS_CONN_HANDLE_NONE, (uint16_t)rc);
-        }
-    }
+    nimble_port_run();
 }
 
 // ====== GAP callbacks ======
