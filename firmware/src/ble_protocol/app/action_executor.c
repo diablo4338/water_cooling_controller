@@ -44,6 +44,7 @@ static struct {
     uint16_t on_ms;
     uint16_t off_ms;
     uint32_t generation;
+    int64_t phase_deadline_us;
 } s_beep;
 
 static int64_t wall_time_us(void) {
@@ -98,9 +99,10 @@ static void beep_finish(uint32_t operation_id) {
     event_bus_publish(&event);
 }
 
-static void beep_fail(uint32_t operation_id) {
-    publish_action_failure(RCMD_BUZZER_PLAY, operation_id, 0,
-                           MEASURE_PERIODIC, ESP_FAIL);
+static void beep_fail(runtime_command_kind_t command_kind,
+                      uint32_t operation_id, esp_err_t error) {
+    publish_action_failure(command_kind, operation_id, 0, MEASURE_PERIODIC,
+                           error);
 }
 
 static void beep_timer_cb(void *arg);
@@ -109,6 +111,10 @@ static bool beep_arm(uint32_t generation, uint32_t delay_ms) {
     if (delay_ms == 0) delay_ms = 1;
     portENTER_CRITICAL(&s_beep_mux);
     bool current = s_beep.active && s_beep.generation == generation;
+    if (current) {
+        s_beep.phase_deadline_us =
+            esp_timer_get_time() + (int64_t)delay_ms * 1000LL;
+    }
     portEXIT_CRITICAL(&s_beep_mux);
     if (!current) return false;
     return esp_timer_start_once(s_beep_timer, (uint64_t)delay_ms * 1000ULL) ==
@@ -122,11 +128,15 @@ static void beep_timer_cb(void *arg) {
     uint32_t operation_id = 0;
     uint32_t generation = 0;
     uint32_t next_ms = 0;
+    esp_err_t cleanup_err = ESP_OK;
 
-    /* State and output are updated together so a timer callback that races a
-     * new pattern can never overwrite the new pattern's output level. */
+    /* A delayed callback from an old phase must not advance a newer phase. */
     portENTER_CRITICAL(&s_beep_mux);
     if (!s_beep.active) {
+        portEXIT_CRITICAL(&s_beep_mux);
+        return;
+    }
+    if (esp_timer_get_time() < s_beep.phase_deadline_us) {
         portEXIT_CRITICAL(&s_beep_mux);
         return;
     }
@@ -146,8 +156,20 @@ static void beep_timer_cb(void *arg) {
         drive_high = true;
         next_ms = s_beep.on_ms;
     }
-    gpio_set_level(BUZZER_GPIO, drive_high ? 1 : 0);
+    esp_err_t gpio_err = gpio_set_level(BUZZER_GPIO, drive_high ? 1 : 0);
+    if (gpio_err != ESP_OK) {
+        s_beep.active = false;
+        ++s_beep.generation;
+        s_beep.phase_deadline_us = 0;
+        (void)gpio_set_level(BUZZER_GPIO, 0);
+    }
     portEXIT_CRITICAL(&s_beep_mux);
+
+    if (gpio_err != ESP_OK) {
+        esp_timer_stop(s_beep_timer);
+        beep_fail(RCMD_BUZZER_PLAY, operation_id, gpio_err);
+        return;
+    }
 
     if (done) {
         beep_finish(operation_id);
@@ -157,10 +179,15 @@ static void beep_timer_cb(void *arg) {
         current = s_beep.active && s_beep.generation == generation;
         if (current) {
             s_beep.active = false;
-            gpio_set_level(BUZZER_GPIO, 0);
+            ++s_beep.generation;
+            s_beep.phase_deadline_us = 0;
+            cleanup_err = gpio_set_level(BUZZER_GPIO, 0);
         }
         portEXIT_CRITICAL(&s_beep_mux);
-        if (current) beep_fail(operation_id);
+        if (current) {
+            beep_fail(RCMD_BUZZER_PLAY, operation_id,
+                      cleanup_err == ESP_OK ? ESP_FAIL : cleanup_err);
+        }
     }
 }
 
@@ -178,33 +205,58 @@ static void beep_start(const runtime_command_t *command) {
     s_beep.active = command->repeats > 0 && command->duration_ms > 0;
     bool active = s_beep.active;
     uint32_t on_ms = s_beep.on_ms;
-    gpio_set_level(BUZZER_GPIO, active ? 1 : 0);
+    s_beep.phase_deadline_us = 0;
+    esp_err_t gpio_err = gpio_set_level(BUZZER_GPIO, active ? 1 : 0);
+    if (gpio_err != ESP_OK) {
+        s_beep.active = false;
+        ++s_beep.generation;
+        (void)gpio_set_level(BUZZER_GPIO, 0);
+    }
     portEXIT_CRITICAL(&s_beep_mux);
 
+    if (gpio_err != ESP_OK) {
+        esp_timer_stop(s_beep_timer);
+        beep_fail(RCMD_BUZZER_PLAY, command->operation_id, gpio_err);
+        return;
+    }
     if (!active) {
         beep_finish(command->operation_id);
         return;
     }
     if (!beep_arm(generation, on_ms)) {
         bool current;
+        esp_err_t cleanup_err = ESP_OK;
         portENTER_CRITICAL(&s_beep_mux);
         current = s_beep.generation == generation;
         if (current) {
             s_beep.active = false;
-            gpio_set_level(BUZZER_GPIO, 0);
+            ++s_beep.generation;
+            s_beep.phase_deadline_us = 0;
+            cleanup_err = gpio_set_level(BUZZER_GPIO, 0);
         }
         portEXIT_CRITICAL(&s_beep_mux);
-        if (current) beep_fail(command->operation_id);
+        if (current) beep_fail(RCMD_BUZZER_PLAY, command->operation_id,
+                               cleanup_err == ESP_OK ? ESP_FAIL : cleanup_err);
     }
 }
 
-static void beep_cancel(void) {
-    esp_timer_stop(s_beep_timer);
+static void beep_cancel(uint32_t operation_id) {
+    bool cancelled = false;
+    esp_err_t gpio_err = ESP_OK;
     portENTER_CRITICAL(&s_beep_mux);
-    ++s_beep.generation;
-    s_beep.active = false;
-    gpio_set_level(BUZZER_GPIO, 0);
+    if (s_beep.active && s_beep.operation_id == operation_id) {
+        ++s_beep.generation;
+        s_beep.active = false;
+        s_beep.phase_deadline_us = 0;
+        gpio_err = gpio_set_level(BUZZER_GPIO, 0);
+        cancelled = true;
+    }
     portEXIT_CRITICAL(&s_beep_mux);
+    if (!cancelled) return;
+    esp_timer_stop(s_beep_timer);
+    if (gpio_err != ESP_OK) {
+        beep_fail(RCMD_BUZZER_CANCEL, operation_id, gpio_err);
+    }
 }
 
 static void execute_load_output(const runtime_command_t *command) {
@@ -218,6 +270,22 @@ static void execute_load_output(const runtime_command_t *command) {
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "load output %s failed: %s",
                  command->bool_value ? "ON" : "OFF", esp_err_to_name(err));
+    }
+    event_bus_publish(&event);
+}
+
+static void execute_load_output_verify(const runtime_command_t *command) {
+    bool matches = false;
+    esp_err_t err = load_output_verify(command->bool_value, &matches);
+    runtime_event_t event = runtime_event_make(RTEVT_LOAD_GPIO_VERIFIED,
+                                                wall_time_us());
+    event.operation_id = command->operation_id;
+    event.command_kind = command->bool_value ? RCMD_LOAD_OUTPUT_ON
+                                             : RCMD_LOAD_OUTPUT_OFF;
+    event.bool_value = err == ESP_OK && matches;
+    event.error = (int32_t)err;
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "load output level read failed: %s", esp_err_to_name(err));
     }
     event_bus_publish(&event);
 }
@@ -281,12 +349,14 @@ static void execute_sleep(void) {
     if (!event_bus_lock_dispatch(100)) {
         s_executing_sleep = false;
         publish_simple(RTEVT_SLEEP_ABORTED, 0);
+        load_runtime_sleep_attempt_finished();
         return;
     }
     if (!event_bus_begin_sleep_gate()) {
         event_bus_unlock_dispatch();
         s_executing_sleep = false;
         publish_simple(RTEVT_SLEEP_ABORTED, 0);
+        load_runtime_sleep_attempt_finished();
         return;
     }
 
@@ -310,6 +380,7 @@ static void execute_sleep(void) {
     ESP_LOGI(TAG, "sleep aborted reason=%s gate_ok=%d",
              power_manager_block_reason_name(reason), (int)gate_ok);
     publish_simple(RTEVT_SLEEP_ABORTED, 0);
+    load_runtime_sleep_attempt_finished();
 }
 
 static void execute_command(const runtime_command_t *command) {
@@ -317,6 +388,9 @@ static void execute_command(const runtime_command_t *command) {
         case RCMD_LOAD_OUTPUT_ON:
         case RCMD_LOAD_OUTPUT_OFF:
             execute_load_output(command);
+            break;
+        case RCMD_LOAD_OUTPUT_VERIFY:
+            execute_load_output_verify(command);
             break;
 
         case RCMD_START_SETTLE_TIMER:
@@ -370,7 +444,7 @@ static void execute_command(const runtime_command_t *command) {
             beep_start(command);
             break;
         case RCMD_BUZZER_CANCEL:
-            beep_cancel();
+            beep_cancel(command->operation_id);
             break;
 
         case RCMD_BLE_START:

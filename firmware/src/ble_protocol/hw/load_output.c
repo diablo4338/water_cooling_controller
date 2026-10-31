@@ -19,6 +19,21 @@ esp_err_t load_output_set(bool enabled) {
     return ESP_OK;
 }
 
+esp_err_t load_output_verify(bool expected_enabled, bool *matches) {
+    if (!matches) return ESP_ERR_INVALID_ARG;
+
+    int enable_level = gpio_get_level(LOAD_ENABLE_GPIO);
+    int dc_level = gpio_get_level(LOAD_DC_GPIO);
+    if ((enable_level != 0 && enable_level != 1) ||
+        (dc_level != 0 && dc_level != 1)) {
+        return ESP_FAIL;
+    }
+
+    *matches = enable_level == (expected_enabled ? 1 : 0) &&
+               dc_level == (expected_enabled ? 0 : 1);
+    return ESP_OK;
+}
+
 esp_err_t load_output_restore(bool enabled) {
     /* Preload output latches before enabling output drivers or releasing hold. */
     esp_err_t err = load_output_set(enabled);

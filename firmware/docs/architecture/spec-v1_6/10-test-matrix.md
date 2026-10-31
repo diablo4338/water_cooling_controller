@@ -60,3 +60,13 @@ Each automated test should exercise actual production reducers and deadlines. Fo
 | T50 | BLE READY arrives after startup timeout | Ignore stale ready, never begin advertising |
 | T51 | Timers wrap or deadline arithmetic overflow | Deadline comparison is wrap-safe for supported monotonic time representation |
 | T52 | Pending hardware action at nominal Deep Sleep decision | Allow only finite required action completion/fallback; no missing-event indefinite wait |
+
+## v1.6 — Additional mandatory regressions
+| T53 | Executor executed LOAD_OFF but OFF acknowledgment dropped | On deadline, read same output GPIO; matching OFF completes `IDLE`, no indefinite sleep block |
+| T54 | Executor executed LOAD_ON but ON acknowledgment dropped | Matching ON level allows startup sequence once; no duplicate startup beep |
+| T55 | Acknowledgment missing and GPIO level does not match | Existing bounded retry/fault; never claim desired level |
+| T56 | Stale GPIO acknowledgment after level-check completion | Ignore by operation ID; no duplicate transition |
+| T57 | GPIO readback unavailable/failed | Do not fabricate successful output; bounded explicit fault policy |
+| T58 | Buzzer A cancelled, B started, delayed callback from A before B phase deadline | Does not advance B |
+| T59 | Delayed callback from A at/after B phase deadline | Inspect real `esp_timer` semantics; if feasible, prove B cannot advance incorrectly; if impossible, document why; don't invent RED |
+| T60 | Stale `BUZZER_CANCEL(A)` while B active | B remains active; cancel scoped to operation ID |

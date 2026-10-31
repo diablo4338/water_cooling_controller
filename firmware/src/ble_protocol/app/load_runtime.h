@@ -27,6 +27,9 @@ void load_runtime_get_snapshot(load_runtime_snapshot_t *out);
 /* Power Manager inputs, read by the action executor under the dispatch lock. */
 void load_runtime_get_power_snapshot(power_snapshot_t *out);
 
+/* Called after an attempted Deep Sleep command returns to the executor. */
+void load_runtime_sleep_attempt_finished(void);
+
 /* Final Deep Sleep preparation.  Returns false if sleep must not be entered. */
 bool load_runtime_prepare_sleep(void);
 

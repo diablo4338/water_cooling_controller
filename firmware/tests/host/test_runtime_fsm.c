@@ -139,6 +139,28 @@ static runtime_event_t load_failed_event(bool on, uint32_t operation_id,
     return event;
 }
 
+static runtime_event_t load_verified_event(bool requested_on, bool matches,
+                                            uint32_t operation_id,
+                                            int32_t error, int64_t now_us) {
+    runtime_event_t event = make_event(RTEVT_LOAD_GPIO_VERIFIED, now_us);
+    event.operation_id = operation_id;
+    event.command_kind = requested_on ? RCMD_LOAD_OUTPUT_ON
+                                      : RCMD_LOAD_OUTPUT_OFF;
+    event.bool_value = matches;
+    event.error = error;
+    return event;
+}
+
+static size_t count_command(const mock_t *mock, runtime_command_kind_t kind,
+                            uint32_t operation_id) {
+    size_t count = 0;
+    for (size_t i = 0; i < mock->count; ++i) {
+        if (mock->items[i].kind == kind &&
+            mock->items[i].operation_id == operation_id) ++count;
+    }
+    return count;
+}
+
 static runtime_event_t settle_event(uint32_t operation_id, int64_t now_us) {
     runtime_event_t event = make_event(RTEVT_SETTLE_ELAPSED, now_us);
     event.operation_id = operation_id;
@@ -285,6 +307,21 @@ static void step(runtime_core_t *core, mock_t *mock,
     apply_commands(core, mock, &commands, now_us);
 }
 
+static void step_drop_dispatcher_events(runtime_core_t *core, mock_t *mock,
+                                        runtime_event_t event,
+                                        int64_t now_us) {
+    event.timestamp_us = now_us;
+    runtime_command_list_t commands;
+    runtime_command_list_init(&commands);
+    runtime_core_step(core, &event, now_us, &commands);
+    for (uint8_t i = 0; i < commands.count; ++i) {
+        runtime_event_t follow_up;
+        if (!runtime_core_command_event(&commands.items[i], &follow_up)) {
+            mock_record(mock, &commands.items[i]);
+        }
+    }
+}
+
 static void ble_ready(runtime_core_t *core, mock_t *mock, int64_t now_us);
 static void apply_commands(runtime_core_t *core, mock_t *mock,
                            const runtime_command_list_t *commands,
@@ -320,7 +357,7 @@ static void start_to_measuring(runtime_core_t *core, mock_t *mock,
     CHECK_INT(mock->settle_ms, 1000);
     CHECK_INT(mock->ina_count, 0);
 
-    step(core, mock, settle_event(*operation_id, 1100), 1100);
+    step(core, mock, settle_event(*operation_id, 1000100), 1000100);
     CHECK_INT(core->buzzer.state, BUZZER_FSM_MEASURING);
     CHECK_INT(mock->ina_count, 1);
     CHECK_INT(mock->measure_timeout_count, 1);
@@ -340,6 +377,7 @@ static void low_current_shutdown(runtime_core_t *core, mock_t *mock,
                                12.0f, 50.0f, 300000000LL), 300000000LL);
     CHECK_INT(core->load.state, LOAD_FSM_STOPPING);
     CHECK_INT(core->buzzer.state, BUZZER_FSM_MEASURING);
+    CHECK(core->load.output_on);
     CHECK_INT(mock->load_off_count, 0);
     CHECK_INT(mock->beep_count, 0);
     CHECK(mock->ina_count >= 1);
@@ -381,6 +419,7 @@ static void test_load_startup_sequence(void) {
     CHECK_INT(core.load.state, LOAD_FSM_STARTING);
     CHECK_INT(core.ble.state, BLE_FSM_STARTING);
     CHECK_INT(mock.load_on_count, 1);
+    CHECK(mock.items[0].bool_value);
     CHECK_INT(mock.settle_count, 0);
     CHECK_INT(mock.ina_count, 0);
     CHECK_INT(mock.ble_start_count, 1);
@@ -428,6 +467,11 @@ static void test_load_startup_sequence(void) {
 
     step(&core, &mock, beep_finished_event(op, 2000000), 2000000);
     CHECK_INT(core.load.state, LOAD_FSM_WORKING);
+    CHECK_INT(mock.beep_count, 1);
+    step(&core, &mock, make_event(RTEVT_THERMAL_BUTTON_PRESSED, 2100000),
+         2100000);
+    CHECK_INT(mock.load_on_count, 1);
+    CHECK_INT(mock.settle_count, 1);
     CHECK_INT(mock.beep_count, 1);
 }
 
@@ -594,7 +638,7 @@ static void test_load_gpio_failure_handling(void) {
     step(&core, &mock, make_event(RTEVT_THERMAL_BUTTON_PRESSED, 0), 0);
     uint32_t start_op = mock.last_load_on_op;
     step(&core, &mock, load_failed_event(true, start_op, 100), 100);
-    CHECK_INT(core.load.state, LOAD_FSM_IDLE);
+    CHECK_INT(core.load.state, LOAD_FSM_ERROR);
     CHECK(!core.load.output_on);
     CHECK_INT(core.buzzer.state, BUZZER_FSM_IDLE);
     CHECK_INT(mock.settle_count, 0);
@@ -678,6 +722,7 @@ static void test_buzzer_disabled_completes(void) {
     CHECK_INT(core.load.state, LOAD_FSM_STOPPING);
     CHECK_INT(core.buzzer.state, BUZZER_FSM_IDLE);
     CHECK_INT(mock.load_off_count, 1);
+    CHECK(!mock.items[mock.last_load_off_index].bool_value);
     CHECK_INT(mock.beep_count, 0);
 
     step(&core, &mock, load_ack_event(false, mock.last_load_off_op,
@@ -1081,10 +1126,12 @@ static void test_settle_timer_failure_startup(void) {
     step(&core, &mock,
          action_failed_event(RCMD_START_SETTLE_TIMER, operation_id, 0,
                              MEASURE_STARTUP, -1, 2000), 2000);
-    CHECK_INT(core.buzzer.state, BUZZER_FSM_BEEPING);
-    CHECK_INT(mock.beep_count, 1);
-    CHECK_INT(mock.beeps[0].pattern, BUZZER_PATTERN_ERROR);
-    CHECK_INT(mock.beeps[0].repeats, 3);
+    CHECK_INT(core.buzzer.state, BUZZER_FSM_WAIT_SETTLE);
+    CHECK_INT(mock.beep_count, 0);
+    step(&core, &mock, make_event(RTEVT_DEADLINE_CHECK, 1001000), 1001000);
+    CHECK_INT(core.buzzer.state, BUZZER_FSM_MEASURING);
+    CHECK_INT(mock.ina_count, 1);
+    CHECK_INT(mock.beep_count, 0);
 }
 
 static void test_measure_timeout_start_failure_shutdown(void) {
@@ -1105,6 +1152,12 @@ static void test_measure_timeout_start_failure_shutdown(void) {
          action_failed_event(RCMD_START_MEASURE_TIMEOUT, operation_id,
                              request_id, MEASURE_SHUTDOWN, -1, 300001000LL),
          300001000LL);
+    CHECK_INT(core.buzzer.state, BUZZER_FSM_MEASURING);
+    CHECK_INT(core.load.state, LOAD_FSM_STOPPING);
+    CHECK_INT(mock.load_off_count, 0);
+
+    step(&core, &mock, make_event(RTEVT_DEADLINE_CHECK, 301500000LL),
+         301500000LL);
     CHECK_INT(core.buzzer.state, BUZZER_FSM_IDLE);
     CHECK_INT(core.load.state, LOAD_FSM_STOPPING);
     CHECK_INT(mock.load_off_count, 1);
@@ -1182,7 +1235,7 @@ static void test_buzzer_action_submission_failure(void) {
          action_failed_event(RCMD_BUZZER_PLAY, operation_id, 0,
                              MEASURE_PERIODIC, -1, 1300000), 1300000);
     CHECK_INT(core.buzzer.state, BUZZER_FSM_IDLE);
-    CHECK_INT(core.load.state, LOAD_FSM_ERROR);
+    CHECK_INT(core.load.state, LOAD_FSM_WORKING);
     CHECK(core.load.output_on);
     CHECK_INT(mock.beep_count, 1);
 }
@@ -1212,12 +1265,11 @@ static void test_buzzer_cancel_submission_failure(void) {
     step(&core, &mock,
          ina_event(false, shutdown_request, shutdown_id, MEASURE_SHUTDOWN,
                    NAN, NAN, 300002000LL), 300002000LL);
-    CHECK_INT(core.buzzer.state, BUZZER_FSM_MEASURING);
-    CHECK_INT(mock.load_off_count, 0);
-
+    CHECK_INT(core.buzzer.state, BUZZER_FSM_IDLE);
+    CHECK_INT(mock.load_off_count, 1);
     step(&core, &mock, beep_finished_event(warning_id, 300003000LL),
          300003000LL);
-    CHECK_INT(core.buzzer.state, BUZZER_FSM_IDLE);
+    CHECK_INT(mock.load_off_count, 1);
     CHECK_INT(mock.load_off_count, 1);
 }
 
@@ -1256,9 +1308,9 @@ static void test_event_bus_fault_does_not_change_ble_lifecycle(void) {
          load_ack_event(true, core.load.operation_id, 1), 1);
     step(&core, &mock, make_event(RTEVT_EVENT_BUS_FAULT, 1), 1);
 
-    CHECK_INT(core.load.state, LOAD_FSM_ERROR);
+    CHECK_INT(core.load.state, LOAD_FSM_STARTING);
     CHECK(core.load.output_on);
-    CHECK_INT(core.buzzer.state, BUZZER_FSM_ERROR);
+    CHECK_INT(core.buzzer.state, BUZZER_FSM_WAIT_SETTLE);
     CHECK_INT(core.ble.state, BLE_FSM_STARTING);
     power_snapshot_t snapshot = {
         .ble_state = core.ble.state,
@@ -1269,7 +1321,481 @@ static void test_event_bus_fault_does_not_change_ble_lifecycle(void) {
               POWER_BLOCK_BLE);
     snapshot.ble_state = BLE_FSM_READY_TO_SLEEP;
     CHECK_INT(power_manager_sleep_block_reason(&snapshot),
-              POWER_BLOCK_LOAD_ERROR);
+              POWER_BLOCK_LOAD_TRANSITION);
+}
+
+static void test_settle_deadline_replaces_missing_callback(void) {
+    runtime_core_t core;
+    mock_t mock;
+    memset(&mock, 0, sizeof(mock));
+    init_core(&core, false, true);
+
+    step(&core, &mock, make_event(RTEVT_THERMAL_BUTTON_PRESSED, 0), 0);
+    uint32_t operation_id = core.load.operation_id;
+    step(&core, &mock, load_ack_event(true, operation_id, 100), 100);
+    CHECK_INT(core.buzzer.state, BUZZER_FSM_WAIT_SETTLE);
+    CHECK_INT(mock.ina_count, 0);
+
+    step(&core, &mock, make_event(RTEVT_DEADLINE_CHECK, 1000099), 1000099);
+    CHECK_INT(core.buzzer.state, BUZZER_FSM_WAIT_SETTLE);
+    CHECK_INT(mock.ina_count, 0);
+
+    step(&core, &mock, make_event(RTEVT_DEADLINE_CHECK, 1000100), 1000100);
+    CHECK_INT(core.buzzer.state, BUZZER_FSM_MEASURING);
+    CHECK_INT(mock.ina_count, 1);
+    CHECK_INT(mock.ina[0].context, MEASURE_STARTUP);
+    CHECK_INT(mock.ina[0].operation_id, operation_id);
+}
+
+static void test_measurement_deadline_replaces_missing_callback(void) {
+    runtime_core_t core;
+    mock_t mock;
+    memset(&mock, 0, sizeof(mock));
+    init_core(&core, false, true);
+    uint32_t operation_id = 0;
+    uint32_t request_id = 0;
+    start_to_measuring(&core, &mock, &operation_id, &request_id);
+
+    step(&core, &mock, make_event(RTEVT_DEADLINE_CHECK, 2500099), 2500099);
+    CHECK_INT(core.buzzer.state, BUZZER_FSM_MEASURING);
+    CHECK_INT(mock.beep_count, 0);
+
+    step(&core, &mock, make_event(RTEVT_DEADLINE_CHECK, 2500100), 2500100);
+    CHECK_INT(core.buzzer.state, BUZZER_FSM_BEEPING);
+    CHECK_INT(mock.beep_count, 1);
+    CHECK_INT(mock.beeps[0].operation_id, operation_id);
+    CHECK_INT(mock.beeps[0].pattern, BUZZER_PATTERN_ERROR);
+    CHECK_INT(mock.beeps[0].repeats, 3);
+
+    step(&core, &mock, make_event(RTEVT_DEADLINE_CHECK, 2500101), 2500101);
+    CHECK_INT(mock.beep_count, 1);
+    CHECK_INT(mock.ina[0].request_id, request_id);
+}
+
+static void test_late_startup_measurement_cannot_extend_deadline(void) {
+    runtime_core_t core;
+    mock_t mock;
+    memset(&mock, 0, sizeof(mock));
+    init_core(&core, false, true);
+    uint32_t operation_id = 0;
+    uint32_t request_id = 0;
+    start_to_measuring(&core, &mock, &operation_id, &request_id);
+
+    step(&core, &mock, ina_event(true, request_id, operation_id,
+                                 MEASURE_STARTUP, 12.0f, 50.0f, 2500100),
+         2500100);
+    CHECK_INT(core.buzzer.state, BUZZER_FSM_BEEPING);
+    CHECK_INT(mock.beep_count, 1);
+    CHECK_INT(mock.beeps[0].pattern, BUZZER_PATTERN_ERROR);
+    CHECK_INT(mock.beeps[0].repeats, 3);
+}
+
+static void test_startup_playback_deadline_completes_load(void) {
+    runtime_core_t core;
+    mock_t mock;
+    memset(&mock, 0, sizeof(mock));
+    init_core(&core, false, true);
+    uint32_t operation_id = 0;
+    uint32_t request_id = 0;
+    start_to_measuring(&core, &mock, &operation_id, &request_id);
+    step(&core, &mock, ina_event(true, request_id, operation_id,
+                                 MEASURE_STARTUP, 12.0f, 50.0f, 1200000),
+         1200000);
+
+    step(&core, &mock, make_event(RTEVT_DEADLINE_CHECK, 2200000), 2200000);
+    CHECK_INT(core.buzzer.state, BUZZER_FSM_IDLE);
+    CHECK_INT(core.load.state, LOAD_FSM_WORKING);
+    CHECK_INT(mock.buzzer_cancel_count, 1);
+    CHECK_INT(mock.load_off_count, 0);
+}
+
+static void test_missing_startup_buzzer_done_has_load_deadline(void) {
+    runtime_core_t core;
+    mock_t mock;
+    memset(&mock, 0, sizeof(mock));
+    init_core(&core, false, true);
+    uint32_t operation_id = 0;
+    uint32_t request_id = 0;
+    start_to_measuring(&core, &mock, &operation_id, &request_id);
+    step(&core, &mock, ina_event(true, request_id, operation_id,
+                                 MEASURE_STARTUP, 12.0f, 50.0f, 1200000),
+         1200000);
+
+    step_drop_dispatcher_events(&core, &mock,
+                                make_event(RTEVT_DEADLINE_CHECK, 2200000),
+                                2200000);
+    CHECK_INT(core.buzzer.state, BUZZER_FSM_IDLE);
+    CHECK_INT(core.load.state, LOAD_FSM_STARTING);
+    CHECK_INT(mock.buzzer_cancel_count, 1);
+    CHECK(core.load.feedback_deadline_us > 2200000);
+
+    int64_t feedback_deadline = core.load.feedback_deadline_us;
+    step(&core, &mock, make_event(RTEVT_DEADLINE_CHECK, feedback_deadline),
+         feedback_deadline);
+    CHECK_INT(core.load.state, LOAD_FSM_WORKING);
+    CHECK(core.load.output_on);
+    CHECK_INT(mock.buzzer_cancel_count, 2);
+}
+
+static void test_shutdown_low_battery_warns_before_load_off(void) {
+    runtime_core_t core;
+    mock_t mock;
+    memset(&mock, 0, sizeof(mock));
+    init_core(&core, true, true);
+    step(&core, &mock, ina_event(true, 1, 0, MEASURE_PERIODIC,
+                                 12.0f, 50.0f, 0), 0);
+    step(&core, &mock, ina_event(true, 2, 0, MEASURE_PERIODIC,
+                                 12.0f, 50.0f, 300000000LL), 300000000LL);
+
+    uint32_t operation_id = core.load.shutdown_operation_id;
+    uint32_t request_id = core.buzzer.request_id;
+    step(&core, &mock,
+         ina_event(true, request_id, operation_id, MEASURE_SHUTDOWN,
+                   6.9f, 50.0f, 300001000LL), 300001000LL);
+    CHECK_INT(core.buzzer.state, BUZZER_FSM_BEEPING);
+    CHECK_INT(mock.beep_count, 1);
+    CHECK_INT(mock.beeps[0].pattern, BUZZER_PATTERN_WARNING);
+    CHECK_INT(mock.beeps[0].duration_ms, k_buzzer_config.low_ms);
+    CHECK_INT(mock.load_off_count, 0);
+
+    step(&core, &mock, beep_finished_event(operation_id, 301001000LL),
+         301001000LL);
+    CHECK_INT(mock.load_off_count, 1);
+    CHECK_INT(core.load.state, LOAD_FSM_STOPPING);
+}
+
+static void test_shutdown_playback_deadline_forces_off_and_load_off(void) {
+    runtime_core_t core;
+    mock_t mock;
+    memset(&mock, 0, sizeof(mock));
+    init_core(&core, true, true);
+    step(&core, &mock, ina_event(true, 1, 0, MEASURE_PERIODIC,
+                                 12.0f, 50.0f, 0), 0);
+    step(&core, &mock, ina_event(true, 2, 0, MEASURE_PERIODIC,
+                                 12.0f, 50.0f, 300000000LL), 300000000LL);
+    uint32_t operation_id = core.load.shutdown_operation_id;
+    uint32_t request_id = core.buzzer.request_id;
+    step(&core, &mock,
+         ina_event(true, request_id, operation_id, MEASURE_SHUTDOWN,
+                   6.9f, 50.0f, 300001000LL), 300001000LL);
+    CHECK_INT(core.buzzer.state, BUZZER_FSM_BEEPING);
+
+    step(&core, &mock, make_event(RTEVT_DEADLINE_CHECK, 302000000LL),
+         302000000LL);
+    CHECK_INT(core.buzzer.state, BUZZER_FSM_IDLE);
+    CHECK_INT(mock.buzzer_cancel_count, 1);
+    CHECK_INT(mock.load_off_count, 1);
+    CHECK_INT(core.load.state, LOAD_FSM_STOPPING);
+}
+
+static void test_missing_shutdown_buzzer_done_has_load_deadline(void) {
+    runtime_core_t core;
+    mock_t mock;
+    memset(&mock, 0, sizeof(mock));
+    init_core(&core, true, true);
+    step(&core, &mock, ina_event(true, 1, 0, MEASURE_PERIODIC,
+                                 12.0f, 50.0f, 0), 0);
+    step(&core, &mock, ina_event(true, 2, 0, MEASURE_PERIODIC,
+                                 12.0f, 50.0f, 300000000LL), 300000000LL);
+    uint32_t operation_id = core.load.shutdown_operation_id;
+    uint32_t request_id = core.buzzer.request_id;
+    step(&core, &mock,
+         ina_event(true, request_id, operation_id, MEASURE_SHUTDOWN,
+                   6.9f, 50.0f, 300001000LL), 300001000LL);
+
+    step_drop_dispatcher_events(&core, &mock,
+                                make_event(RTEVT_DEADLINE_CHECK, 302000000LL),
+                                302000000LL);
+    CHECK_INT(core.buzzer.state, BUZZER_FSM_IDLE);
+    CHECK_INT(core.load.state, LOAD_FSM_STOPPING);
+    CHECK_INT(mock.load_off_count, 0);
+
+    int64_t feedback_deadline = core.load.feedback_deadline_us;
+    step(&core, &mock, make_event(RTEVT_DEADLINE_CHECK, feedback_deadline),
+         feedback_deadline);
+    CHECK_INT(mock.buzzer_cancel_count, 2);
+    CHECK_INT(mock.load_off_count, 1);
+    size_t cancel_index = SIZE_MAX;
+    for (size_t i = 0; i < mock.count; ++i) {
+        if (mock.items[i].kind == RCMD_BUZZER_CANCEL) {
+            cancel_index = i;
+        }
+    }
+    CHECK(cancel_index < mock.last_load_off_index);
+    step(&core, &mock,
+         load_ack_event(false, operation_id, feedback_deadline + 1),
+         feedback_deadline + 1);
+    CHECK_INT(core.load.state, LOAD_FSM_IDLE);
+    CHECK(!core.load.output_on);
+}
+
+static void test_shutdown_measurement_deadline_is_silent(void) {
+    runtime_core_t core;
+    mock_t mock;
+    memset(&mock, 0, sizeof(mock));
+    init_core(&core, true, true);
+    step(&core, &mock, ina_event(true, 1, 0, MEASURE_PERIODIC,
+                                 12.0f, 50.0f, 0), 0);
+    step(&core, &mock, ina_event(true, 2, 0, MEASURE_PERIODIC,
+                                 12.0f, 50.0f, 300000000LL), 300000000LL);
+    uint32_t operation_id = core.load.shutdown_operation_id;
+
+    step(&core, &mock, make_event(RTEVT_DEADLINE_CHECK, 301500000LL),
+         301500000LL);
+    CHECK_INT(core.buzzer.state, BUZZER_FSM_IDLE);
+    CHECK_INT(mock.beep_count, 0);
+    CHECK_INT(mock.load_off_count, 1);
+    CHECK_INT(mock.last_load_off_op, operation_id);
+}
+
+static void test_load_gpio_deadlines_retry_missing_ack(void) {
+    runtime_core_t startup;
+    mock_t startup_mock;
+    memset(&startup_mock, 0, sizeof(startup_mock));
+    init_core(&startup, false, true);
+    step(&startup, &startup_mock,
+         make_event(RTEVT_THERMAL_BUTTON_PRESSED, 0), 0);
+    uint32_t startup_operation = startup.load.operation_id;
+    step(&startup, &startup_mock, make_event(RTEVT_DEADLINE_CHECK, 1000000),
+         1000000);
+    CHECK_INT(count_command(&startup_mock, RCMD_LOAD_OUTPUT_VERIFY,
+                            startup_operation), 1);
+    step(&startup, &startup_mock,
+         load_verified_event(true, false, startup_operation, 0, 1000100),
+         1000100);
+    CHECK_INT(startup_mock.load_on_count, 2);
+    CHECK_INT(startup_mock.last_load_on_op, startup_operation);
+
+    runtime_core_t shutdown;
+    mock_t shutdown_mock;
+    memset(&shutdown_mock, 0, sizeof(shutdown_mock));
+    init_core(&shutdown, true, true);
+    step(&shutdown, &shutdown_mock,
+         ina_event(true, 1, 0, MEASURE_PERIODIC, 12.0f, 50.0f, 0), 0);
+    step(&shutdown, &shutdown_mock,
+         ina_event(true, 2, 0, MEASURE_PERIODIC, 12.0f, 50.0f,
+                   300000000LL), 300000000LL);
+    uint32_t shutdown_operation = shutdown.load.shutdown_operation_id;
+    uint32_t request_id = shutdown.buzzer.request_id;
+    step(&shutdown, &shutdown_mock,
+         ina_event(true, request_id, shutdown_operation, MEASURE_SHUTDOWN,
+                   12.0f, 50.0f, 300001000LL), 300001000LL);
+    CHECK_INT(shutdown_mock.load_off_count, 1);
+    step(&shutdown, &shutdown_mock,
+         make_event(RTEVT_DEADLINE_CHECK, 301001000LL), 301001000LL);
+    CHECK_INT(count_command(&shutdown_mock, RCMD_LOAD_OUTPUT_VERIFY,
+                            shutdown_operation), 1);
+    step(&shutdown, &shutdown_mock,
+         load_verified_event(false, false, shutdown_operation, 0,
+                             301001100LL), 301001100LL);
+    CHECK_INT(shutdown_mock.load_off_count, 2);
+    step(&shutdown, &shutdown_mock,
+         load_ack_event(false, shutdown_operation, 301002000LL), 301002000LL);
+    CHECK_INT(shutdown.load.state, LOAD_FSM_IDLE);
+    CHECK(!shutdown.load.output_on);
+}
+
+static void test_lost_load_on_ack_recovers_by_gpio_readback(void) {
+    runtime_core_t core;
+    mock_t mock;
+    memset(&mock, 0, sizeof(mock));
+    init_core(&core, false, true);
+
+    step(&core, &mock, make_event(RTEVT_THERMAL_BUTTON_PRESSED, 0), 0);
+    uint32_t operation_id = core.load.operation_id;
+    step(&core, &mock, make_event(RTEVT_DEADLINE_CHECK, 1000000), 1000000);
+    CHECK_INT(count_command(&mock, RCMD_LOAD_OUTPUT_VERIFY, operation_id), 1);
+    CHECK_INT(mock.items[mock.count - 1].bool_value, 1);
+    CHECK_INT(mock.load_on_count, 1);
+    CHECK_INT(core.load.state, LOAD_FSM_STARTING);
+    CHECK_INT(mock.settle_count, 0);
+
+    step(&core, &mock,
+         load_verified_event(true, true, operation_id, 0, 1000100), 1000100);
+    CHECK(core.load.output_on);
+    CHECK_INT(mock.settle_count, 1);
+    CHECK_INT(core.buzzer.state, BUZZER_FSM_WAIT_SETTLE);
+    step(&core, &mock,
+         load_verified_event(true, true, operation_id, 0, 1000200), 1000200);
+    CHECK_INT(mock.settle_count, 1);
+}
+
+static void test_lost_load_off_ack_recovers_without_replaying_buzzer(void) {
+    runtime_core_t core;
+    mock_t mock;
+    memset(&mock, 0, sizeof(mock));
+    init_core(&core, true, true);
+
+    step(&core, &mock, ina_event(true, 9101, 0, MEASURE_PERIODIC,
+                                 12.0f, 50.0f, 0), 0);
+    step(&core, &mock, ina_event(true, 9102, 0, MEASURE_PERIODIC,
+                                 12.0f, 50.0f, 300000000LL), 300000000LL);
+    uint32_t operation_id = core.load.shutdown_operation_id;
+    uint32_t request_id = mock.ina[mock.ina_count - 1].request_id;
+    step(&core, &mock,
+         ina_event(true, request_id, operation_id, MEASURE_SHUTDOWN,
+                   12.0f, 50.0f, 300001000LL), 300001000LL);
+    CHECK_INT(mock.load_off_count, 1);
+    int beeps_before_recovery = mock.beep_count;
+
+    step(&core, &mock, make_event(RTEVT_DEADLINE_CHECK, 301001000LL),
+         301001000LL);
+    CHECK_INT(count_command(&mock, RCMD_LOAD_OUTPUT_VERIFY, operation_id), 1);
+    CHECK_INT(mock.items[mock.count - 1].bool_value, 0);
+    step(&core, &mock,
+         load_verified_event(false, true, operation_id, 0, 301002000LL),
+         301002000LL);
+    CHECK_INT(core.load.state, LOAD_FSM_IDLE);
+    CHECK(!core.load.output_on);
+    CHECK_INT(mock.beep_count, beeps_before_recovery);
+
+    power_snapshot_t snapshot = {
+        .ble_state = BLE_FSM_OFF,
+        .load_state = core.load.state,
+        .buzzer_state = core.buzzer.state,
+    };
+    CHECK(power_manager_can_sleep(&snapshot));
+}
+
+static void test_gpio_verify_retries_and_ignores_stale_or_wrong_results(void) {
+    runtime_core_t core;
+    mock_t mock;
+    memset(&mock, 0, sizeof(mock));
+    init_core(&core, false, true);
+
+    step(&core, &mock, make_event(RTEVT_THERMAL_BUTTON_PRESSED, 0), 0);
+    uint32_t operation_id = core.load.operation_id;
+    step(&core, &mock, make_event(RTEVT_DEADLINE_CHECK, 1000000), 1000000);
+    step(&core, &mock,
+         load_verified_event(true, true, operation_id + 1U, 0, 1000100),
+         1000100);
+    step(&core, &mock,
+         load_verified_event(false, true, operation_id, 0, 1000200),
+         1000200);
+    CHECK_INT(mock.settle_count, 0);
+    CHECK(!core.load.output_on);
+
+    step(&core, &mock,
+         load_verified_event(true, false, operation_id, 0, 1000300),
+         1000300);
+    CHECK_INT(mock.load_on_count, 2);
+    CHECK_INT(core.load.state, LOAD_FSM_STARTING);
+
+    step(&core, &mock, make_event(RTEVT_DEADLINE_CHECK, 2000300), 2000300);
+    CHECK_INT(count_command(&mock, RCMD_LOAD_OUTPUT_VERIFY, operation_id), 2);
+    step(&core, &mock,
+         load_verified_event(true, true, operation_id, 0, 2000400), 2000400);
+    CHECK_INT(mock.settle_count, 1);
+    CHECK_INT(core.load.state, LOAD_FSM_STARTING);
+}
+
+static void test_lost_gpio_verification_result_is_bounded(void) {
+    runtime_core_t core;
+    mock_t mock;
+    memset(&mock, 0, sizeof(mock));
+    init_core(&core, false, true);
+    step(&core, &mock, make_event(RTEVT_THERMAL_BUTTON_PRESSED, 0), 0);
+    uint32_t operation_id = core.load.operation_id;
+
+    for (int attempt = 0; attempt < 24 &&
+         core.load.state == LOAD_FSM_STARTING; ++attempt) {
+        int64_t now = 1000000LL + (int64_t)attempt * 1000000LL;
+        step(&core, &mock, make_event(RTEVT_DEADLINE_CHECK, now), now);
+    }
+    CHECK_INT(core.load.state, LOAD_FSM_ERROR);
+    CHECK_INT(mock.settle_count, 0);
+    CHECK(count_command(&mock, RCMD_LOAD_OUTPUT_VERIFY, operation_id) > 0);
+}
+
+static void test_feedback_action_failure_still_completes_startup(void) {
+    runtime_core_t core;
+    mock_t mock;
+    memset(&mock, 0, sizeof(mock));
+    init_core(&core, false, true);
+    uint32_t operation_id = 0;
+    uint32_t request_id = 0;
+    start_to_measuring(&core, &mock, &operation_id, &request_id);
+    step(&core, &mock, ina_event(true, request_id, operation_id,
+                                 MEASURE_STARTUP, 12.0f, 50.0f, 1200000),
+         1200000);
+    step(&core, &mock,
+         action_failed_event(RCMD_BUZZER_PLAY, operation_id, 0,
+                             MEASURE_PERIODIC, -1, 1300000), 1300000);
+    CHECK_INT(core.buzzer.state, BUZZER_FSM_IDLE);
+    CHECK_INT(core.load.state, LOAD_FSM_WORKING);
+    CHECK(core.load.output_on);
+}
+
+static void test_periodic_voltage_is_not_reused_for_startup(void) {
+    runtime_core_t core;
+    mock_t mock;
+    memset(&mock, 0, sizeof(mock));
+    init_core(&core, false, true);
+
+    step(&core, &mock, ina_event(true, 7001, 0, MEASURE_PERIODIC,
+                                 6.0f, 50.0f, 0), 0);
+    step(&core, &mock, make_event(RTEVT_THERMAL_BUTTON_PRESSED, 1000), 1000);
+    uint32_t operation_id = core.load.operation_id;
+    step(&core, &mock, load_ack_event(true, operation_id, 2000), 2000);
+    step(&core, &mock, settle_event(operation_id, 1002000), 1002000);
+    CHECK_INT(core.buzzer.state, BUZZER_FSM_MEASURING);
+    CHECK_INT(mock.ina_count, 1);
+    CHECK_INT(mock.ina[0].context, MEASURE_STARTUP);
+
+    uint32_t request_id = mock.ina[0].request_id;
+    step(&core, &mock, ina_event(true, request_id, operation_id,
+                                 MEASURE_STARTUP, 12.0f, 50.0f, 1010000),
+         1010000);
+    CHECK_INT(mock.beep_count, 1);
+    CHECK_INT(mock.beeps[0].pattern, BUZZER_PATTERN_NORMAL);
+    CHECK_INT(mock.beeps[0].duration_ms, k_buzzer_config.button_ms);
+}
+
+static void test_startup_waits_for_warning_to_finish(void) {
+    runtime_core_t core;
+    mock_t mock;
+    memset(&mock, 0, sizeof(mock));
+    init_core(&core, false, true);
+    step(&core, &mock, ina_event(true, 7101, 0, MEASURE_PERIODIC,
+                                 6.5f, 50.0f, 0), 0);
+    step(&core, &mock, ina_event(true, 7102, 0, MEASURE_PERIODIC,
+                                 6.5f, 50.0f, 10000001LL), 10000001LL);
+    CHECK_INT(mock.beep_count, 1);
+    uint32_t warning_id = core.buzzer.operation_id;
+
+    step(&core, &mock, make_event(RTEVT_THERMAL_BUTTON_PRESSED, 10001000LL),
+         10001000LL);
+    uint32_t startup_id = core.load.operation_id;
+    step(&core, &mock, load_ack_event(true, startup_id, 10002000LL),
+         10002000LL);
+    CHECK_INT(core.buzzer.state, BUZZER_FSM_BEEPING);
+    CHECK_INT(mock.settle_count, 0);
+    CHECK_INT(mock.beep_count, 1);
+
+    step(&core, &mock, beep_finished_event(warning_id, 12000000LL),
+         12000000LL);
+    CHECK_INT(core.buzzer.state, BUZZER_FSM_WAIT_SETTLE);
+    CHECK_INT(mock.settle_count, 1);
+    CHECK_INT(mock.settle_operation_id, startup_id);
+    CHECK_INT(mock.beep_count, 1);
+}
+
+static void test_warning_playback_deadline_forces_buzzer_off(void) {
+    runtime_core_t core;
+    mock_t mock;
+    memset(&mock, 0, sizeof(mock));
+    init_core(&core, true, true);
+    step(&core, &mock, ina_event(true, 7201, 0, MEASURE_PERIODIC,
+                                 6.5f, 50.0f, 0), 0);
+    step(&core, &mock, ina_event(true, 7202, 0, MEASURE_PERIODIC,
+                                 6.5f, 50.0f, 10000001LL), 10000001LL);
+    CHECK_INT(core.buzzer.state, BUZZER_FSM_BEEPING);
+    CHECK_INT(mock.beep_count, 1);
+
+    step(&core, &mock, make_event(RTEVT_DEADLINE_CHECK, 11250001LL),
+         11250001LL);
+    CHECK_INT(core.buzzer.state, BUZZER_FSM_IDLE);
+    CHECK_INT(mock.buzzer_cancel_count, 1);
 }
 
 /* ----------------------------------------------------------------- runner */
@@ -1322,6 +1848,42 @@ static const test_case_t k_tests[] = {
      test_ble_disconnect_submission_failure},
     {"event_bus_fault_does_not_change_ble_lifecycle",
      test_event_bus_fault_does_not_change_ble_lifecycle},
+    {"settle_deadline_replaces_missing_callback",
+     test_settle_deadline_replaces_missing_callback},
+    {"measurement_deadline_replaces_missing_callback",
+     test_measurement_deadline_replaces_missing_callback},
+    {"late_startup_measurement_cannot_extend_deadline",
+     test_late_startup_measurement_cannot_extend_deadline},
+    {"startup_playback_deadline_completes_load",
+     test_startup_playback_deadline_completes_load},
+    {"missing_startup_buzzer_done_has_load_deadline",
+     test_missing_startup_buzzer_done_has_load_deadline},
+    {"shutdown_low_battery_warns_before_load_off",
+     test_shutdown_low_battery_warns_before_load_off},
+    {"shutdown_playback_deadline_forces_off_and_load_off",
+     test_shutdown_playback_deadline_forces_off_and_load_off},
+    {"missing_shutdown_buzzer_done_has_load_deadline",
+     test_missing_shutdown_buzzer_done_has_load_deadline},
+    {"shutdown_measurement_deadline_is_silent",
+     test_shutdown_measurement_deadline_is_silent},
+    {"load_gpio_deadlines_retry_missing_ack",
+     test_load_gpio_deadlines_retry_missing_ack},
+    {"lost_load_on_ack_recovers_by_gpio_readback",
+     test_lost_load_on_ack_recovers_by_gpio_readback},
+    {"lost_load_off_ack_recovers_without_replaying_buzzer",
+     test_lost_load_off_ack_recovers_without_replaying_buzzer},
+    {"gpio_verify_retries_and_ignores_stale_or_wrong_results",
+     test_gpio_verify_retries_and_ignores_stale_or_wrong_results},
+    {"lost_gpio_verification_result_is_bounded",
+     test_lost_gpio_verification_result_is_bounded},
+    {"feedback_action_failure_still_completes_startup",
+     test_feedback_action_failure_still_completes_startup},
+    {"periodic_voltage_is_not_reused_for_startup",
+     test_periodic_voltage_is_not_reused_for_startup},
+    {"startup_waits_for_warning_to_finish",
+     test_startup_waits_for_warning_to_finish},
+    {"warning_playback_deadline_forces_buzzer_off",
+     test_warning_playback_deadline_forces_buzzer_off},
 };
 
 int main(void) {

@@ -7,3 +7,6 @@
 5. Load WORKING may sleep. RTC valid → restore; RTC invalid → default OFF. Preserve existing INA226 driver budgets, config, pairing, GPIO19 behavior and hardware pin mapping.
 6. Use small increments and RED/GREEN tests; no fake success actions, mocks in production, silent threshold changes, or broad unrelated rewrites. Report exact test and build commands. Real hardware behavior remains unverified until tested.
 7. Propose implementation changes **only when authorized**. This spec is not authorization. When source contradicts spec, write explicit deviation instead of changing the spec to fit source.
+
+## v1.6 — No unauthorized redesign
+Read `16-gpio-and-buzzer-races.md`. Do not remove FSM events, executor, or `esp_timer`; do not move all GPIO operations into FSM handlers. A lost GPIO acknowledgment is recovered through logical pin-level inspection at deadline; do not equate missing event with failed write. Investigate the stale buzzer callback scenario against real ESP-IDF timer semantics and actual production code. Do not add new timer primitives or redesign buzzer FSM without a verified reachable defect and RED test.

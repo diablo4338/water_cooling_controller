@@ -26,3 +26,6 @@ Read `14-transition-coverage.md` before implementation. It defines precedence, d
 ## Implementation traceability (v1.5 addition)
 
 See `15-implementation-map.md` for the READ-ONLY, source-verified mapping from v1.4 target behavior to firmware(5) functions, physical calls, test ideas, and explicitly identified gaps. This document does not supersede the normative behavioral specification.
+
+## Approved clarification v1.6 — GPIO feedback and buzzer callbacks
+The authoritative detailed contract is `16-gpio-and-buzzer-races.md`. This clarification does **not** redesign any FSM or remove the event dispatcher/action executor. A lost load GPIO completion event must not by itself cause permanent ERROR/sleep veto: on its acknowledgment deadline, query the GPIO *logical output level* through the existing serialized hardware control path. Treat it as verification of the configured GPIO level, **not electrical proof** that the lamp is powered. Buzzer delayed timer callbacks are a documented candidate race; preserve the current `esp_timer` architecture, test the actual API ordering, and change it only for a verified defect. Do not add a speculative timer subsystem.

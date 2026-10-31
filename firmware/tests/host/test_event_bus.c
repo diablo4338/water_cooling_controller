@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "event_bus.h"
+#include "power_manager.h"
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 
@@ -131,6 +132,16 @@ int main(void) {
         (void)event_bus_publish_isr(&event);
     }
     CHECK(event_bus_delivery_faulted());
+    while (event_bus_receive(&received, 0)) {}
+    CHECK(event_bus_pending() == 0U);
+    CHECK(event_bus_delivery_faulted());
+
+    power_snapshot_t snapshot = {
+        .ble_state = BLE_FSM_OFF,
+        .load_state = LOAD_FSM_WORKING,
+        .buzzer_state = BUZZER_FSM_IDLE,
+    };
+    CHECK(power_manager_can_sleep(&snapshot));
 
     if (failures != 0) {
         fprintf(stderr, "%d event-bus assertions failed\n", failures);

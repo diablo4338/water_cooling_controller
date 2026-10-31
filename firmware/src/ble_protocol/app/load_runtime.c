@@ -66,6 +66,7 @@ static buzzer_fsm_config_t s_buzzer_config;
 static ble_fsm_config_t s_ble_config;
 
 static portMUX_TYPE s_snapshot_mux = portMUX_INITIALIZER_UNLOCKED;
+static portMUX_TYPE s_sleep_request_mux = portMUX_INITIALIZER_UNLOCKED;
 static load_runtime_snapshot_t s_snapshot = {
     .temperature_c = NAN,
     .voltage_v = NAN,
@@ -81,6 +82,19 @@ static int64_t s_boot_started_us;
 static bool s_periodic_pending;
 static uint32_t s_periodic_request_id;
 static bool s_sleep_requested;
+
+static bool sleep_request_get(void) {
+    portENTER_CRITICAL(&s_sleep_request_mux);
+    bool requested = s_sleep_requested;
+    portEXIT_CRITICAL(&s_sleep_request_mux);
+    return requested;
+}
+
+static void sleep_request_set(bool requested) {
+    portENTER_CRITICAL(&s_sleep_request_mux);
+    s_sleep_requested = requested;
+    portEXIT_CRITICAL(&s_sleep_request_mux);
+}
 static int64_t s_next_periodic_us;
 static int64_t s_next_deadline_us;
 static int64_t s_next_sleep_us;
@@ -334,12 +348,12 @@ static void process_event_locked(const runtime_event_t *event) {
     log_transitions(previous_load, previous_buzzer, previous_ble);
 
     if (event->kind == RTEVT_SLEEP_ABORTED) {
-        s_sleep_requested = false;
+        sleep_request_set(false);
         ESP_LOGI(TAG, "sleep request aborted");
     }
     if (event->kind == RTEVT_ACTION_FAILED &&
         event->command_kind == RCMD_ENTER_DEEP_SLEEP) {
-        s_sleep_requested = false;
+        sleep_request_set(false);
     }
 
     /* Pairing mode has no meaning once the radio is fully off. */
@@ -454,7 +468,7 @@ static void periodic_cycle_locked(int64_t now_us) {
 }
 
 static void maybe_request_sleep_locked(int64_t now_us) {
-    if (s_sleep_requested) return;
+    if (sleep_request_get()) return;
 
     if (s_boot_measurement_pending) {
         if (now_us - s_boot_started_us < BOOT_MEASUREMENT_TIMEOUT_US) return;
@@ -473,7 +487,7 @@ static void maybe_request_sleep_locked(int64_t now_us) {
     runtime_command_t command = runtime_command_make(
         RCMD_ENTER_DEEP_SLEEP, 0);
     if (action_executor_submit(&command)) {
-        s_sleep_requested = true;
+        sleep_request_set(true);
         ESP_LOGI(TAG, "sleep requested");
     } else {
         ESP_LOGW(TAG, "sleep command not submitted");
@@ -500,6 +514,10 @@ static void scheduler_locked(int64_t wall_now_us, int64_t monotonic_now_us) {
         s_next_sleep_us = wall_now_us + SLEEP_CHECK_INTERVAL_US;
         maybe_request_sleep_locked(wall_now_us);
     }
+}
+
+void load_runtime_sleep_attempt_finished(void) {
+    sleep_request_set(false);
 }
 
 void load_runtime_init(void) {

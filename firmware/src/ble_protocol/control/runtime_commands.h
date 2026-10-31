@@ -27,6 +27,7 @@ typedef enum {
     RCMD_BLE_REFRESH_ADVERTISING,
     RCMD_BLE_DISCONNECT,
     RCMD_ENTER_DEEP_SLEEP,
+    RCMD_LOAD_OUTPUT_VERIFY,
 } runtime_command_kind_t;
 
 typedef struct {

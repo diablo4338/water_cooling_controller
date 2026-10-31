@@ -20,6 +20,7 @@ typedef struct {
 #define portYIELD_FROM_ISR() ((void)0)
 #define pdTRUE 1
 #define pdFALSE 0
+#define pdPASS pdTRUE
 #define pdMS_TO_TICKS(milliseconds) ((TickType_t)(milliseconds))
 
 #endif

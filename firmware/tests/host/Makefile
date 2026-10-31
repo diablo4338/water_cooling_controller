@@ -5,7 +5,7 @@ LDFLAGS ?=
 LDLIBS += -lm
 
 CONTROL_DIR := ../../src/ble_protocol/control
-CPPFLAGS += -Istubs -I$(CONTROL_DIR) -I../../src/ble_protocol/app
+CPPFLAGS += -Istubs -I$(CONTROL_DIR) -I../../src/ble_protocol/app -I../../src/ble_protocol/ble -I../../src/ble_protocol/hw -I../../src/metrics
 
 SOURCES := \
 	test_runtime_fsm.c \
@@ -21,10 +21,11 @@ TARGET := test_runtime_fsm
 EVENT_BUS_TARGET := test_event_bus
 INA226_TARGET := test_ina226
 BLE_LIFECYCLE_TARGET := test_ble_lifecycle
+ACTION_EXECUTOR_TARGET := test_action_executor
 
 .PHONY: all test clean
 
-all: $(TARGET) $(EVENT_BUS_TARGET) $(BLE_LIFECYCLE_TARGET)
+all: $(TARGET) $(EVENT_BUS_TARGET) $(BLE_LIFECYCLE_TARGET) $(ACTION_EXECUTOR_TARGET)
 
 $(TARGET): $(SOURCES) $(wildcard $(CONTROL_DIR)/*.h)
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $(SOURCES) $(LDLIBS)
@@ -37,15 +38,20 @@ test: $(TARGET)
 	./$(EVENT_BUS_TARGET)
 	$(MAKE) $(INA226_TARGET)
 	./$(INA226_TARGET)
+	$(MAKE) $(ACTION_EXECUTOR_TARGET)
+	./$(ACTION_EXECUTOR_TARGET)
 
 $(BLE_LIFECYCLE_TARGET): test_ble_lifecycle.c $(CONTROL_DIR)/runtime_events.c $(CONTROL_DIR)/load_fsm.c $(CONTROL_DIR)/buzzer_fsm.c $(CONTROL_DIR)/ble_fsm.c $(CONTROL_DIR)/power_manager.c $(CONTROL_DIR)/runtime_core.c $(wildcard $(CONTROL_DIR)/*.h)
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS)
 
-$(EVENT_BUS_TARGET): test_event_bus.c ../../src/ble_protocol/app/event_bus.c
+$(EVENT_BUS_TARGET): test_event_bus.c ../../src/ble_protocol/app/event_bus.c $(CONTROL_DIR)/power_manager.c
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS)
 
 $(INA226_TARGET): test_ina226.c ../../src/metrics/ina226.c
 	$(CC) $(CPPFLAGS) -I../../src/metrics $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS)
 
+$(ACTION_EXECUTOR_TARGET): test_action_executor.c ../../src/ble_protocol/app/action_executor.c ../../src/ble_protocol/hw/load_output.c
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ test_action_executor.c ../../src/ble_protocol/hw/load_output.c $(LDLIBS)
+
 clean:
-	rm -f $(TARGET) $(EVENT_BUS_TARGET) $(INA226_TARGET) $(BLE_LIFECYCLE_TARGET)
+	rm -f $(TARGET) $(EVENT_BUS_TARGET) $(INA226_TARGET) $(BLE_LIFECYCLE_TARGET) $(ACTION_EXECUTOR_TARGET)

@@ -35,6 +35,7 @@ typedef enum {
     RTEVT_SLEEP_ABORTED,
     RTEVT_ACTION_FAILED,
     RTEVT_EVENT_BUS_FAULT,
+    RTEVT_LOAD_GPIO_VERIFIED,
 } runtime_event_kind_t;
 
 #define RUNTIME_ERROR_ACTION_REJECTED (-1)

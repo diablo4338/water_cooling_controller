@@ -7,6 +7,7 @@
 
 esp_err_t load_output_restore(bool enabled);
 esp_err_t load_output_set(bool enabled);
+esp_err_t load_output_verify(bool expected_enabled, bool *matches);
 esp_err_t load_output_hold(void);
 
 #endif

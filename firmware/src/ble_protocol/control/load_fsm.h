@@ -22,14 +22,19 @@ typedef struct {
 
 typedef struct {
     load_fsm_state_t state;
-    bool output_on;             /* confirmed by the GPIO executor */
+    bool output_on;             /* confirmed by write result or GPIO readback */
     bool off_requested;
+    bool verification_pending;
     bool low_current_pending;
     int64_t low_current_since_us;
     uint32_t operation_id;      /* current startup or shutdown operation */
     uint32_t startup_operation_id;
     uint32_t shutdown_operation_id;
     uint8_t off_retries;
+    uint8_t on_retries;
+    uint8_t verification_retries;
+    int64_t action_deadline_us;
+    int64_t feedback_deadline_us;
 } load_fsm_t;
 
 void load_fsm_init(load_fsm_t *fsm, bool restored_working,
@@ -37,6 +42,7 @@ void load_fsm_init(load_fsm_t *fsm, bool restored_working,
 
 void load_fsm_step(load_fsm_t *fsm, const runtime_event_t *event,
                    const load_fsm_config_t *config,
+                   int64_t now_us,
                    runtime_command_list_t *commands);
 
 const char *load_fsm_state_name(load_fsm_state_t state);

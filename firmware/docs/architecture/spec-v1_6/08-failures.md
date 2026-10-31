@@ -16,3 +16,6 @@
 | RTC invalid | Default output OFF and clear retained data | Normal sleep if GPIO applied |
 
 No global delivery fault latching; no exponential retry engine; no two-disconnect-retry logic; no BLE host/controller shutdown. Logs are useful but logging must not block event progress indefinitely.
+
+## v1.6 — Distinguish missing notification from GPIO fault
+A missing `LOAD_ON_DONE`/`LOAD_OFF_DONE` triggers a bounded logical GPIO level check, not automatic `LOAD_FSM_ERROR`. Matching level => finish pending state transition; mismatch => bounded retry; failed/unavailable level read or persistent mismatch => physical/control fault policy. Never use `gpio_get_level()` as evidence of actual power delivered to the lamp. Do not add a global sleep veto merely because an event was lost.

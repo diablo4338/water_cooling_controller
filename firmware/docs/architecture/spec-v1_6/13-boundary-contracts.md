@@ -11,3 +11,7 @@
 - At advertising window deadline, sleep without needing NimBLE stop confirmation. Controller stays initialized right until sleep.
 - No global event delivery lock/reliable queue/fatal overflow policy is necessary. Use regular serialized dispatch and independently polled deadlines.
 - Retained Load valid → restore desired output; invalid → OFF default. The thermal detector is sampled, not a magically guaranteed hardware wake pin.
+
+## v1.6 — GPIO and buzzer boundary conditions
+- Missing GPIO acknowledgment is **not** equivalent to failed GPIO output. On deadline verify logical output level via executor, preserving serialized writes; match completes transition; mismatch follows bounded retry/fault. Readback is not independent electrical/load verification.
+- Delayed buzzer timer callback belongs to an earlier operation: never let it shorten or advance a newer pattern. Existing operation ID and phase deadlines are retained; establish whether the harmful ordering is reachable in actual ESP-IDF `esp_timer` callback semantics before adding mitigation. Do not redesign proactively.
