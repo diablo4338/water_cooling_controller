@@ -1066,6 +1066,22 @@ static void test_stale_startup_result_ignored(void) {
     CHECK_INT(mock.beep_count, 1);
 }
 
+static void test_low_voltage_warning_requires_active_load(void) {
+    runtime_core_t core;
+    mock_t mock;
+    memset(&mock, 0, sizeof(mock));
+    init_core(&core, false, true);
+
+    step(&core, &mock, ina_event(true, 6101, 0, MEASURE_PERIODIC,
+                                 6.5f, 0.0f, 0), 0);
+    step(&core, &mock, ina_event(true, 6102, 0, MEASURE_PERIODIC,
+                                 6.5f, 0.0f, 11000000LL), 11000000LL);
+
+    CHECK_INT(mock.beep_count, 0);
+    CHECK(!core.buzzer.low_pending);
+    CHECK(!core.buzzer.low_alerted);
+}
+
 static void test_action_queue_full_load_on(void) {
     runtime_core_t core;
     mock_t mock;
@@ -1755,7 +1771,7 @@ static void test_startup_waits_for_warning_to_finish(void) {
     runtime_core_t core;
     mock_t mock;
     memset(&mock, 0, sizeof(mock));
-    init_core(&core, false, true);
+    init_core(&core, true, true);
     step(&core, &mock, ina_event(true, 7101, 0, MEASURE_PERIODIC,
                                  6.5f, 50.0f, 0), 0);
     step(&core, &mock, ina_event(true, 7102, 0, MEASURE_PERIODIC,
@@ -1763,20 +1779,25 @@ static void test_startup_waits_for_warning_to_finish(void) {
     CHECK_INT(mock.beep_count, 1);
     uint32_t warning_id = core.buzzer.operation_id;
 
-    step(&core, &mock, make_event(RTEVT_THERMAL_BUTTON_PRESSED, 10001000LL),
-         10001000LL);
-    uint32_t startup_id = core.load.operation_id;
-    step(&core, &mock, load_ack_event(true, startup_id, 10002000LL),
-         10002000LL);
+    runtime_event_t startup_event = make_event(RTEVT_LOAD_GPIO_APPLIED,
+                                                10001000LL);
+    startup_event.operation_id = 12345;
+    startup_event.bool_value = true;
+    buzzer_fsm_config_t buzzer_config = core.buzzer_config;
+    buzzer_config.load_output_on = true;
+    runtime_command_list_t commands;
+    runtime_command_list_init(&commands);
+    buzzer_fsm_step(&core.buzzer, &startup_event, &buzzer_config,
+                    10001000LL, &commands);
     CHECK_INT(core.buzzer.state, BUZZER_FSM_BEEPING);
-    CHECK_INT(mock.settle_count, 0);
+    CHECK(core.buzzer.pending_startup);
     CHECK_INT(mock.beep_count, 1);
 
     step(&core, &mock, beep_finished_event(warning_id, 12000000LL),
          12000000LL);
     CHECK_INT(core.buzzer.state, BUZZER_FSM_WAIT_SETTLE);
     CHECK_INT(mock.settle_count, 1);
-    CHECK_INT(mock.settle_operation_id, startup_id);
+    CHECK_INT(mock.settle_operation_id, 12345);
     CHECK_INT(mock.beep_count, 1);
 }
 
@@ -1817,6 +1838,8 @@ static const test_case_t k_tests[] = {
     {"low_current_shutdown_success_silent",
      test_low_current_shutdown_success_silent},
     {"low_voltage_warning_delay", test_low_voltage_warning_delay},
+    {"low_voltage_warning_requires_active_load",
+     test_low_voltage_warning_requires_active_load},
     {"load_gpio_failure_handling", test_load_gpio_failure_handling},
     {"invalid_current_resets_low_timer", test_invalid_current_resets_low_timer},
     {"buzzer_disabled_completes", test_buzzer_disabled_completes},

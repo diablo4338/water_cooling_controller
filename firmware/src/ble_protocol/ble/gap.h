@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/* Initialize non-blocking NimBLE event wrappers.  Does not start the radio. */
+/* Reset GAP state before lazy NimBLE initialization. */
 void gap_init(void);
 
 /* Lazy lifecycle.  Initialize the host/controller once per wake cycle. */

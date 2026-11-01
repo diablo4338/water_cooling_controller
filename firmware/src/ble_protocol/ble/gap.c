@@ -75,8 +75,6 @@ static void disconnect_client_cb(struct ble_npl_event *event) {
 }
 
 void gap_init(void) {
-    ble_npl_event_init(&s_advertise_event, advertise_cb, NULL);
-    ble_npl_event_init(&s_disconnect_event, disconnect_client_cb, NULL);
     s_radio_quiet = true;
     s_fatal_error = false;
     s_adv_operation_id = 0;
@@ -274,6 +272,8 @@ bool gap_ble_start(uint32_t operation_id) {
         ESP_LOGE(GAP_TAG, "nimble_port_init failed: %s", esp_err_to_name(err));
         return false;
     }
+    ble_npl_event_init(&s_advertise_event, advertise_cb, NULL);
+    ble_npl_event_init(&s_disconnect_event, disconnect_client_cb, NULL);
     s_initialized = true;
     if (!setup_services()) {
         s_fatal_error = true;

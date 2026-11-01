@@ -76,6 +76,10 @@ static void reset_low_state(buzzer_fsm_t *fsm) {
     fsm->low_since_us = 0;
 }
 
+void buzzer_fsm_reset_low_warning(buzzer_fsm_t *fsm) {
+    if (fsm) reset_low_state(fsm);
+}
+
 static void begin_startup(buzzer_fsm_t *fsm, const buzzer_fsm_config_t *config,
                           uint32_t operation_id, int64_t now_us,
                           runtime_command_list_t *commands) {
@@ -221,6 +225,10 @@ static void handle_periodic_sample(buzzer_fsm_t *fsm,
     if (fsm->threshold_mv != config->threshold_mv) {
         fsm->threshold_mv = config->threshold_mv;
         reset_low_state(fsm);
+    }
+    if (!config->load_output_on) {
+        reset_low_state(fsm);
+        return;
     }
     if (!isfinite(event->voltage_v)) {
         reset_low_state(fsm);

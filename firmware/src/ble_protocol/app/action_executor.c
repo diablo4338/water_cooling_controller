@@ -511,7 +511,8 @@ bool action_executor_init(void) {
         return false;
     }
     gpio_set_level(BUZZER_GPIO, 0);
-    if (xTaskCreate(action_executor_task, "actions", 4096, NULL, 4, NULL) !=
+    /* Must preempt the dispatcher to acquire its lock for the sleep gate. */
+    if (xTaskCreate(action_executor_task, "actions", 4096, NULL, 6, NULL) !=
         pdPASS) {
         ESP_LOGE(TAG, "task creation failed");
         return false;

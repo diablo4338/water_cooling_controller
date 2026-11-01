@@ -71,6 +71,9 @@ void runtime_core_init(runtime_core_t *core,
                   load_low_since_us);
     buzzer_fsm_init(&core->buzzer, &core->buzzer_config, buzzer_low_pending,
                     buzzer_low_alerted, buzzer_low_since_us);
+    if (!core->load.output_on) {
+        buzzer_fsm_reset_low_warning(&core->buzzer);
+    }
     ble_fsm_init(&core->ble, 0);
 }
 
@@ -92,8 +95,12 @@ void runtime_core_step(runtime_core_t *core, const runtime_event_t *event,
         core->load.state == LOAD_FSM_STOPPING &&
         event->operation_id == core->load.shutdown_operation_id;
     load_fsm_state_t previous_load_state = core->load.state;
+    bool previous_output_on = core->load.output_on;
 
     load_fsm_step(&core->load, event, &core->load_config, now_us, commands);
+    if (previous_output_on && !core->load.output_on) {
+        buzzer_fsm_reset_low_warning(&core->buzzer);
+    }
     if (new_load_on_ack && core->load.state == LOAD_FSM_STARTING) {
         core->load.feedback_deadline_us = add_milliseconds(
             now_us, startup_feedback_timeout_ms(&core->buzzer_config));
@@ -115,7 +122,9 @@ void runtime_core_step(runtime_core_t *core, const runtime_event_t *event,
     if ((event->kind != RTEVT_LOAD_GPIO_APPLIED || new_load_on_ack) &&
         (event->kind != RTEVT_BUZZER_REQUEST_SHUTDOWN ||
          current_shutdown_request)) {
-        buzzer_fsm_step(&core->buzzer, &buzzer_event, &core->buzzer_config,
+        buzzer_fsm_config_t buzzer_config = core->buzzer_config;
+        buzzer_config.load_output_on = core->load.output_on;
+        buzzer_fsm_step(&core->buzzer, &buzzer_event, &buzzer_config,
                         now_us, commands);
     }
     ble_fsm_step(&core->ble, event, &core->ble_config, now_us, commands);

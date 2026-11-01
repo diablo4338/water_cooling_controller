@@ -28,6 +28,8 @@ BLE is started only in the pairing/authorization service window.
 - Pressing the GPIO19 reset button clears all trusted clients, writes factory
   runtime parameters to NVS, disconnects the active client and opens pairing.
   The reset runs once while the button is held, including across deep sleep.
+  GPIO19 cannot wake an ESP32-C3 from deep sleep, so a press during sleep is
+  handled only if the button remains held until the next timer wake.
 
 The temperature delta and other runtime settings are stored in NVS and configured
 over BLE. The delta defaults to 2 °C and is encoded in 0.1 °C steps.

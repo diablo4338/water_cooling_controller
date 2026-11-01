@@ -693,10 +693,16 @@ bool load_runtime_prepare_sleep(void) {
         return false;
     }
 
-    err = esp_deep_sleep_enable_gpio_wakeup(
-        1ULL << PAIR_BUTTON_GPIO, ESP_GPIO_WAKEUP_GPIO_LOW);
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "GPIO wakeup config failed: %s", esp_err_to_name(err));
+    if (esp_sleep_is_valid_wakeup_gpio(PAIR_BUTTON_GPIO)) {
+        err = esp_deep_sleep_enable_gpio_wakeup(
+            1ULL << PAIR_BUTTON_GPIO, ESP_GPIO_WAKEUP_GPIO_LOW);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "GPIO wakeup config failed: %s", esp_err_to_name(err));
+        }
+    } else {
+        ESP_LOGI(TAG,
+                 "GPIO%d cannot wake from deep sleep; using timer wakeup",
+                 (int)PAIR_BUTTON_GPIO);
     }
 
     err = load_output_hold();

@@ -22,6 +22,7 @@ typedef enum {
 
 typedef struct {
     bool enabled;
+    bool load_output_on;
     uint16_t threshold_mv;
     uint16_t low_delay_s;
     uint16_t button_ms;
@@ -53,6 +54,7 @@ typedef struct {
 
 void buzzer_fsm_init(buzzer_fsm_t *fsm, const buzzer_fsm_config_t *config,
                      bool low_pending, bool low_alerted, int64_t low_since_us);
+void buzzer_fsm_reset_low_warning(buzzer_fsm_t *fsm);
 
 void buzzer_fsm_step(buzzer_fsm_t *fsm, const runtime_event_t *event,
                      const buzzer_fsm_config_t *config,
