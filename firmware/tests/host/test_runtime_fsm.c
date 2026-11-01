@@ -215,6 +215,13 @@ static runtime_event_t beep_finished_event(uint32_t operation_id,
     return event;
 }
 
+static runtime_event_t thermal_press_event(float voltage_v, int64_t now_us) {
+    runtime_event_t event =
+        make_event(RTEVT_THERMAL_BUTTON_PRESSED, now_us);
+    event.voltage_v = voltage_v;
+    return event;
+}
+
 static void init_core(runtime_core_t *core, bool restored_working,
                       bool buzzer_enabled) {
     buzzer_fsm_config_t buzzer_config = k_buzzer_config;
@@ -468,11 +475,12 @@ static void test_load_startup_sequence(void) {
     step(&core, &mock, beep_finished_event(op, 2000000), 2000000);
     CHECK_INT(core.load.state, LOAD_FSM_WORKING);
     CHECK_INT(mock.beep_count, 1);
-    step(&core, &mock, make_event(RTEVT_THERMAL_BUTTON_PRESSED, 2100000),
-         2100000);
+    step(&core, &mock, thermal_press_event(12.0f, 2100000), 2100000);
     CHECK_INT(mock.load_on_count, 1);
     CHECK_INT(mock.settle_count, 1);
-    CHECK_INT(mock.beep_count, 1);
+    CHECK_INT(mock.beep_count, 2);
+    CHECK_INT(mock.beeps[1].pattern, BUZZER_PATTERN_NORMAL);
+    CHECK_INT(mock.beeps[1].duration_ms, 500);
 }
 
 static void test_startup_ina_error_once(void) {
@@ -1819,6 +1827,44 @@ static void test_warning_playback_deadline_forces_buzzer_off(void) {
     CHECK_INT(mock.buzzer_cancel_count, 1);
 }
 
+static void test_thermal_press_beeps_while_load_is_working(void) {
+    runtime_core_t core;
+    mock_t mock;
+    memset(&mock, 0, sizeof(mock));
+    init_core(&core, true, true);
+
+    step(&core, &mock, thermal_press_event(7.2f, 0), 0);
+    CHECK_INT(core.load.state, LOAD_FSM_WORKING);
+    CHECK_INT(mock.beep_count, 1);
+    CHECK_INT(mock.beeps[0].pattern, BUZZER_PATTERN_NORMAL);
+    CHECK_INT(mock.beeps[0].duration_ms, 500);
+
+    uint32_t first_operation_id = core.buzzer.operation_id;
+    step(&core, &mock, beep_finished_event(first_operation_id, 600000), 600000);
+    step(&core, &mock, thermal_press_event(6.5f, 700000), 700000);
+    CHECK_INT(mock.beep_count, 2);
+    CHECK_INT(mock.beeps[1].pattern, BUZZER_PATTERN_LOW_BATTERY);
+    CHECK_INT(mock.beeps[1].duration_ms, 1500);
+}
+
+static void test_thermal_press_cues_queue_while_buzzer_is_busy(void) {
+    runtime_core_t core;
+    mock_t mock;
+    memset(&mock, 0, sizeof(mock));
+    init_core(&core, true, true);
+
+    step(&core, &mock, thermal_press_event(7.2f, 0), 0);
+    uint32_t first_operation_id = core.buzzer.operation_id;
+    step(&core, &mock, thermal_press_event(6.5f, 100000), 100000);
+    CHECK_INT(mock.beep_count, 1);
+    CHECK_INT(core.buzzer.pending_button_count, 1);
+
+    step(&core, &mock, beep_finished_event(first_operation_id, 600000), 600000);
+    CHECK_INT(mock.beep_count, 2);
+    CHECK_INT(mock.beeps[1].pattern, BUZZER_PATTERN_LOW_BATTERY);
+    CHECK_INT(mock.beeps[1].duration_ms, 1500);
+}
+
 /* ----------------------------------------------------------------- runner */
 
 typedef void (*test_fn_t)(void);
@@ -1907,6 +1953,10 @@ static const test_case_t k_tests[] = {
      test_startup_waits_for_warning_to_finish},
     {"warning_playback_deadline_forces_buzzer_off",
      test_warning_playback_deadline_forces_buzzer_off},
+    {"thermal_press_beeps_while_load_is_working",
+     test_thermal_press_beeps_while_load_is_working},
+    {"thermal_press_cues_queue_while_buzzer_is_busy",
+     test_thermal_press_cues_queue_while_buzzer_is_busy},
 };
 
 int main(void) {

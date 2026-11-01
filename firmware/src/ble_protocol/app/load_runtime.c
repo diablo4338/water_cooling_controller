@@ -34,7 +34,7 @@
 
 #define TAG "runtime"
 
-#define RETAINED_MAGIC 0x4C4F4108U
+#define RETAINED_MAGIC 0x4C4F4109U
 /* Physical ADS input 2 maps to logical temperature channel 4. */
 #define BUTTON_ADS_INPUT 2
 #define PAIR_BUTTON_GPIO GPIO_NUM_19
@@ -56,6 +56,8 @@ typedef struct {
     bool buzzer_low_alerted;
     int64_t buzzer_low_since_us;
     bool reset_button_was_down;
+    bool ina_voltage_valid;
+    float ina_voltage_v;
 } retained_state_t;
 
 static RTC_DATA_ATTR retained_state_t s_retained;
@@ -164,7 +166,10 @@ static void retained_init(void) {
                  s_retained.load.temperature_count <= 5 &&
                  s_retained.load.temperature_next < 5 &&
                  (!s_retained.load.low_current_pending ||
-                  s_retained.load.low_current_since_us > 0);
+                  s_retained.load.low_current_since_us > 0) &&
+                 (!s_retained.ina_voltage_valid ||
+                  (isfinite(s_retained.ina_voltage_v) &&
+                   s_retained.ina_voltage_v >= 0.0f));
 
     if (!valid) {
         memset(&s_retained, 0, sizeof(s_retained));
@@ -315,6 +320,11 @@ static void process_event_locked(const runtime_event_t *event) {
         s_boot_measurement_pending = false;
         bool valid = event->kind == RTEVT_INA_SAMPLE_OK;
         snapshot_set_measurement(valid, event->voltage_v, event->current_ma);
+        if (valid && isfinite(event->voltage_v) &&
+            event->voltage_v >= 0.0f) {
+            s_retained.ina_voltage_v = event->voltage_v;
+            s_retained.ina_voltage_valid = true;
+        }
     } else if (event->kind == RTEVT_INA_SAMPLE_OK ||
                event->kind == RTEVT_INA_SAMPLE_FAILED) {
         /* Only expose a startup/shutdown reading that still belongs to the
@@ -326,6 +336,11 @@ static void process_event_locked(const runtime_event_t *event) {
             bool valid = event->kind == RTEVT_INA_SAMPLE_OK;
             snapshot_set_measurement(valid, event->voltage_v,
                                      event->current_ma);
+            if (valid && isfinite(event->voltage_v) &&
+                event->voltage_v >= 0.0f) {
+                s_retained.ina_voltage_v = event->voltage_v;
+                s_retained.ina_voltage_valid = true;
+            }
         } else {
             ESP_LOGD(TAG, "stale measurement request=%u context=%d",
                      (unsigned)event->request_id, (int)event->context);
@@ -444,6 +459,11 @@ static void periodic_cycle_locked(int64_t now_us) {
     if (pressed) {
         runtime_event_t event = runtime_event_make(
             RTEVT_THERMAL_BUTTON_PRESSED, now_us);
+        load_runtime_snapshot_t snapshot;
+        load_runtime_get_snapshot(&snapshot);
+        event.voltage_v = s_retained.ina_voltage_valid
+                              ? s_retained.ina_voltage_v
+                              : snapshot.voltage_v;
         process_event_locked(&event);
     }
 

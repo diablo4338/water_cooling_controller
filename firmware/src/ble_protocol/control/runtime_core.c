@@ -123,7 +123,9 @@ void runtime_core_step(runtime_core_t *core, const runtime_event_t *event,
         (event->kind != RTEVT_BUZZER_REQUEST_SHUTDOWN ||
          current_shutdown_request)) {
         buzzer_fsm_config_t buzzer_config = core->buzzer_config;
-        buzzer_config.load_output_on = core->load.output_on;
+        buzzer_config.load_output_on =
+            event->kind == RTEVT_THERMAL_BUTTON_PRESSED
+                ? previous_output_on : core->load.output_on;
         buzzer_fsm_step(&core->buzzer, &buzzer_event, &buzzer_config,
                         now_us, commands);
     }

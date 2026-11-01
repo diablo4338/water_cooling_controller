@@ -12,15 +12,19 @@ BLE is started only in the pairing/authorization service window.
   A press occurs when the current valid temperature is at least 2 °C above the
   median of the preceding five valid readings. Five readings are needed before
   the first press can be detected. Invalid ADC data leaves the button state and
-  the history unchanged.
+  the history unchanged. The ADC is sampled only after timer wakeups, so a
+  transient that begins and ends between samples cannot be detected.
 - `idle` + a new press: `working`, load at 100%.
-- `working`: button presses do not change the state.
+- `working`: button presses do not change the state, but each newly detected
+  press sounds a cue: 0.5 seconds above the buzzer voltage threshold, or 1.5
+  seconds below it. The threshold check uses the latest valid INA voltage,
+  retained across timer wakeups until a newer valid sample is available.
 - Absolute INA current below 100 mA continuously for 300 seconds: `idle`, load off.
   A sample at/above the threshold or a failed INA read resets the timeout.
 - After timeout, the button must be released and pressed again to restart.
 - GPIO1 LED is on while the thermal button is pressed and off after release.
 - GPIO0 buzzer sounds for 0.5 seconds on a new thermal-button press. If the INA
-  bus voltage is below the buzzer threshold at that press, it sounds for 1.5 seconds.
+  bus voltage is below the buzzer threshold at startup, it sounds for 1.5 seconds.
   After more than 10 seconds of valid readings below the threshold, it sounds for
   1 second once per low-voltage episode. An invalid or recovered reading resets
   the low-voltage timer. A simultaneous press uses only the 1.5-second signal.
@@ -108,7 +112,8 @@ boundary, rolling history, retained timeout, invalid measurements and restart.
 `firmware/tests/ble_protocol/test_runtime_config.c` verifies that factory
 configuration is committed and reloaded from NVS.
 `firmware/tests/ble_protocol/test_buzzer_logic.c` checks timing, invalid readings,
-retention and combined-signal priority.
+retention and combined-signal priority. Host FSM tests cover button cues while
+working, voltage-based duration selection and queuing during another buzzer cue.
 They are included in the existing `PAIR_RUN_TESTS` build.
 
 Check GPIO3, GPIO10, GPIO2 and the GPIO1 LED with an oscilloscope across sleep entry, reset,

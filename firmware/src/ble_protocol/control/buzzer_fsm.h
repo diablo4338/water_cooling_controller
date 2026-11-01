@@ -12,6 +12,7 @@
 #define BUZZER_ERROR_ON_MS 150U
 #define BUZZER_ERROR_OFF_MS 150U
 #define BUZZER_ERROR_REPEATS 3U
+#define BUZZER_BUTTON_QUEUE_SIZE 80U
 
 typedef enum {
     BUZZER_FSM_IDLE = 0,
@@ -50,6 +51,10 @@ typedef struct {
     uint32_t pending_startup_id;
     uint32_t last_startup_operation_id;
     uint32_t last_shutdown_operation_id;
+    buzzer_pattern_t pending_button_patterns[BUZZER_BUTTON_QUEUE_SIZE];
+    uint16_t pending_button_durations_ms[BUZZER_BUTTON_QUEUE_SIZE];
+    uint8_t pending_button_head;
+    uint8_t pending_button_count;
 } buzzer_fsm_t;
 
 void buzzer_fsm_init(buzzer_fsm_t *fsm, const buzzer_fsm_config_t *config,

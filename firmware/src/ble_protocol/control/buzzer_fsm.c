@@ -76,6 +76,45 @@ static void reset_low_state(buzzer_fsm_t *fsm) {
     fsm->low_since_us = 0;
 }
 
+static void clear_pending_button_cues(buzzer_fsm_t *fsm) {
+    fsm->pending_button_head = 0;
+    fsm->pending_button_count = 0;
+}
+
+static void start_button_cue(buzzer_fsm_t *fsm, buzzer_pattern_t pattern,
+                             uint16_t duration_ms, int64_t now_us,
+                             runtime_command_list_t *commands) {
+    fsm->state = BUZZER_FSM_BEEPING;
+    fsm->operation = BUZZER_OP_BUTTON;
+    fsm->operation_id = runtime_event_next_id();
+    fsm->pattern = pattern;
+    set_playback_deadline(fsm, now_us, duration_ms, 0, 1);
+    play_pattern(commands, fsm->operation_id, pattern, duration_ms, 0, 1);
+}
+
+static void queue_button_cue(buzzer_fsm_t *fsm, buzzer_pattern_t pattern,
+                             uint16_t duration_ms) {
+    if (fsm->pending_button_count == BUZZER_BUTTON_QUEUE_SIZE) return;
+    uint8_t index = (fsm->pending_button_head + fsm->pending_button_count) %
+                    BUZZER_BUTTON_QUEUE_SIZE;
+    fsm->pending_button_patterns[index] = pattern;
+    fsm->pending_button_durations_ms[index] = duration_ms;
+    ++fsm->pending_button_count;
+}
+
+static bool start_pending_button_cue(buzzer_fsm_t *fsm, int64_t now_us,
+                                     runtime_command_list_t *commands) {
+    if (fsm->pending_button_count == 0) return false;
+    uint8_t index = fsm->pending_button_head;
+    buzzer_pattern_t pattern = fsm->pending_button_patterns[index];
+    uint16_t duration_ms = fsm->pending_button_durations_ms[index];
+    fsm->pending_button_head =
+        (fsm->pending_button_head + 1U) % BUZZER_BUTTON_QUEUE_SIZE;
+    --fsm->pending_button_count;
+    start_button_cue(fsm, pattern, duration_ms, now_us, commands);
+    return true;
+}
+
 void buzzer_fsm_reset_low_warning(buzzer_fsm_t *fsm) {
     if (fsm) reset_low_state(fsm);
 }
@@ -138,6 +177,7 @@ static void begin_shutdown(buzzer_fsm_t *fsm, const buzzer_fsm_config_t *config,
                            runtime_command_list_t *commands) {
     fsm->pending_startup = false;
     fsm->pending_startup_id = 0;
+    clear_pending_button_cues(fsm);
     fsm->operation = BUZZER_OP_SHUTDOWN;
     fsm->operation_id = operation_id;
     fsm->pattern = BUZZER_PATTERN_NONE;
@@ -174,13 +214,14 @@ static void begin_shutdown(buzzer_fsm_t *fsm, const buzzer_fsm_config_t *config,
 
 static void complete_startup(buzzer_fsm_t *fsm,
                              runtime_command_list_t *commands,
-                             int32_t error) {
+                             int32_t error, int64_t now_us) {
     fsm->state = BUZZER_FSM_IDLE;
     fsm->last_startup_operation_id = fsm->operation_id;
     fsm->request_id = 0;
     fsm->deadline_us = 0;
     fsm->pattern = BUZZER_PATTERN_NONE;
     emit_done(commands, fsm->operation_id, BUZZER_OP_STARTUP, error);
+    (void)start_pending_button_cue(fsm, now_us, commands);
 }
 
 static void complete_shutdown(buzzer_fsm_t *fsm,
@@ -190,6 +231,7 @@ static void complete_shutdown(buzzer_fsm_t *fsm,
     fsm->request_id = 0;
     fsm->deadline_us = 0;
     fsm->pattern = BUZZER_PATTERN_NONE;
+    clear_pending_button_cues(fsm);
     emit_done(commands, fsm->operation_id, BUZZER_OP_SHUTDOWN, 0);
 }
 
@@ -199,7 +241,7 @@ static void startup_measurement_failed(buzzer_fsm_t *fsm,
                                        runtime_command_list_t *commands) {
     fsm->request_id = 0;
     if (!config->enabled) {
-        complete_startup(fsm, commands, 0);
+        complete_startup(fsm, commands, 0, now_us);
         return;
     }
     fsm->state = BUZZER_FSM_BEEPING;
@@ -322,6 +364,22 @@ static void finish_warning(buzzer_fsm_t *fsm,
     fsm->pattern = BUZZER_PATTERN_NONE;
     if (fsm->pending_startup) {
         begin_startup(fsm, config, fsm->pending_startup_id, now_us, commands);
+    } else {
+        (void)start_pending_button_cue(fsm, now_us, commands);
+    }
+}
+
+static void finish_button(buzzer_fsm_t *fsm,
+                          const buzzer_fsm_config_t *config, int64_t now_us,
+                          runtime_command_list_t *commands) {
+    fsm->state = BUZZER_FSM_IDLE;
+    fsm->request_id = 0;
+    fsm->deadline_us = 0;
+    fsm->pattern = BUZZER_PATTERN_NONE;
+    if (fsm->pending_startup) {
+        begin_startup(fsm, config, fsm->pending_startup_id, now_us, commands);
+    } else {
+        (void)start_pending_button_cue(fsm, now_us, commands);
     }
 }
 
@@ -335,7 +393,31 @@ void buzzer_fsm_step(buzzer_fsm_t *fsm, const runtime_event_t *event,
             /* The monotonic deadline remains responsible for finishing work. */
             return;
 
+        case RTEVT_THERMAL_BUTTON_PRESSED:
+            if (!config->enabled || !config->load_output_on) return;
+            {
+                bool low = config->threshold_mv > 0 &&
+                           isfinite(event->voltage_v) &&
+                           event->voltage_v * 1000.0f <
+                               (float)config->threshold_mv;
+                buzzer_pattern_t pattern = low ? BUZZER_PATTERN_LOW_BATTERY
+                                               : BUZZER_PATTERN_NORMAL;
+                uint16_t duration = low ? config->combined_ms
+                                        : config->button_ms;
+                if (fsm->state == BUZZER_FSM_IDLE) {
+                    start_button_cue(fsm, pattern, duration, now_us,
+                                     commands);
+                } else {
+                    queue_button_cue(fsm, pattern, duration);
+                }
+            }
+            return;
+
         case RTEVT_LOAD_GPIO_APPLIED:
+            if (!event->bool_value) {
+                clear_pending_button_cues(fsm);
+                return;
+            }
             if (event->bool_value &&
                 event->operation_id != fsm->last_startup_operation_id &&
                 fsm->state == BUZZER_FSM_IDLE) {
@@ -343,7 +425,8 @@ void buzzer_fsm_step(buzzer_fsm_t *fsm, const runtime_event_t *event,
                               commands);
             } else if (event->bool_value &&
                        fsm->state == BUZZER_FSM_BEEPING &&
-                       fsm->operation == BUZZER_OP_WARNING) {
+                       (fsm->operation == BUZZER_OP_WARNING ||
+                        fsm->operation == BUZZER_OP_BUTTON)) {
                 fsm->pending_startup = true;
                 fsm->pending_startup_id = event->operation_id;
             }
@@ -352,7 +435,8 @@ void buzzer_fsm_step(buzzer_fsm_t *fsm, const runtime_event_t *event,
         case RTEVT_BUZZER_REQUEST_SHUTDOWN:
             if (event->operation_id == fsm->last_shutdown_operation_id) return;
             if (fsm->state == BUZZER_FSM_BEEPING &&
-                fsm->operation == BUZZER_OP_WARNING) {
+                (fsm->operation == BUZZER_OP_WARNING ||
+                 fsm->operation == BUZZER_OP_BUTTON)) {
                 runtime_command_t cancel = runtime_command_make(
                     RCMD_BUZZER_CANCEL, fsm->operation_id);
                 runtime_command_list_push(commands, &cancel);
@@ -437,9 +521,11 @@ void buzzer_fsm_step(buzzer_fsm_t *fsm, const runtime_event_t *event,
             if (fsm->state == BUZZER_FSM_BEEPING &&
                 event->command_kind == RCMD_BUZZER_PLAY) {
                 if (fsm->operation == BUZZER_OP_STARTUP) {
-                    complete_startup(fsm, commands, event->error);
+                    complete_startup(fsm, commands, event->error, now_us);
                 } else if (fsm->operation == BUZZER_OP_SHUTDOWN) {
                     complete_shutdown(fsm, commands);
+                } else if (fsm->operation == BUZZER_OP_BUTTON) {
+                    finish_button(fsm, config, now_us, commands);
                 } else {
                     finish_warning(fsm, config, now_us, commands);
                 }
@@ -453,9 +539,11 @@ void buzzer_fsm_step(buzzer_fsm_t *fsm, const runtime_event_t *event,
             }
             fsm->deadline_us = 0;
             if (fsm->operation == BUZZER_OP_STARTUP) {
-                complete_startup(fsm, commands, 0);
+                complete_startup(fsm, commands, 0, now_us);
             } else if (fsm->operation == BUZZER_OP_SHUTDOWN) {
                 complete_shutdown(fsm, commands);
+            } else if (fsm->operation == BUZZER_OP_BUTTON) {
+                finish_button(fsm, config, now_us, commands);
             } else {
                 finish_warning(fsm, config, now_us, commands);
             }
@@ -477,9 +565,11 @@ void buzzer_fsm_step(buzzer_fsm_t *fsm, const runtime_event_t *event,
                     RCMD_BUZZER_CANCEL, fsm->operation_id);
                 runtime_command_list_push(commands, &cancel);
                 if (fsm->operation == BUZZER_OP_STARTUP) {
-                    complete_startup(fsm, commands, 0);
+                    complete_startup(fsm, commands, 0, now_us);
                 } else if (fsm->operation == BUZZER_OP_SHUTDOWN) {
                     complete_shutdown(fsm, commands);
+                } else if (fsm->operation == BUZZER_OP_BUTTON) {
+                    finish_button(fsm, config, now_us, commands);
                 } else {
                     finish_warning(fsm, config, now_us, commands);
                 }

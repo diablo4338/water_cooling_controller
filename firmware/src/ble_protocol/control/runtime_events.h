@@ -50,6 +50,7 @@ typedef enum {
     BUZZER_OP_STARTUP = 0,
     BUZZER_OP_SHUTDOWN,
     BUZZER_OP_WARNING,
+    BUZZER_OP_BUTTON,
 } buzzer_operation_t;
 
 typedef enum {
