@@ -7,11 +7,34 @@ A desktop application for controlling the device over BLE. The GUI is built with
 - pairing and subsequent application-level authorization;
 - connecting to the device and reading temperatures in real time;
 - reading and applying cooling parameters;
+- five per-device parameter profiles;
 - BLE session diagnostics through debug mode.
+
+### Parameter profiles
+
+The parameter controls include five profile buttons:
+
+- A green indicator below a button means the profile contains saved settings;
+  gray means it is empty.
+- Click a saved profile to load its settings and immediately apply them to the
+  connected controller.
+- Click an empty profile to select it, adjust the parameters, then press
+  **Apply** to save those settings to the profile and apply them to the
+  controller. Pressing **Apply** while a saved profile is selected updates it.
+- Click the selected profile again to deselect it. **Apply** then writes the
+  current settings to the controller without saving them to a profile.
+- Select a saved profile and press **Clear** to remove its settings. Its custom
+  title and description are retained.
+- Right-click a profile button to change its title or description. The
+  description is shown as the button's tooltip.
+
+Profiles are stored separately for each controller in `profiles.json` in the
+application's configuration directory.
 
 Application-local data:
 - `paired_devices.json` - trusted device database;
 - `host_key.pem` - host private key used for pairing.
+- `profiles.json` - per-device profiles and their titles and descriptions.
 
 ## Structure
 - `src/pcwcc/core_logic/` - BLE protocol, codecs, pairing, control, and storage.

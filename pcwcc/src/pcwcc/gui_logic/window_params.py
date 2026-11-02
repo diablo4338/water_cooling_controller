@@ -2,12 +2,19 @@ from __future__ import annotations
 
 import math
 
+from PySide6.QtWidgets import QInputDialog, QMenu
+
 from ..core import (
     DeviceParams,
     FAN_CONTROL_DC,
     FAN_MODE_CONTINUOUS,
+    clear_device_profile,
     load_device_params,
+    load_device_profile_metadata,
+    load_device_profiles,
     save_device_params,
+    save_device_profile,
+    save_device_profile_metadata,
 )
 from .constants import FAN_MONITORING_KEYS, PARAM_FIELDS
 
@@ -176,6 +183,143 @@ class MainWindowParamsMixin:
                 else 6
             ),
         )
+
+    def _refresh_profile_buttons(self) -> None:
+        for index, button in enumerate(self.profile_buttons, start=1):
+            exists = index in self._device_profiles
+            metadata = self._device_profile_metadata.get(index, {})
+            button.setText(metadata.get("title", f"P{index}"))
+            button.setToolTip(
+                metadata.get("description")
+                or (
+                    "Saved profile. Click to apply."
+                    if exists
+                    else "Empty profile. Select it, adjust settings, then press Apply to save."
+                )
+            )
+            status_bar = self.profile_status_bars[index - 1]
+            color = "#22c55e" if exists else "#9ca3af"
+            status_bar.setStyleSheet(f"background:{color};")
+            status_bar.setToolTip("Profile has saved settings" if exists else "Profile is empty")
+        connected = self.model.state.connected_device is not None
+        for button in self.profile_buttons:
+            button.setEnabled(connected and not self.model.state.busy)
+        selected_profile_is_saved = (
+            self._selected_profile_index in self._device_profiles
+            if self._selected_profile_index is not None
+            else False
+        )
+        self.clear_profile_button.setEnabled(
+            connected and not self.model.state.busy and selected_profile_is_saved
+        )
+
+    def _reset_profile_selection(self) -> None:
+        self._selected_profile_index = None
+        for button in self.profile_buttons:
+            button.setChecked(False)
+
+    def _load_profiles_for_device(self, address: str) -> None:
+        try:
+            self._device_profiles = load_device_profiles(address)
+            self._device_profile_metadata = load_device_profile_metadata(address)
+        except (OSError, ValueError) as exc:
+            self._device_profiles = {}
+            self._device_profile_metadata = {}
+            self.on_log(f"Could not load profiles: {exc}")
+        self._reset_profile_selection()
+        self._refresh_profile_buttons()
+
+    def on_profile_clicked(self, index: int, checked: bool) -> None:
+        device = self.model.state.connected_device
+        if device is None or self.model.state.conn != self.ConnState.CONNECTED:
+            return
+        if not checked:
+            if self._selected_profile_index == index:
+                self._selected_profile_index = None
+                self._apply_ui()
+            return
+        for other_index, button in enumerate(self.profile_buttons, start=1):
+            if other_index != index:
+                button.setChecked(False)
+        self._selected_profile_index = index
+        params = self._device_profiles.get(index)
+        if params is None:
+            self.model.set_status(
+                f"Profile {index} selected. Adjust settings and press Apply to save it."
+            )
+            self._apply_ui()
+            return
+        self._set_params_fields(params, save=False)
+        self.on_apply()
+
+    def _save_profile_metadata(self, index: int, title: str, description: str) -> None:
+        device = self.model.state.connected_device
+        if device is None:
+            return
+        try:
+            save_device_profile_metadata(device.address, index, title, description)
+        except (OSError, ValueError) as exc:
+            self.on_log(f"Could not update profile {index}: {exc}")
+            return
+        self._device_profile_metadata[index] = {
+            "title": title.strip(),
+            "description": description.strip(),
+        }
+        self._refresh_profile_buttons()
+
+    def _show_profile_menu(self, index: int, global_position) -> None:
+        if self.model.state.connected_device is None or self.model.state.busy:
+            return
+        metadata = self._device_profile_metadata.get(index, {})
+        menu = QMenu(self)
+        rename_action = menu.addAction("Rename profile...")
+        description_action = menu.addAction("Edit description...")
+        selected_action = menu.exec(global_position)
+        if selected_action == rename_action:
+            title, accepted = QInputDialog.getText(
+                self,
+                "Rename profile",
+                "Profile title:",
+                text=metadata.get("title", f"P{index}"),
+            )
+            if accepted:
+                normalized_title = title.strip()
+                if not normalized_title:
+                    self.on_log("Profile title cannot be empty")
+                    return
+                self._save_profile_metadata(
+                    index,
+                    normalized_title,
+                    metadata.get("description", ""),
+                )
+        elif selected_action == description_action:
+            description, accepted = QInputDialog.getMultiLineText(
+                self,
+                "Edit profile description",
+                "Description shown in the profile tooltip:",
+                metadata.get("description", ""),
+            )
+            if accepted:
+                self._save_profile_metadata(
+                    index,
+                    metadata.get("title", f"P{index}"),
+                    description,
+                )
+
+    def on_clear_profile(self) -> None:
+        index = self._selected_profile_index
+        device = self.model.state.connected_device
+        if index is None or device is None or index not in self._device_profiles:
+            return
+        try:
+            clear_device_profile(device.address, index)
+        except (OSError, ValueError) as exc:
+            self.on_log(f"Could not clear profile {index}: {exc}")
+            return
+        del self._device_profiles[index]
+        self._reset_profile_selection()
+        self._refresh_profile_buttons()
+        self.on_log(f"Cleared profile {index}")
 
     def _on_params_changed(self, _) -> None:
         if self._params_update_lock:

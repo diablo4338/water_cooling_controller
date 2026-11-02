@@ -365,6 +365,7 @@ class MainWindowUpdateMixin:
         if connected and device:
             self._startup_auto_connect_device = None
             self.model.set_connected(True, device)
+            self._load_profiles_for_device(device.address)
             if self._device_params_snapshot is None:
                 self._set_params_fields(load_device_params(device.address), save=False)
             update_paired_last_connected(device.address)
@@ -384,6 +385,10 @@ class MainWindowUpdateMixin:
         disconnected_device = self.model.state.connected_device
         self._save_metrics_chart_history(disconnected_device)
         self.model.set_connected(False, None)
+        self._device_profiles = {}
+        self._device_profile_metadata = {}
+        self._reset_profile_selection()
+        self._refresh_profile_buttons()
         self._clear_paired_selection()
         self._device_params_snapshot = None
         self._reset_temp_fields()

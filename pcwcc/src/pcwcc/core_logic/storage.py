@@ -22,8 +22,10 @@ APP_CONFIG_DIR = _ensure_app_config_dir()
 PAIRED_DB = os.path.join(APP_CONFIG_DIR, "paired_devices.json")
 HOST_KEY_PATH = os.path.join(APP_CONFIG_DIR, "host_key.pem")
 PARAMS_DB = os.path.join(APP_CONFIG_DIR, "params.json")
+PROFILES_DB = os.path.join(APP_CONFIG_DIR, "profiles.json")
 METRICS_HISTORY_DIR = os.path.join(APP_CONFIG_DIR, "metrics_history")
 METRICS_HISTORY_WINDOW_SECONDS = 30 * 60
+PROFILE_COUNT = 5
 
 
 def _safe_history_name(address: str) -> str:
@@ -303,6 +305,112 @@ def save_device_params(address: str, params: DeviceParams) -> None:
     raw = _load_params_db()
     raw[address] = _params_to_dict(params)
     _save_params_db(raw)
+
+
+def _load_profiles_db() -> dict:
+    if not os.path.exists(PROFILES_DB):
+        return {}
+    try:
+        with open(PROFILES_DB, "r", encoding="utf-8") as handle:
+            raw = json.load(handle)
+        if isinstance(raw, dict):
+            return raw
+    except FileNotFoundError:
+        return {}
+    raise ValueError(f"Invalid profile data in {PROFILES_DB}")
+
+
+def load_device_profiles(address: str) -> dict[int, DeviceParams]:
+    raw = _load_profiles_db()
+    device_profiles = raw.get(address)
+    if not isinstance(device_profiles, dict):
+        return {}
+    profiles: dict[int, DeviceParams] = {}
+    for slot in range(1, PROFILE_COUNT + 1):
+        item = device_profiles.get(str(slot))
+        if isinstance(item, dict):
+            params = _params_from_dict(item)
+            if params is not None:
+                profiles[slot] = params
+    return profiles
+
+
+def load_device_profile_metadata(address: str) -> dict[int, dict[str, str]]:
+    raw = _load_profiles_db()
+    device_profiles = raw.get(address)
+    if not isinstance(device_profiles, dict):
+        return {}
+    metadata = device_profiles.get("_metadata")
+    if not isinstance(metadata, dict):
+        return {}
+    result = {}
+    for slot in range(1, PROFILE_COUNT + 1):
+        item = metadata.get(str(slot))
+        if isinstance(item, dict):
+            title = item.get("title")
+            description = item.get("description")
+            result[slot] = {
+                "title": title.strip() if isinstance(title, str) and title.strip() else f"P{slot}",
+                "description": description.strip() if isinstance(description, str) else "",
+            }
+    return result
+
+
+def _save_profiles_db(raw: dict) -> None:
+    with open(PROFILES_DB, "w", encoding="utf-8") as handle:
+        json.dump(raw, handle, ensure_ascii=False, indent=2)
+
+
+def save_device_profile(address: str, slot: int, params: DeviceParams) -> None:
+    if slot < 1 or slot > PROFILE_COUNT:
+        raise ValueError(f"Profile slot must be between 1 and {PROFILE_COUNT}")
+    raw = _load_profiles_db()
+    device_profiles = raw.get(address)
+    if not isinstance(device_profiles, dict):
+        device_profiles = {}
+        raw[address] = device_profiles
+    device_profiles[str(slot)] = _params_to_dict(params)
+    _save_profiles_db(raw)
+
+
+def save_device_profile_metadata(
+    address: str, slot: int, title: str, description: str
+) -> None:
+    if slot < 1 or slot > PROFILE_COUNT:
+        raise ValueError(f"Profile slot must be between 1 and {PROFILE_COUNT}")
+    normalized_title = title.strip()
+    if not normalized_title:
+        raise ValueError("Profile title cannot be empty")
+    raw = _load_profiles_db()
+    device_profiles = raw.get(address)
+    if not isinstance(device_profiles, dict):
+        device_profiles = {}
+        raw[address] = device_profiles
+    metadata = device_profiles.get("_metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
+        device_profiles["_metadata"] = metadata
+    metadata[str(slot)] = {
+        "title": normalized_title,
+        "description": description.strip(),
+    }
+    _save_profiles_db(raw)
+
+
+def clear_device_profile(address: str, slot: int) -> bool:
+    if slot < 1 or slot > PROFILE_COUNT:
+        raise ValueError(f"Profile slot must be between 1 and {PROFILE_COUNT}")
+    raw = _load_profiles_db()
+    device_profiles = raw.get(address)
+    if not isinstance(device_profiles, dict) or str(slot) not in device_profiles:
+        return False
+    del device_profiles[str(slot)]
+    if not any(key != "_metadata" for key in device_profiles):
+        metadata = device_profiles.get("_metadata")
+        if not metadata:
+            del raw[address]
+    _save_profiles_db(raw)
+    return True
 
 
 def load_params() -> DeviceParams:

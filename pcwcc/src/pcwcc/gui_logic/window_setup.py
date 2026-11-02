@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
@@ -20,6 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ..core import PROFILE_COUNT
 from .constants import APP_TITLE, PARAM_FIELDS
 from .metrics_chart import MetricsHistoryChart
 
@@ -44,6 +46,45 @@ class MainWindowSetupMixin:
         self.auto_checkbox = QCheckBox("Auto-connect (saved)")
         self.apply_button = QPushButton("Apply")
         self.discard_button = QPushButton("Discard")
+        self.clear_profile_button = QPushButton("Clear")
+        self.clear_profile_button.setToolTip("Remove the saved settings from the selected profile")
+        self.clear_profile_button.clicked.connect(self.on_clear_profile)
+        self.profile_button_group = QButtonGroup(self)
+        self.profile_button_group.setExclusive(False)
+        self.profile_buttons = []
+        self.profile_status_bars = []
+        self.profile_button_cells = []
+        for index in range(1, PROFILE_COUNT + 1):
+            button = QPushButton(f"P{index}")
+            button.setCheckable(True)
+            button.setFixedSize(75, 31)
+            button.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            button.setStyleSheet(
+                "QPushButton:checked { background-color:#2563eb; color:#ffffff; }"
+            )
+            button.clicked.connect(
+                lambda checked=False, profile_index=index: self.on_profile_clicked(
+                    profile_index, checked
+                )
+            )
+            button.customContextMenuRequested.connect(
+                lambda position, profile_index=index, profile_button=button: self._show_profile_menu(
+                    profile_index, profile_button.mapToGlobal(position)
+                )
+            )
+            self.profile_button_group.addButton(button, index)
+            self.profile_buttons.append(button)
+            status_bar = QFrame()
+            status_bar.setFixedHeight(4)
+            status_bar.setStyleSheet("background:#9ca3af;")
+            self.profile_status_bars.append(status_bar)
+            cell = QWidget()
+            cell_layout = QVBoxLayout(cell)
+            cell_layout.setContentsMargins(0, 0, 0, 0)
+            cell_layout.setSpacing(3)
+            cell_layout.addWidget(button)
+            cell_layout.addWidget(status_bar)
+            self.profile_button_cells.append(cell)
         self.calibrate_button = QPushButton("Fan calibration")
         self.setup_fans_button = QPushButton("Setup fans")
         self.found_list = QListWidget()
@@ -90,6 +131,9 @@ class MainWindowSetupMixin:
         self.param_fields = []
         self._params_update_lock = False
         self._device_params_snapshot = None
+        self._selected_profile_index = None
+        self._device_profiles = {}
+        self._device_profile_metadata = {}
         self._apply_status_kind = "idle"
         self._apply_status_text = ""
 
@@ -317,6 +361,10 @@ class MainWindowSetupMixin:
 
         button_row = QHBoxLayout()
         button_row.setSpacing(6)
+        button_row.addWidget(QLabel("Profiles:"))
+        for cell in self.profile_button_cells:
+            button_row.addWidget(cell)
+        button_row.addWidget(self.clear_profile_button)
         button_row.addStretch(1)
         button_row.addWidget(self.apply_status_label)
         button_row.addWidget(self.apply_button)

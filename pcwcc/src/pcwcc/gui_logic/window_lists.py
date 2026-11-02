@@ -58,6 +58,13 @@ class MainWindowListMixin:
             self.calibrate_button.setEnabled(False)
             self.setup_fans_button.setEnabled(False)
             params_enabled = False
+        for button in self.profile_buttons:
+            button.setEnabled(params_enabled)
+        self.clear_profile_button.setEnabled(
+            params_enabled
+            and self._selected_profile_index is not None
+            and self._selected_profile_index in self._device_profiles
+        )
         for item in self.param_fields:
             requires_v6 = (
                 item["spec"]["key"] == "overheat_alarm_enabled"

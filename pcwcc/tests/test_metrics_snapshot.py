@@ -22,7 +22,10 @@ from pcwcc.core import (
 )
 from pcwcc import gui as gui_module
 from pcwcc.core_logic.models import DEFAULT_PARAMS
+from pcwcc.gui_logic import window_actions as window_actions_module
+from pcwcc.gui_logic import window_params as window_params_module
 from pcwcc.gui_logic import window_updates as window_updates_module
+from pcwcc.presentation import Action
 
 
 class _FakeClient:
@@ -179,6 +182,208 @@ def test_params_are_editable_immediately_after_connection(monkeypatch: pytest.Mo
 
     assert all(item["widget"].isEnabled() for item in window.param_fields)
     assert window._device_params_snapshot == DEFAULT_PARAMS
+
+    window.close()
+    app.processEvents()
+
+
+def test_profile_button_applies_saved_profile_in_one_click(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("pcwcc.core.load_or_create_host_key", lambda: object())
+    monkeypatch.setattr(gui_module.BleWorker, "start", lambda self: None)
+    monkeypatch.setattr(gui_module.BleWorker, "stop", lambda self: None)
+    monkeypatch.setattr(gui_module, "save_device_params", lambda *args, **kwargs: None)
+
+    def _submit_noop(self, coro):
+        coro.close()
+        return None
+
+    monkeypatch.setattr(gui_module.BleWorker, "submit", _submit_noop)
+    app = QApplication.instance() or QApplication([])
+    window = gui_module.MainWindow()
+    profile = DeviceParams(
+        fan_min_speed=35,
+        fan_control_type=0,
+        fan_max_temp=55,
+        fan_off_delta=3,
+        fan_start_temp=40,
+        fan_mode=0,
+        fan_monitoring_enabled=True,
+        fan2_monitoring_enabled=False,
+        fan3_monitoring_enabled=True,
+        fan4_monitoring_enabled=False,
+        overheat_alarm_enabled=True,
+    )
+    saved_profiles = []
+    dispatched_actions = []
+    monkeypatch.setattr(
+        window_actions_module,
+        "save_device_profile",
+        lambda address, index, params: saved_profiles.append((address, index, params)),
+    )
+    monkeypatch.setattr(
+        window, "_dispatch_action", lambda action: dispatched_actions.append(action)
+    )
+    window.model.set_connected(True, DeviceInfo(name="Test", address="AA:BB"))
+    window._device_profiles = {1: profile}
+    window._set_params_fields(DEFAULT_PARAMS, save=False)
+    window._refresh_profile_buttons()
+    window._apply_ui()
+
+    window.profile_buttons[0].click()
+
+    assert window.profile_buttons[0].isChecked()
+    assert window._current_params() == profile
+    assert saved_profiles == [("AA:BB", 1, profile)]
+    assert dispatched_actions == [Action.APPLY]
+
+    window.close()
+    app.processEvents()
+
+
+def test_apply_saves_settings_to_selected_empty_profile(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("pcwcc.core.load_or_create_host_key", lambda: object())
+    monkeypatch.setattr(gui_module.BleWorker, "start", lambda self: None)
+    monkeypatch.setattr(gui_module.BleWorker, "stop", lambda self: None)
+    monkeypatch.setattr(gui_module, "save_device_params", lambda *args, **kwargs: None)
+
+    def _submit_noop(self, coro):
+        coro.close()
+        return None
+
+    monkeypatch.setattr(gui_module.BleWorker, "submit", _submit_noop)
+    app = QApplication.instance() or QApplication([])
+    window = gui_module.MainWindow()
+    saved_profiles = []
+    dispatched_actions = []
+    monkeypatch.setattr(
+        window_actions_module,
+        "save_device_profile",
+        lambda address, index, params: saved_profiles.append((address, index, params)),
+    )
+    monkeypatch.setattr(
+        window, "_dispatch_action", lambda action: dispatched_actions.append(action)
+    )
+    window.model.set_connected(True, DeviceInfo(name="Test", address="AA:BB"))
+    window._set_params_fields(DEFAULT_PARAMS, save=False)
+    window._refresh_profile_buttons()
+    window._apply_ui()
+
+    window.profile_buttons[1].click()
+    assert not dispatched_actions
+    fan_min_speed = next(
+        item["widget"]
+        for item in window.param_fields
+        if item["spec"]["key"] == "fan_min_speed"
+    )
+    fan_min_speed.setValue(35)
+    window.on_apply()
+
+    assert saved_profiles[0][0:2] == ("AA:BB", 2)
+    assert saved_profiles[0][2].fan_min_speed == 35
+    assert dispatched_actions == [Action.APPLY]
+
+    window.close()
+    app.processEvents()
+
+
+def test_profile_can_be_deselected_to_apply_without_saving_to_profile(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("pcwcc.core.load_or_create_host_key", lambda: object())
+    monkeypatch.setattr(gui_module.BleWorker, "start", lambda self: None)
+    monkeypatch.setattr(gui_module.BleWorker, "stop", lambda self: None)
+
+    def _submit_noop(self, coro):
+        coro.close()
+        return None
+
+    monkeypatch.setattr(gui_module.BleWorker, "submit", _submit_noop)
+    app = QApplication.instance() or QApplication([])
+    window = gui_module.MainWindow()
+    profile = DEFAULT_PARAMS
+    saved_profiles = []
+    dispatched_actions = []
+    monkeypatch.setattr(
+        window_actions_module,
+        "save_device_profile",
+        lambda address, index, params: saved_profiles.append((address, index, params)),
+    )
+    monkeypatch.setattr(
+        window, "_dispatch_action", lambda action: dispatched_actions.append(action)
+    )
+    window.model.set_connected(True, DeviceInfo(name="Test", address="AA:BB"))
+    window._device_profiles = {1: profile}
+    window._set_params_fields(profile, save=False)
+    window._refresh_profile_buttons()
+    window._apply_ui()
+
+    window.profile_buttons[0].click()
+    assert len(saved_profiles) == 1
+    window.profile_buttons[0].click()
+    window.on_apply()
+
+    assert window._selected_profile_index is None
+    assert not window.profile_buttons[0].isChecked()
+    assert len(saved_profiles) == 1
+    assert dispatched_actions == [Action.APPLY, Action.APPLY]
+
+    window.close()
+    app.processEvents()
+
+
+def test_profile_title_and_description_refresh_button_and_clear_removes_settings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("pcwcc.core.load_or_create_host_key", lambda: object())
+    monkeypatch.setattr(gui_module.BleWorker, "start", lambda self: None)
+    monkeypatch.setattr(gui_module.BleWorker, "stop", lambda self: None)
+
+    def _submit_noop(self, coro):
+        coro.close()
+        return None
+
+    monkeypatch.setattr(gui_module.BleWorker, "submit", _submit_noop)
+    app = QApplication.instance() or QApplication([])
+    window = gui_module.MainWindow()
+    saved_metadata = []
+    cleared_profiles = []
+    monkeypatch.setattr(
+        window_params_module,
+        "save_device_profile_metadata",
+        lambda address, index, title, description: saved_metadata.append(
+            (address, index, title, description)
+        ),
+    )
+    monkeypatch.setattr(
+        window_params_module,
+        "clear_device_profile",
+        lambda address, index: cleared_profiles.append((address, index)),
+    )
+    window.model.set_connected(True, DeviceInfo(name="Test", address="AA:BB"))
+    window._device_profiles = {1: DEFAULT_PARAMS}
+    window._refresh_profile_buttons()
+    assert window.profile_status_bars[0].styleSheet() == "background:#22c55e;"
+    assert window.profile_status_bars[1].styleSheet() == "background:#9ca3af;"
+    assert window.profile_buttons[0].size().width() == 75
+    assert window.profile_buttons[0].size().height() == 31
+
+    window._save_profile_metadata(1, "Quiet", "Low noise setup")
+    assert window.profile_buttons[0].text() == "Quiet"
+    assert window.profile_buttons[0].toolTip() == "Low noise setup"
+    assert saved_metadata == [("AA:BB", 1, "Quiet", "Low noise setup")]
+
+    window._selected_profile_index = 1
+    window._apply_ui()
+    window.on_clear_profile()
+    assert cleared_profiles == [("AA:BB", 1)]
+    assert 1 not in window._device_profiles
+    assert window._selected_profile_index is None
+    assert window.profile_buttons[0].text() == "Quiet"
+    assert window.profile_status_bars[0].styleSheet() == "background:#9ca3af;"
 
     window.close()
     app.processEvents()

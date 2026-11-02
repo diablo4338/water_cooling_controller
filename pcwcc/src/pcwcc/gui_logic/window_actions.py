@@ -4,6 +4,8 @@ from typing import Optional
 
 from PySide6.QtCore import QTimer
 
+from ..core import save_device_profile
+
 
 class MainWindowActionMixin:
     def _start_action(
@@ -98,6 +100,19 @@ class MainWindowActionMixin:
         self._dispatch_action(self.Action.DISCONNECT)
 
     def on_apply(self) -> None:
+        profile_index = self._selected_profile_index
+        device = self.model.state.connected_device
+        if profile_index is not None and device is not None:
+            params = self._current_params()
+            try:
+                save_device_profile(device.address, profile_index, params)
+            except (OSError, ValueError) as exc:
+                message = f"Could not save profile {profile_index}: {exc}"
+                self.on_log(message)
+                self._show_apply_result("error", message)
+                return
+            self._device_profiles[profile_index] = params
+            self._refresh_profile_buttons()
         self._dispatch_action(self.Action.APPLY)
 
     def on_discard(self) -> None:
