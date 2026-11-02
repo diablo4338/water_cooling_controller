@@ -4,8 +4,6 @@ from typing import Optional
 
 from PySide6.QtCore import QTimer
 
-from ..core import save_device_profile
-
 
 class MainWindowActionMixin:
     def _start_action(
@@ -28,6 +26,9 @@ class MainWindowActionMixin:
             self._action_timers[action] = timer
         fut = self.worker.submit(coro)
         if fut is None:
+            coro.close()
+            if action == self.Action.APPLY:
+                self._profile_save_pending = None
             self._finish_action(action)
             return
         self._action_futures[action] = fut
@@ -38,6 +39,7 @@ class MainWindowActionMixin:
             fut.cancel()
         self.on_log(f"Operation '{action.name}' exceeded send timeout.")
         if action == self.Action.APPLY:
+            self._profile_save_pending = None
             self._show_apply_result("error", "Error: apply timed out")
         self._finish_action(action)
 
@@ -53,6 +55,8 @@ class MainWindowActionMixin:
         command = self.model.dispatch(action)
         self._apply_ui()
         if command is None:
+            if action == self.Action.APPLY:
+                self._profile_save_pending = None
             return
         if command.action == self.Action.SCAN:
             self._start_action(self.Action.SCAN, self.worker.scan(), use_timeout=False)
@@ -101,18 +105,7 @@ class MainWindowActionMixin:
 
     def on_apply(self) -> None:
         profile_index = self._selected_profile_index
-        device = self.model.state.connected_device
-        if profile_index is not None and device is not None:
-            params = self._current_params()
-            try:
-                save_device_profile(device.address, profile_index, params)
-            except (OSError, ValueError) as exc:
-                message = f"Could not save profile {profile_index}: {exc}"
-                self.on_log(message)
-                self._show_apply_result("error", message)
-                return
-            self._device_profiles[profile_index] = params
-            self._refresh_profile_buttons()
+        self._profile_save_pending = profile_index
         self._dispatch_action(self.Action.APPLY)
 
     def on_discard(self) -> None:

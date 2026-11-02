@@ -25,6 +25,10 @@ from ..core import (
     OP_TYPE_NAMES,
     OP_TYPE_NONE,
     OP_TYPE_SETUP_FANS,
+    PROFILE_ACTION_APPLY,
+    PROFILE_ACTION_CLEAR,
+    PROFILE_ACTION_SAVE_CURRENT,
+    PARAM_STATUS_STORAGE_ERROR,
     DeviceInfo,
     DeviceParams,
     DeviceStatus,
@@ -237,13 +241,29 @@ class MainWindowUpdateMixin:
         if status.ok:
             self.on_log("Parameters applied")
             self._show_apply_result("ok", "Applied")
+            if self._profile_apply_pending is not None:
+                self._profile_apply_pending = None
+                self._profile_operation_active = False
+            save_slot = self._profile_save_pending
+            self._profile_save_pending = None
+            if save_slot is not None:
+                self._profile_operation_active = True
+                self._submit_profile_action(lambda: self.worker.save_profile(save_slot))
             if self.model.state.active_action == self.Action.APPLY:
                 self._finish_action(self.Action.APPLY)
             self.worker.submit(self.worker.read_params_snapshot())
+            self._refresh_profile_buttons()
             return
+        self._profile_save_pending = None
+        if self._profile_apply_pending is not None:
+            self._profile_apply_pending = None
+            self._profile_operation_active = False
         if status.status == self.PARAM_STATUS_BUSY:
             message = "Error: device busy"
             self.on_log("Parameters not applied: device busy")
+        elif status.status == PARAM_STATUS_STORAGE_ERROR:
+            message = "Error: could not commit parameters to device storage"
+            self.on_log("Parameters not applied: device storage commit failed")
         else:
             field_label = (
                 PARAM_LABELS_BY_ID.get(status.field_id, "unknown field")
@@ -256,6 +276,7 @@ class MainWindowUpdateMixin:
         self._show_apply_result("error", message)
         if self.model.state.active_action == self.Action.APPLY:
             self._finish_action(self.Action.APPLY)
+        self._refresh_profile_buttons()
 
     @Slot(object)
     def on_fan_status(self, status: FanStatus) -> None:
@@ -344,9 +365,45 @@ class MainWindowUpdateMixin:
     def on_apply_done(self, ok: bool, message: str) -> None:
         if ok:
             return
+        self._profile_save_pending = None
         self._show_apply_result("error", message or "Error: apply failed")
         if self.model.state.active_action == self.Action.APPLY:
             self._finish_action(self.Action.APPLY)
+
+    @Slot(int, int, bool, str)
+    def on_profile_action_done(self, action: int, slot: int, ok: bool, error: str) -> None:
+        if action == PROFILE_ACTION_APPLY:
+            if not ok:
+                self._profile_apply_pending = None
+                self._profile_operation_active = False
+                self.on_log(error)
+                self._show_apply_result("error", error)
+            else:
+                self._profile_operation_active = False
+            self._refresh_profile_buttons()
+            return
+        self._profile_operation_active = False
+        if not ok:
+            self.on_log(error)
+            self._show_apply_result("error", error)
+        elif action == PROFILE_ACTION_SAVE_CURRENT:
+            self.on_log(f"Saved profile {slot} on controller")
+        elif action == PROFILE_ACTION_CLEAR:
+            self._reset_profile_selection()
+            self.on_log(f"Cleared profile {slot} on controller")
+        self._refresh_profile_buttons()
+
+    @Slot(int, object, bool, str)
+    def on_profile_metadata_done(
+        self, slot: int, metadata: object, ok: bool, error: str
+    ) -> None:
+        self._profile_operation_active = False
+        if ok:
+            self._device_profile_metadata[slot] = dict(metadata)
+            self.on_log(f"Updated profile {slot} metadata on controller")
+        else:
+            self.on_log(error)
+        self._refresh_profile_buttons()
 
     @Slot(bool, str, object, object)
     def on_pairing_result(self, ok: bool, message: str, device: DeviceInfo, k_hex: Optional[str]) -> None:
@@ -365,7 +422,8 @@ class MainWindowUpdateMixin:
         if connected and device:
             self._startup_auto_connect_device = None
             self.model.set_connected(True, device)
-            self._load_profiles_for_device(device.address)
+            self._reset_profiles_for_device()
+            self.worker.submit(self.worker.read_profiles())
             if self._device_params_snapshot is None:
                 self._set_params_fields(load_device_params(device.address), save=False)
             update_paired_last_connected(device.address)
@@ -385,8 +443,11 @@ class MainWindowUpdateMixin:
         disconnected_device = self.model.state.connected_device
         self._save_metrics_chart_history(disconnected_device)
         self.model.set_connected(False, None)
-        self._device_profiles = {}
+        self._device_profile_slots = set()
         self._device_profile_metadata = {}
+        self._profile_operation_active = False
+        self._profile_apply_pending = None
+        self._profile_save_pending = None
         self._reset_profile_selection()
         self._refresh_profile_buttons()
         self._clear_paired_selection()

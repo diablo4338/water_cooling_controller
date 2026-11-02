@@ -8,13 +8,7 @@ from ..core import (
     DeviceParams,
     FAN_CONTROL_DC,
     FAN_MODE_CONTINUOUS,
-    clear_device_profile,
     load_device_params,
-    load_device_profile_metadata,
-    load_device_profiles,
-    save_device_params,
-    save_device_profile,
-    save_device_profile_metadata,
 )
 from .constants import FAN_MONITORING_KEYS, PARAM_FIELDS
 
@@ -186,9 +180,9 @@ class MainWindowParamsMixin:
 
     def _refresh_profile_buttons(self) -> None:
         for index, button in enumerate(self.profile_buttons, start=1):
-            exists = index in self._device_profiles
+            exists = index in self._device_profile_slots
             metadata = self._device_profile_metadata.get(index, {})
-            button.setText(metadata.get("title", f"P{index}"))
+            button.setText(metadata.get("title") or f"P{index}")
             button.setToolTip(
                 metadata.get("description")
                 or (
@@ -203,14 +197,19 @@ class MainWindowParamsMixin:
             status_bar.setToolTip("Profile has saved settings" if exists else "Profile is empty")
         connected = self.model.state.connected_device is not None
         for button in self.profile_buttons:
-            button.setEnabled(connected and not self.model.state.busy)
+            button.setEnabled(
+                connected and not self.model.state.busy and not self._profile_operation_active
+            )
         selected_profile_is_saved = (
-            self._selected_profile_index in self._device_profiles
+            self._selected_profile_index in self._device_profile_slots
             if self._selected_profile_index is not None
             else False
         )
         self.clear_profile_button.setEnabled(
-            connected and not self.model.state.busy and selected_profile_is_saved
+            connected
+            and not self.model.state.busy
+            and not self._profile_operation_active
+            and selected_profile_is_saved
         )
 
     def _reset_profile_selection(self) -> None:
@@ -218,16 +217,28 @@ class MainWindowParamsMixin:
         for button in self.profile_buttons:
             button.setChecked(False)
 
-    def _load_profiles_for_device(self, address: str) -> None:
-        try:
-            self._device_profiles = load_device_profiles(address)
-            self._device_profile_metadata = load_device_profile_metadata(address)
-        except (OSError, ValueError) as exc:
-            self._device_profiles = {}
-            self._device_profile_metadata = {}
-            self.on_log(f"Could not load profiles: {exc}")
+    def _reset_profiles_for_device(self) -> None:
+        self._device_profile_metadata = {}
+        self._device_profile_slots = set()
         self._reset_profile_selection()
         self._refresh_profile_buttons()
+
+    def on_profiles_received(self, slots) -> None:
+        self._device_profile_slots = set(slots)
+        self._refresh_profile_buttons()
+
+    def on_profile_metadata_received(self, metadata) -> None:
+        self._device_profile_metadata = dict(metadata)
+        self._refresh_profile_buttons()
+
+    def _submit_profile_action(self, action) -> None:
+        coroutine = action()
+        if self.worker.submit(coroutine) is None:
+            coroutine.close()
+            self._profile_operation_active = False
+            self._profile_apply_pending = None
+            self.on_log("Profile command could not be queued")
+            self._refresh_profile_buttons()
 
     def on_profile_clicked(self, index: int, checked: bool) -> None:
         device = self.model.state.connected_device
@@ -242,33 +253,33 @@ class MainWindowParamsMixin:
             if other_index != index:
                 button.setChecked(False)
         self._selected_profile_index = index
-        params = self._device_profiles.get(index)
-        if params is None:
+        if index not in self._device_profile_slots:
             self.model.set_status(
                 f"Profile {index} selected. Adjust settings and press Apply to save it."
             )
             self._apply_ui()
             return
-        self._set_params_fields(params, save=False)
-        self.on_apply()
+        self._profile_operation_active = True
+        self._profile_apply_pending = index
+        self._apply_ui()
+        self._submit_profile_action(lambda: self.worker.apply_profile(index))
 
     def _save_profile_metadata(self, index: int, title: str, description: str) -> None:
         device = self.model.state.connected_device
-        if device is None:
+        if device is None or self._profile_operation_active:
             return
-        try:
-            save_device_profile_metadata(device.address, index, title, description)
-        except (OSError, ValueError) as exc:
-            self.on_log(f"Could not update profile {index}: {exc}")
-            return
-        self._device_profile_metadata[index] = {
-            "title": title.strip(),
-            "description": description.strip(),
-        }
+        self._profile_operation_active = True
         self._refresh_profile_buttons()
+        self._submit_profile_action(
+            lambda: self.worker.save_profile_metadata(index, title.strip(), description.strip())
+        )
 
     def _show_profile_menu(self, index: int, global_position) -> None:
-        if self.model.state.connected_device is None or self.model.state.busy:
+        if (
+            self.model.state.connected_device is None
+            or self.model.state.busy
+            or self._profile_operation_active
+        ):
             return
         metadata = self._device_profile_metadata.get(index, {})
         menu = QMenu(self)
@@ -309,17 +320,16 @@ class MainWindowParamsMixin:
     def on_clear_profile(self) -> None:
         index = self._selected_profile_index
         device = self.model.state.connected_device
-        if index is None or device is None or index not in self._device_profiles:
+        if (
+            index is None
+            or device is None
+            or index not in self._device_profile_slots
+            or self._profile_operation_active
+        ):
             return
-        try:
-            clear_device_profile(device.address, index)
-        except (OSError, ValueError) as exc:
-            self.on_log(f"Could not clear profile {index}: {exc}")
-            return
-        del self._device_profiles[index]
-        self._reset_profile_selection()
+        self._profile_operation_active = True
         self._refresh_profile_buttons()
-        self.on_log(f"Cleared profile {index}")
+        self._submit_profile_action(lambda: self.worker.clear_profile(index))
 
     def _on_params_changed(self, _) -> None:
         if self._params_update_lock:

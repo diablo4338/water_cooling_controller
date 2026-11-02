@@ -132,8 +132,11 @@ class MainWindowSetupMixin:
         self._params_update_lock = False
         self._device_params_snapshot = None
         self._selected_profile_index = None
-        self._device_profiles = {}
+        self._device_profile_slots = set()
         self._device_profile_metadata = {}
+        self._profile_operation_active = False
+        self._profile_apply_pending = None
+        self._profile_save_pending = None
         self._apply_status_kind = "idle"
         self._apply_status_text = ""
 
@@ -240,6 +243,10 @@ class MainWindowSetupMixin:
         self.worker.metrics_received.connect(self.on_metrics_received)
         self.worker.params_received.connect(self.on_params_received)
         self.worker.params_status.connect(self.on_params_status)
+        self.worker.profiles_received.connect(self.on_profiles_received)
+        self.worker.profile_metadata_received.connect(self.on_profile_metadata_received)
+        self.worker.profile_action_done.connect(self.on_profile_action_done)
+        self.worker.profile_metadata_done.connect(self.on_profile_metadata_done)
         self.worker.apply_done.connect(self.on_apply_done)
         self.worker.fan_status_received.connect(self.on_fan_status)
         self.worker.device_status_received.connect(self.on_device_status)

@@ -67,29 +67,30 @@ static bool params_load_from_nvs(params_t *out) {
     return (err == ESP_OK && len == sizeof(params_t));
 }
 
-static void params_save_to_nvs(const params_t *params) {
+static bool params_save_to_nvs(const params_t *params) {
     nvs_handle_t h;
     if (nvs_open(PARAMS_NS, NVS_READWRITE, &h) != ESP_OK) {
         ESP_LOGW(TAG, "Params NVS open failed");
-        return;
+        return false;
     }
     esp_err_t err = nvs_set_u32(h, PARAMS_KEY_VER, PARAMS_VER_VALUE);
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "Params NVS set ver failed: %d", err);
         nvs_close(h);
-        return;
+        return false;
     }
     err = nvs_set_blob(h, PARAMS_KEY_BLOB, params, sizeof(params_t));
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "Params NVS set blob failed: %d", err);
         nvs_close(h);
-        return;
+        return false;
     }
     err = nvs_commit(h);
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "Params NVS commit failed: %d", err);
     }
     nvs_close(h);
+    return err == ESP_OK;
 }
 
 static bool params_decode_payload(const uint8_t *data, size_t len, params_t *out, uint16_t *mask) {
@@ -312,7 +313,13 @@ uint8_t params_apply(uint8_t *field_id) {
         return PARAM_STATUS_INVALID;
     }
 
-    params_save_to_nvs(&candidate);
+    if (!params_save_to_nvs(&candidate)) {
+        state_lock();
+        set_last_status_locked(PARAM_STATUS_STORAGE_ERROR, PARAM_FIELD_NONE);
+        state_unlock();
+        if (field_id) *field_id = PARAM_FIELD_NONE;
+        return PARAM_STATUS_STORAGE_ERROR;
+    }
 
     state_lock();
     g_current = candidate;
@@ -329,7 +336,7 @@ uint8_t params_apply(uint8_t *field_id) {
 void params_factory_reset(void) {
     params_t defaults = params_defaults();
 
-    params_save_to_nvs(&defaults);
+    (void)params_save_to_nvs(&defaults);
 
     state_lock();
     g_current = defaults;

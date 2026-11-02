@@ -8,7 +8,11 @@ from .codec import (
     decode_operation_status,
     decode_params,
     decode_params_status,
+    decode_profile_metadata,
+    decode_profile_slots,
     encode_operation_control,
+    encode_profile_metadata,
+    encode_profile_command,
     encode_params,
 )
 from .models import DeviceInfo, DeviceStatus, FanStatus, OperationStatus, ParamsStatus
@@ -16,9 +20,14 @@ from .protocol import (
     MAIN_SERVICE_UUIDS,
     OP_TYPE_FAN_CALIBRATION,
     OP_TYPE_SETUP_FANS,
+    PROFILE_ACTION_APPLY,
+    PROFILE_ACTION_CLEAR,
+    PROFILE_ACTION_SAVE_CURRENT,
     UUID_CONFIG_DEVICE_STATUS,
     UUID_CONFIG_FAN_STATUS,
     UUID_CONFIG_PARAMS,
+    UUID_CONFIG_PROFILE_METADATA,
+    UUID_CONFIG_PROFILES,
     UUID_CONFIG_STATUS,
     UUID_OP_CONTROL,
     UUID_OP_STATUS,
@@ -73,6 +82,65 @@ class BleCoreControlMixin:
             timeout = self._config.metrics_timeout_s
         data = await self._read_char(UUID_CONFIG_PARAMS, timeout=timeout)
         return decode_params(bytes(data))
+
+    async def read_profile_slots(self, timeout: Optional[float] = None) -> frozenset[int]:
+        if not self.client:
+            raise RuntimeError("Not connected")
+        if timeout is None:
+            timeout = self._config.metrics_timeout_s
+        data = await self._read_char(UUID_CONFIG_PROFILES, timeout=timeout)
+        return decode_profile_slots(bytes(data))
+
+    async def read_profile_metadata(
+        self, slot: int, timeout: Optional[float] = None
+    ) -> dict[str, str]:
+        if not self.client:
+            raise RuntimeError("Not connected")
+        if not 1 <= slot <= len(UUID_CONFIG_PROFILE_METADATA):
+            raise ValueError("Invalid profile slot")
+        if timeout is None:
+            timeout = self._config.metrics_timeout_s
+        data = await self._read_char(UUID_CONFIG_PROFILE_METADATA[slot - 1], timeout=timeout)
+        return decode_profile_metadata(bytes(data))
+
+    async def save_profile_metadata(
+        self, slot: int, title: str, description: str, timeout: Optional[float] = None
+    ) -> None:
+        if not self.client:
+            raise RuntimeError("Not connected")
+        if not 1 <= slot <= len(UUID_CONFIG_PROFILE_METADATA):
+            raise ValueError("Invalid profile slot")
+        if timeout is None:
+            timeout = self._config.metrics_timeout_s
+        await self._write_char(
+            UUID_CONFIG_PROFILE_METADATA[slot - 1],
+            encode_profile_metadata(title, description),
+            response=True,
+            timeout=timeout,
+        )
+
+    async def _profile_command(
+        self, action: int, slot: int, timeout: Optional[float] = None
+    ) -> None:
+        if not self.client:
+            raise RuntimeError("Not connected")
+        if timeout is None:
+            timeout = self._config.metrics_timeout_s
+        await self._write_char(
+            UUID_CONFIG_PROFILES,
+            encode_profile_command(action, slot),
+            response=True,
+            timeout=timeout,
+        )
+
+    async def save_profile(self, slot: int, timeout: Optional[float] = None) -> None:
+        await self._profile_command(PROFILE_ACTION_SAVE_CURRENT, slot, timeout)
+
+    async def apply_profile(self, slot: int, timeout: Optional[float] = None) -> None:
+        await self._profile_command(PROFILE_ACTION_APPLY, slot, timeout)
+
+    async def clear_profile(self, slot: int, timeout: Optional[float] = None) -> None:
+        await self._profile_command(PROFILE_ACTION_CLEAR, slot, timeout)
 
     async def read_fan_status(self, timeout: Optional[float] = None) -> FanStatus:
         if not self.client:

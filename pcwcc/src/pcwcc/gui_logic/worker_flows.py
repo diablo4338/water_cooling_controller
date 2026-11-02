@@ -12,6 +12,10 @@ from ..core import (
     OP_STATE_IN_SERVICE,
     OperationStatus,
     ParamsStatus,
+    PROFILE_ACTION_APPLY,
+    PROFILE_ACTION_CLEAR,
+    PROFILE_ACTION_SAVE_CURRENT,
+    PROFILE_COUNT,
     load_paired_records,
 )
 
@@ -365,6 +369,83 @@ class BleWorkerFlowMixin:
             self.log.emit("Parameters refreshed after operation.")
         except Exception as exc:
             self.log.emit(f"Failed to read parameters after operation: {exc}")
+
+    async def read_profiles(self) -> None:
+        try:
+            slots = await self._with_timeout(
+                self.core.read_profile_slots(timeout=self.config.metrics_timeout_s),
+                "read_profiles",
+                timeout=self.config.metrics_timeout_s,
+            )
+            metadata = {}
+            for slot in range(1, PROFILE_COUNT + 1):
+                metadata[slot] = await self._with_timeout(
+                    self.core.read_profile_metadata(slot, timeout=self.config.metrics_timeout_s),
+                    f"read_profile_metadata_{slot}",
+                    timeout=self.config.metrics_timeout_s,
+                )
+            self.profiles_received.emit(slots)
+            self.profile_metadata_received.emit(metadata)
+        except Exception as exc:
+            self.log.emit(f"Failed to read profiles: {exc}")
+
+    async def _run_profile_action(self, action: int, slot: int) -> None:
+        try:
+            if action == PROFILE_ACTION_SAVE_CURRENT:
+                await self._with_timeout(
+                    self.core.save_profile(slot, timeout=self.config.metrics_timeout_s),
+                    "save_profile",
+                    timeout=self.config.metrics_timeout_s,
+                )
+            elif action == PROFILE_ACTION_APPLY:
+                await self._with_timeout(
+                    self.core.apply_profile(slot, timeout=self.config.metrics_timeout_s),
+                    "apply_profile",
+                    timeout=self.config.metrics_timeout_s,
+                )
+            elif action == PROFILE_ACTION_CLEAR:
+                await self._with_timeout(
+                    self.core.clear_profile(slot, timeout=self.config.metrics_timeout_s),
+                    "clear_profile",
+                    timeout=self.config.metrics_timeout_s,
+                )
+            if action in (PROFILE_ACTION_SAVE_CURRENT, PROFILE_ACTION_CLEAR):
+                slots = await self.core.read_profile_slots(timeout=self.config.metrics_timeout_s)
+                self.profiles_received.emit(slots)
+            self.profile_action_done.emit(action, slot, True, "")
+        except Exception as exc:
+            error = f"Profile {slot} operation failed: {exc}"
+            self.log.emit(error)
+            self.profile_action_done.emit(action, slot, False, error)
+
+    async def save_profile(self, slot: int) -> None:
+        await self._run_profile_action(PROFILE_ACTION_SAVE_CURRENT, slot)
+
+    async def apply_profile(self, slot: int) -> None:
+        await self._run_profile_action(PROFILE_ACTION_APPLY, slot)
+
+    async def clear_profile(self, slot: int) -> None:
+        await self._run_profile_action(PROFILE_ACTION_CLEAR, slot)
+
+    async def save_profile_metadata(
+        self, slot: int, title: str, description: str
+    ) -> None:
+        try:
+            await self._with_timeout(
+                self.core.save_profile_metadata(
+                    slot, title, description, timeout=self.config.metrics_timeout_s
+                ),
+                "save_profile_metadata",
+                timeout=self.config.metrics_timeout_s,
+            )
+            metadata = await self.core.read_profile_metadata(
+                slot, timeout=self.config.metrics_timeout_s
+            )
+            self.profile_metadata_done.emit(slot, metadata, True, "")
+        except Exception as exc:
+            error = f"Profile {slot} metadata update failed: {exc}"
+            self.log.emit(error)
+            self.profile_metadata_done.emit(slot, {}, False, error)
 
     def _on_metrics_snapshot(self, snapshot: MetricsSnapshot) -> None:
         self._set_metrics_snapshot(snapshot)

@@ -14,6 +14,7 @@ set(SRCS
     "control/operation_manager.c"
     "control/operation_preflight.c"
     "control/params.c"
+    "control/profiles.c"
     "hw/overheat_alarm.c"
     "hw/overcurrent_monitor.c"
     "hw/status_led.c"

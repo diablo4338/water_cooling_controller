@@ -19,6 +19,14 @@ from .protocol import (
     PARAM_FIELD_NONE,
     PARAM_STATUS_OK,
     PARAMS_VERSION,
+    PROFILE_ACTION_APPLY,
+    PROFILE_ACTION_CLEAR,
+    PROFILE_COUNT,
+    PROFILE_ACTION_SAVE_CURRENT,
+    PROFILE_DESCRIPTION_MAX_LEN,
+    PROFILE_METADATA_VERSION,
+    PROFILE_STATUS_VERSION,
+    PROFILE_TITLE_MAX_LEN,
 )
 
 PARAMS_FORMAT_V5 = "<BHiBiiiBBBBB"
@@ -139,6 +147,63 @@ def decode_params_status(data: bytes) -> ParamsStatus:
         raise RuntimeError(f"Unsupported params status version={version}")
     field = None if field_id == PARAM_FIELD_NONE else int(field_id)
     return ParamsStatus(ok=status == PARAM_STATUS_OK, status=status, field_id=field)
+
+
+def encode_profile_command(action: int, slot: int) -> bytes:
+    if action not in (
+        PROFILE_ACTION_SAVE_CURRENT,
+        PROFILE_ACTION_APPLY,
+        PROFILE_ACTION_CLEAR,
+    ):
+        raise ValueError(f"Unknown profile action: {action}")
+    if slot < 1 or slot > PROFILE_COUNT:
+        raise ValueError(f"Profile slot must be between 1 and {PROFILE_COUNT}")
+    return struct.pack("<BB", action, slot)
+
+
+def decode_profile_slots(data: bytes) -> frozenset[int]:
+    if len(data) != 2:
+        raise RuntimeError(f"Bad profile status len={len(data)}")
+    version, mask = struct.unpack("<BB", data)
+    if version != PROFILE_STATUS_VERSION:
+        raise RuntimeError(f"Unsupported profile status version={version}")
+    if mask & ~((1 << PROFILE_COUNT) - 1):
+        raise RuntimeError(f"Invalid profile mask={mask}")
+    return frozenset(slot for slot in range(1, PROFILE_COUNT + 1) if mask & (1 << (slot - 1)))
+
+
+def encode_profile_metadata(title: str, description: str) -> bytes:
+    title_bytes = title.strip().encode("utf-8")
+    description_bytes = description.strip().encode("utf-8")
+    if not title_bytes or len(title_bytes) > PROFILE_TITLE_MAX_LEN:
+        raise ValueError(f"Profile title must be 1-{PROFILE_TITLE_MAX_LEN} UTF-8 bytes")
+    if len(description_bytes) > PROFILE_DESCRIPTION_MAX_LEN:
+        raise ValueError(
+            f"Profile description must be at most {PROFILE_DESCRIPTION_MAX_LEN} UTF-8 bytes"
+        )
+    return struct.pack(
+        "<BBB", PROFILE_METADATA_VERSION, len(title_bytes), len(description_bytes)
+    ) + title_bytes + description_bytes
+
+
+def decode_profile_metadata(data: bytes) -> dict[str, str]:
+    if len(data) < 3:
+        raise RuntimeError(f"Bad profile metadata len={len(data)}")
+    version, title_len, description_len = struct.unpack("<BBB", data[:3])
+    if version != PROFILE_METADATA_VERSION:
+        raise RuntimeError(f"Unsupported profile metadata version={version}")
+    if (
+        title_len > PROFILE_TITLE_MAX_LEN
+        or description_len > PROFILE_DESCRIPTION_MAX_LEN
+        or len(data) != 3 + title_len + description_len
+    ):
+        raise RuntimeError("Invalid profile metadata lengths")
+    try:
+        title = data[3:3 + title_len].decode("utf-8")
+        description = data[3 + title_len:].decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise RuntimeError("Profile metadata is not valid UTF-8") from exc
+    return {"title": title, "description": description}
 
 
 def decode_fan_status(data: bytes) -> FanStatus:

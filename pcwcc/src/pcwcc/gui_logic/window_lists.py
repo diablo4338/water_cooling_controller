@@ -50,6 +50,7 @@ class MainWindowListMixin:
         params_enabled = (
             self.model.state.conn == self.ConnState.CONNECTED
             and not self.model.state.busy
+            and not self._profile_operation_active
             and self._device_params_snapshot is not None
         )
         if self._operation_active:
@@ -63,7 +64,7 @@ class MainWindowListMixin:
         self.clear_profile_button.setEnabled(
             params_enabled
             and self._selected_profile_index is not None
-            and self._selected_profile_index in self._device_profiles
+            and self._selected_profile_index in self._device_profile_slots
         )
         for item in self.param_fields:
             requires_v6 = (

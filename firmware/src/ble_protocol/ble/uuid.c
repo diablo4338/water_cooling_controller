@@ -19,6 +19,10 @@ const char *UUID_CONFIG_PARAMS_STR  = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e11";
 const char *UUID_CONFIG_STATUS_STR  = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e12";
 const char *UUID_CONFIG_FAN_STATUS_STR  = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e13";
 const char *UUID_CONFIG_DEVICE_STATUS_STR  = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e14";
+const char *UUID_CONFIG_PROFILES_STR = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e15";
+const char *UUID_CONFIG_PROFILE1_METADATA_STR = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e16";
+const char *UUID_CONFIG_PROFILE2_METADATA_STR = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e17";
+const char *UUID_CONFIG_PROFILE3_METADATA_STR = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e18";
 const char *UUID_OP_CONTROL_STR = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e21";
 const char *UUID_OP_STATUS_STR  = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e22";
 
@@ -52,6 +56,10 @@ ble_uuid_any_t UUID_CONFIG_PARAMS;
 ble_uuid_any_t UUID_CONFIG_STATUS;
 ble_uuid_any_t UUID_CONFIG_FAN_STATUS;
 ble_uuid_any_t UUID_CONFIG_DEVICE_STATUS;
+ble_uuid_any_t UUID_CONFIG_PROFILES;
+ble_uuid_any_t UUID_CONFIG_PROFILE1_METADATA;
+ble_uuid_any_t UUID_CONFIG_PROFILE2_METADATA;
+ble_uuid_any_t UUID_CONFIG_PROFILE3_METADATA;
 ble_uuid_any_t UUID_OP_CONTROL;
 ble_uuid_any_t UUID_OP_STATUS;
 

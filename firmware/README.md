@@ -32,6 +32,18 @@ make fw-test
 
 This build enables `PAIR_RUN_TESTS=1`.
 
+## Parameter profiles
+
+The controller stores three parameter profiles in NVS. The configuration
+profiles characteristic reports the occupied-slot bitmap and accepts
+`[action, slot]` commands: `1` saves current committed settings, `2` applies a
+saved profile, and `3` clears a slot. Applying a profile submits its stored
+payload through the normal parameter validation and commit path, then reports
+the result through the parameter-status characteristic. Each slot also has its
+own GATT characteristic for reading and updating its title and description;
+these metadata values are stored in the same NVS namespace as the profile.
+Titles are limited to 32 UTF-8 bytes and descriptions to 96 UTF-8 bytes.
+
 ## Release output
 [`scripts/build_firmware.sh`](../scripts/build_firmware.sh) builds and places the following into `dist/`:
 - the main `.bin`;

@@ -27,6 +27,7 @@
 #include "operation_manager.h"
 #include "operation_status_ble.h"
 #include "params.h"
+#include "profiles.h"
 
 // ====== GATT access callbacks ======
 static int gatt_read_dev_nonce(uint16_t conn_handle, uint16_t attr_handle,
@@ -310,6 +311,21 @@ static int gatt_access_params(uint16_t conn_handle, uint16_t attr_handle,
 
 static uint16_t g_params_status_attr_handle = 0;
 
+static void gatt_notify_params_status(uint16_t conn_handle) {
+    if (g_params_status_attr_handle == 0) {
+        return;
+    }
+    uint8_t payload[PARAMS_STATUS_LEN];
+    params_get_last_status_payload(payload, sizeof(payload));
+    struct os_mbuf *om = ble_hs_mbuf_from_flat(payload, sizeof(payload));
+    if (om) {
+        int rc = ble_gatts_notify_custom(conn_handle, g_params_status_attr_handle, om);
+        if (rc != 0) {
+            ESP_LOGW(TAG, "notify params status rc=%d", rc);
+        }
+    }
+}
+
 static int gatt_access_params_status(uint16_t conn_handle, uint16_t attr_handle,
                                      struct ble_gatt_access_ctxt *ctxt, void *arg) {
     (void)attr_handle;
@@ -339,21 +355,96 @@ static int gatt_access_params_status(uint16_t conn_handle, uint16_t attr_handle,
 
         params_apply(NULL);
 
-        if (g_params_status_attr_handle != 0) {
-            uint8_t payload[PARAMS_STATUS_LEN];
-            params_get_last_status_payload(payload, sizeof(payload));
-            struct os_mbuf *om = ble_hs_mbuf_from_flat(payload, sizeof(payload));
-            if (om) {
-                int rc = ble_gatts_notify_custom(conn_handle, g_params_status_attr_handle, om);
-                if (rc != 0) {
-                    ESP_LOGW(TAG, "notify params status rc=%d", rc);
-                }
-            }
-        }
+        gatt_notify_params_status(conn_handle);
         return 0;
     }
 
     return BLE_ATT_ERR_UNLIKELY;
+}
+
+static int gatt_access_profiles(uint16_t conn_handle, uint16_t attr_handle,
+                                struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    (void)attr_handle;
+    (void)arg;
+    if (!can_access_data()) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    if (!auth_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+
+    if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
+        uint8_t mask = 0;
+        if (!profiles_read_mask(&mask)) return BLE_ATT_ERR_UNLIKELY;
+        const uint8_t payload[PROFILE_STATUS_PAYLOAD_LEN] = {
+            PROFILE_STATUS_VERSION,
+            mask,
+        };
+        os_mbuf_append(ctxt->om, payload, sizeof(payload));
+        return 0;
+    }
+    if (ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR) {
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+    if (OS_MBUF_PKTLEN(ctxt->om) != 2) {
+        return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+    }
+    uint8_t command[2];
+    os_mbuf_copydata(ctxt->om, 0, sizeof(command), command);
+    uint8_t action = command[0];
+    uint8_t slot = command[1];
+    if (slot < 1 || slot > PROFILE_COUNT) return BLE_ATT_ERR_UNLIKELY;
+    if (operation_manager_is_active()) {
+        params_set_last_status(PARAM_STATUS_BUSY, PARAM_FIELD_NONE);
+        gatt_notify_params_status(conn_handle);
+        return BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+
+    if (action == PROFILE_ACTION_SAVE_CURRENT) {
+        return profiles_save_current(slot) ? 0 : BLE_ATT_ERR_UNLIKELY;
+    }
+    if (action == PROFILE_ACTION_APPLY) {
+        uint8_t status = PARAM_STATUS_INVALID;
+        uint8_t field_id = PARAM_FIELD_NONE;
+        if (!profiles_apply(slot, &status, &field_id)) {
+            return BLE_ATT_ERR_UNLIKELY;
+        }
+        gatt_notify_params_status(conn_handle);
+        return 0;
+    }
+    if (action == PROFILE_ACTION_CLEAR) {
+        return profiles_clear(slot) ? 0 : BLE_ATT_ERR_UNLIKELY;
+    }
+    return BLE_ATT_ERR_UNLIKELY;
+}
+
+static int gatt_access_profile_metadata(uint16_t conn_handle, uint16_t attr_handle,
+                                        struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    (void)attr_handle;
+    uint8_t slot = (uint8_t)(uintptr_t)arg;
+    if (!can_access_data()) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    if (!auth_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+
+    if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
+        uint8_t payload[PROFILE_METADATA_MAX_LEN];
+        size_t len = 0;
+        if (!profiles_read_metadata(slot, payload, sizeof(payload), &len)) {
+            return BLE_ATT_ERR_UNLIKELY;
+        }
+        return os_mbuf_append(ctxt->om, payload, (uint16_t)len) == 0
+                   ? 0
+                   : BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+    if (ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR) {
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+
+    int len = OS_MBUF_PKTLEN(ctxt->om);
+    if (len < 3 || len > PROFILE_METADATA_MAX_LEN) {
+        return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+    }
+    uint8_t payload[PROFILE_METADATA_MAX_LEN];
+    if (os_mbuf_copydata(ctxt->om, 0, len, payload) != 0 ||
+        !profiles_write_metadata(slot, payload, (size_t)len)) {
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+    return 0;
 }
 
 static int gatt_read_fan_status(uint16_t conn_handle, uint16_t attr_handle,
@@ -469,6 +560,29 @@ static struct ble_gatt_chr_def config_chrs[] = {
         .access_cb = gatt_read_device_status,
         .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
         .val_handle = &g_device_status_attr_handle,
+    },
+    {
+        .uuid = NULL,
+        .access_cb = gatt_access_profiles,
+        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE,
+    },
+    {
+        .uuid = NULL,
+        .access_cb = gatt_access_profile_metadata,
+        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE,
+        .arg = (void *)(uintptr_t)1,
+    },
+    {
+        .uuid = NULL,
+        .access_cb = gatt_access_profile_metadata,
+        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE,
+        .arg = (void *)(uintptr_t)2,
+    },
+    {
+        .uuid = NULL,
+        .access_cb = gatt_access_profile_metadata,
+        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE,
+        .arg = (void *)(uintptr_t)3,
     },
     { 0 }
 };
@@ -604,6 +718,10 @@ void gatt_init_uuids_and_services(void) {
     parse_uuid_or_abort(UUID_CONFIG_STATUS_STR, &UUID_CONFIG_STATUS);
     parse_uuid_or_abort(UUID_CONFIG_FAN_STATUS_STR, &UUID_CONFIG_FAN_STATUS);
     parse_uuid_or_abort(UUID_CONFIG_DEVICE_STATUS_STR, &UUID_CONFIG_DEVICE_STATUS);
+    parse_uuid_or_abort(UUID_CONFIG_PROFILES_STR, &UUID_CONFIG_PROFILES);
+    parse_uuid_or_abort(UUID_CONFIG_PROFILE1_METADATA_STR, &UUID_CONFIG_PROFILE1_METADATA);
+    parse_uuid_or_abort(UUID_CONFIG_PROFILE2_METADATA_STR, &UUID_CONFIG_PROFILE2_METADATA);
+    parse_uuid_or_abort(UUID_CONFIG_PROFILE3_METADATA_STR, &UUID_CONFIG_PROFILE3_METADATA);
     parse_uuid_or_abort(UUID_OP_CONTROL_STR, &UUID_OP_CONTROL);
     parse_uuid_or_abort(UUID_OP_STATUS_STR, &UUID_OP_STATUS);
     
@@ -638,6 +756,10 @@ void gatt_init_uuids_and_services(void) {
     config_chrs[1].uuid = &UUID_CONFIG_STATUS.u;
     config_chrs[2].uuid = &UUID_CONFIG_FAN_STATUS.u;
     config_chrs[3].uuid = &UUID_CONFIG_DEVICE_STATUS.u;
+    config_chrs[4].uuid = &UUID_CONFIG_PROFILES.u;
+    config_chrs[5].uuid = &UUID_CONFIG_PROFILE1_METADATA.u;
+    config_chrs[6].uuid = &UUID_CONFIG_PROFILE2_METADATA.u;
+    config_chrs[7].uuid = &UUID_CONFIG_PROFILE3_METADATA.u;
     operations_chrs[0].uuid = &UUID_OP_CONTROL.u;
     operations_chrs[1].uuid = &UUID_OP_STATUS.u;
 
