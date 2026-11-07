@@ -6,6 +6,7 @@ At minimum: `kind`, `operation_id` or `request_id` where asynchronous completion
 | Producer | Event | Consumers | Notes |
 |---|---|---|---|
 | Thermal detector | `THERMAL_BUTTON_PRESSED` | Load, BLE | One edge shared by both |
+| Reed detector | `WHEEL_MOTION_CONFIRMED` | Load | Confirmed wheel motion starts the same Load startup as a thermal press; BLE and Buzzer ignore the source event |
 | Scheduler | `PERIODIC_SAMPLE` / deadline tick | Load, Buzzer, BLE/power | Deadlines checked from monotonic clock in same boot |
 | Load GPIO executor | `LOAD_APPLIED`, `LOAD_FAILED` | Load, Buzzer | Real execution result, not queue acceptance |
 | Settle timer/deadline checker | `SETTLE_ELAPSED` | Buzzer | Optional notification; deadline check always exists |

@@ -4,7 +4,7 @@ States: `IDLE`, `WAIT_SETTLE`, `MEASURING`, `BEEPING`. Operation contexts STARTU
 
 | State/context | Trigger | Next | Action / fallback |
 |---|---|---|---|
-| IDLE | physical load ON applied for new startup | WAIT_SETTLE | Set `settle_deadline = now + 1000 ms` |
+| IDLE | physical load ON applied for new startup (thermal press or wheel motion) | WAIT_SETTLE | Set `settle_deadline = now + 1000 ms` |
 | WAIT_SETTLE | deadline reached | MEASURING | Request fresh INA voltage; do not reuse preceding periodic sample |
 | MEASURING STARTUP | matching INA success | BEEPING or IDLE | Normal button sound vs low-battery combined pattern using existing configured threshold/durations |
 | MEASURING STARTUP | matching INA error or local measurement deadline | BEEPING or IDLE | Exactly one pattern of three short distinct beeps; never per periodic error |

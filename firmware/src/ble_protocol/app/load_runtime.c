@@ -744,7 +744,7 @@ void load_runtime_init(void) {
         int64_t monotonic_now_us = esp_timer_get_time();
         if (reed_detector_start(&s_reed_detector, restored_working,
                                 config.wheel_min_speed_deci_kmh,
-                                config.wheel_diameter_mm,
+                                config.wheel_circumference_mm,
                                 monotonic_now_us)) {
             reed_irq_set_enabled(true, s_reed_detector.generation);
             s_next_reed_deadline_check_us = monotonic_now_us;

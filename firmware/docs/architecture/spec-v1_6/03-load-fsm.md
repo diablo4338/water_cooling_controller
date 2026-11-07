@@ -4,7 +4,7 @@ States: `IDLE` (output commanded OFF), `STARTING` (ON requested / startup feedba
 
 | From | Event/guard | To | Action | Deadline fallback |
 |---|---|---|---|---|
-| IDLE | thermal press | STARTING | Request GPIO ON, record operation | If no confirmation, inspect/attempt bounded GPIO action, never claim ON without execution |
+| IDLE | thermal press or confirmed wheel motion | STARTING | Request GPIO ON, record operation | If no confirmation, inspect/attempt bounded GPIO action, never claim ON without execution |
 | STARTING | ON applied | STARTING | Trigger buzzer STARTUP sequence; mark load ON | Buzzer deadline ends startup feedback |
 | STARTING | startup feedback completed or timed out | WORKING | No GPIO change | Ignore late BUZZER_DONE |
 | STARTING | physical GPIO ON failed | ERROR | Log true hardware fault | Remain awake if unable to establish intended state |
@@ -16,6 +16,8 @@ States: `IDLE` (output commanded OFF), `STARTING` (ON requested / startup feedba
 | STOPPING | shutdown feedback completed or deadline | STOPPING | Command actual GPIO OFF | Missing buzzer DONE never prevents OFF |
 | STOPPING | OFF applied | IDLE | Save OFF to RTC | Ignore duplicate completion |
 | STOPPING | actual GPIO OFF failed | ERROR or bounded retry | Log/attempt existing limited retry policy | Cannot falsely claim OFF |
+
+Both activation events use the same `STARTING` transition, GPIO acknowledgment/readback, startup settling, fresh INA sample, configured sound/error policy and bounded fallback. No source-specific startup mode is needed. The dispatcher preserves the original event; only a thermal press activates BLE. Motion while `WORKING`, `STARTING` or `STOPPING` is a no-op and does not produce a button cue.
 
 The Load FSM owns physical load requests; Buzzer FSM never writes load GPIO. `LOAD_WORKING` is allowed to Deep Sleep. State and relevant low-current history retained across wake. Startup feedback is **not** repeated merely because RTC restored an already-ON output. Thermal button activation while working does not turn output off.
 

@@ -70,3 +70,12 @@ Each automated test should exercise actual production reducers and deadlines. Fo
 | T58 | Buzzer A cancelled, B started, delayed callback from A before B phase deadline | Does not advance B |
 | T59 | Delayed callback from A at/after B phase deadline | Inspect real `esp_timer` semantics; if feasible, prove B cannot advance incorrectly; if impossible, document why; don't invent RED |
 | T60 | Stale `BUZZER_CANCEL(A)` while B active | B remains active; cancel scoped to operation ID |
+
+## Wheel-motion activation regressions
+
+| ID | Scenario | Expected |
+|---|---|---|
+| T61 | Confirmed motion in IDLE | Same startup as thermal press: GPIO ON before >=1000-ms settle, fresh INA, normal/low/error startup signal, then WORKING; zero BLE start commands |
+| T62 | Motion startup with lost GPIO acknowledgment | Executor readback matching ON starts ordinary feedback exactly once; late acknowledgment does not replay it |
+| T63 | Duplicate motion during startup or motion while WORKING | No repeated LOAD_ON, startup signal or button cue; no BLE activation |
+| T64 | Motion during an existing BLE advertising session | BLE state and window deadline unchanged |

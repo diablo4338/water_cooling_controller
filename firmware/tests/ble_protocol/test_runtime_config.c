@@ -28,8 +28,8 @@ TEST_CASE("global reset persists factory runtime config", "[config]") {
     TEST_ASSERT_EQUAL(1000, config.buzzer_button_ms);
     TEST_ASSERT_EQUAL(1, config.buzzer_enabled);
     TEST_ASSERT_EQUAL(5000, config.charging_blink_interval_ms);
-    TEST_ASSERT_EQUAL(50, config.wheel_min_speed_deci_kmh);
-    TEST_ASSERT_EQUAL(2100, config.wheel_diameter_mm);
+    TEST_ASSERT_EQUAL(100, config.wheel_min_speed_deci_kmh);
+    TEST_ASSERT_EQUAL(2220, config.wheel_circumference_mm);
 
     runtime_config_encode(wire, 2);
     wire[27] = 0;
@@ -53,8 +53,8 @@ TEST_CASE("global reset persists factory runtime config", "[config]") {
     TEST_ASSERT_EQUAL(1500, config.buzzer_combined_ms);
     TEST_ASSERT_EQUAL(1, config.buzzer_enabled);
     TEST_ASSERT_EQUAL(5000, config.charging_blink_interval_ms);
-    TEST_ASSERT_EQUAL(50, config.wheel_min_speed_deci_kmh);
-    TEST_ASSERT_EQUAL(2100, config.wheel_diameter_mm);
+    TEST_ASSERT_EQUAL(100, config.wheel_min_speed_deci_kmh);
+    TEST_ASSERT_EQUAL(2220, config.wheel_circumference_mm);
 
     runtime_config_init(); /* Reload the committed blob as on the next boot. */
     runtime_config_get(&config);
@@ -145,8 +145,8 @@ TEST_CASE("version four config migrates with reed and blink defaults", "[config]
     TEST_ASSERT_EQUAL(75, config.idle_current_ma);
     TEST_ASSERT_EQUAL(0, config.buzzer_enabled);
     TEST_ASSERT_EQUAL(5000, config.charging_blink_interval_ms);
-    TEST_ASSERT_EQUAL(50, config.wheel_min_speed_deci_kmh);
-    TEST_ASSERT_EQUAL(2100, config.wheel_diameter_mm);
+    TEST_ASSERT_EQUAL(100, config.wheel_min_speed_deci_kmh);
+    TEST_ASSERT_EQUAL(2220, config.wheel_circumference_mm);
     TEST_ASSERT_EQUAL(ESP_OK, runtime_config_reset_defaults());
 }
 
@@ -160,7 +160,7 @@ TEST_CASE("version four BLE writes preserve new settings", "[config]") {
     wire[30] = 0x64;
     wire[31] = 0x00; /* minimum speed 10.0 km/h */
     wire[32] = 0x34;
-    wire[33] = 0x08; /* wheel diameter 2100 mm */
+    wire[33] = 0x08; /* wheel circumference 2100 mm */
     runtime_config_apply_wire(wire, sizeof(wire), &result);
     TEST_ASSERT_EQUAL(CONFIG_STATUS_OK, result.status);
 
@@ -174,7 +174,7 @@ TEST_CASE("version four BLE writes preserve new settings", "[config]") {
     TEST_ASSERT_EQUAL(80, config.idle_current_ma);
     TEST_ASSERT_EQUAL(5000, config.charging_blink_interval_ms);
     TEST_ASSERT_EQUAL(100, config.wheel_min_speed_deci_kmh);
-    TEST_ASSERT_EQUAL(2100, config.wheel_diameter_mm);
+    TEST_ASSERT_EQUAL(2100, config.wheel_circumference_mm);
     TEST_ASSERT_EQUAL(ESP_OK, runtime_config_reset_defaults());
 }
 
@@ -202,7 +202,7 @@ TEST_CASE("new reed and charging parameters are range validated", "[config]") {
     wire[33] = 0;
     runtime_config_apply_wire(wire, sizeof(wire), &result);
     TEST_ASSERT_EQUAL(CONFIG_STATUS_RANGE, result.status);
-    TEST_ASSERT_EQUAL(CONFIG_FIELD_WHEEL_DIAMETER, result.field);
+    TEST_ASSERT_EQUAL(CONFIG_FIELD_WHEEL_CIRCUMFERENCE, result.field);
     TEST_ASSERT_EQUAL(ESP_OK, runtime_config_reset_defaults());
 }
 

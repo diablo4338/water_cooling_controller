@@ -487,31 +487,75 @@ static void test_load_startup_sequence(void) {
     CHECK_INT(mock.beeps[1].duration_ms, 500);
 }
 
-static void test_wheel_motion_uses_normal_button_startup(void) {
-    runtime_core_t core;
-    mock_t mock;
-    memset(&mock, 0, sizeof(mock));
-    init_core(&core, false, true);
-
-    step(&core, &mock,
-         make_event(RTEVT_WHEEL_MOTION_CONFIRMED, 0), 0);
-    CHECK_INT(core.load.state, LOAD_FSM_STARTING);
-    CHECK_INT(mock.load_on_count, 1);
-    CHECK_INT(mock.ble_start_count, 1);
-    CHECK_INT(mock.settle_count, 0);
-    uint32_t operation_id = mock.last_load_on_op;
-    step(&core, &mock, load_ack_event(true, operation_id, 100), 100);
-    CHECK_INT(core.buzzer.state, BUZZER_FSM_WAIT_SETTLE);
-    CHECK_INT(mock.settle_count, 1);
-
+static void test_wheel_motion_uses_shared_startup_without_ble(void) {
+    for (int readback = 0; readback < 2; ++readback) {
+        for (int sample = 0; sample < 3; ++sample) {
+            runtime_core_t core;
+            mock_t mock = {0};
+            init_core(&core, false, true);
+            step(&core, &mock, make_event(RTEVT_WHEEL_MOTION_CONFIRMED, 0), 0);
+            CHECK_INT(core.load.state, LOAD_FSM_STARTING);
+            CHECK_INT(mock.load_on_count, 1);
+            CHECK_INT(mock.ble_start_count, 0);
+            CHECK_INT(mock.settle_count, 0);
+            uint32_t op = mock.last_load_on_op;
+            step(&core, &mock, make_event(RTEVT_WHEEL_MOTION_CONFIRMED, 50), 50);
+            CHECK_INT(mock.load_on_count, 1);
+            int64_t ack_us = readback ? 1000100 : 100;
+            if (readback) {
+                step(&core, &mock, make_event(RTEVT_DEADLINE_CHECK, 1000000), 1000000);
+                CHECK(core.load.verification_pending);
+                step(&core, &mock, load_verified_event(true, true, op, 0, ack_us), ack_us);
+            } else {
+                step(&core, &mock, load_ack_event(true, op, ack_us), ack_us);
+            }
+            CHECK_INT(core.load.state, LOAD_FSM_STARTING);
+            CHECK_INT(core.buzzer.state, BUZZER_FSM_WAIT_SETTLE);
+            CHECK_INT(mock.settle_count, 1);
+            CHECK_INT(mock.ina_count, 0);
+            step(&core, &mock, load_ack_event(true, op, ack_us + 1), ack_us + 1);
+            CHECK_INT(mock.settle_count, 1);
+            int64_t measure_us = ack_us + 1000000;
+            step(&core, &mock, settle_event(op, measure_us), measure_us);
+            CHECK_INT(mock.ina_count, 1);
+            CHECK_INT(mock.ina[0].context, MEASURE_STARTUP);
+            step(&core, &mock,
+                 ina_event(sample != 2, mock.ina[0].request_id, op, MEASURE_STARTUP,
+                           sample == 0 ? 12.0f : (sample == 1 ? 6.0f : NAN),
+                           50.0f, measure_us + 100), measure_us + 100);
+            CHECK_INT(mock.beep_count, 1);
+            CHECK_INT(mock.beeps[0].pattern, sample == 0 ? BUZZER_PATTERN_NORMAL :
+                      (sample == 1 ? BUZZER_PATTERN_LOW_BATTERY : BUZZER_PATTERN_ERROR));
+            CHECK_INT(mock.beeps[0].repeats, sample == 2 ? 3 : 1);
+            int64_t done_us = measure_us + 1600000;
+            step(&core, &mock, beep_finished_event(op, done_us), done_us);
+            CHECK_INT(core.load.state, LOAD_FSM_WORKING);
+            CHECK(core.load.output_on);
+            CHECK_INT(core.buzzer.state, BUZZER_FSM_IDLE);
+            CHECK_INT(core.ble.state, BLE_FSM_OFF);
+            CHECK_INT(mock.ble_start_count, 0);
+        }
+    }
     runtime_core_t already_on;
-    mock_t on_mock;
-    memset(&on_mock, 0, sizeof(on_mock));
+    mock_t on_mock = {0};
     init_core(&already_on, true, true);
-    step(&already_on, &on_mock,
-         make_event(RTEVT_WHEEL_MOTION_CONFIRMED, 0), 0);
+    step(&already_on, &on_mock, make_event(RTEVT_WHEEL_MOTION_CONFIRMED, 0), 0);
     CHECK_INT(already_on.load.state, LOAD_FSM_WORKING);
     CHECK_INT(on_mock.load_on_count, 0);
+    CHECK_INT(on_mock.ble_start_count, 0);
+    CHECK_INT(on_mock.beep_count, 0);
+
+    /* Motion must not refresh an independently opened BLE window. */
+    step(&already_on, &on_mock, thermal_press_event(12.0f, 100), 100);
+    ble_ready(&already_on, &on_mock, 200);
+    CHECK_INT(already_on.ble.state, BLE_FSM_ADVERTISING);
+    int64_t deadline = already_on.ble.window_deadline_us;
+    size_t beeps = on_mock.beep_count;
+    step(&already_on, &on_mock, make_event(RTEVT_WHEEL_MOTION_CONFIRMED, 300), 300);
+    CHECK_INT(already_on.ble.state, BLE_FSM_ADVERTISING);
+    CHECK_INT(already_on.ble.window_deadline_us, deadline);
+    CHECK_INT(on_mock.ble_start_count, 1);
+    CHECK_INT(on_mock.beep_count, beeps);
 }
 
 static void test_startup_ina_error_once(void) {
@@ -1907,8 +1951,8 @@ typedef struct {
 
 static const test_case_t k_tests[] = {
     {"load_startup_sequence", test_load_startup_sequence},
-    {"wheel_motion_uses_normal_button_startup",
-     test_wheel_motion_uses_normal_button_startup},
+    {"wheel_motion_uses_shared_startup_without_ble",
+     test_wheel_motion_uses_shared_startup_without_ble},
     {"startup_ina_error_once", test_startup_ina_error_once},
     {"startup_voltage_selects_cue", test_startup_voltage_selects_cue},
     {"periodic_failures_silent", test_periodic_failures_silent},

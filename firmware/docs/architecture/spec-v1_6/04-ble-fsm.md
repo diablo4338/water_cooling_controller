@@ -1,5 +1,7 @@
 # BLE lifecycle — simplified, time-driven
 
+`WHEEL_MOTION_CONFIRMED` is ignored in every BLE state: it neither initializes BLE nor extends an existing advertising window. The dispatcher must not translate motion into `THERMAL_BUTTON_PRESSED`.
+
 **Never initialize BLE at ordinary boot.** On first qualified thermal-button/pairing activation initialize NimBLE once per awake cycle. Leave stack/controller running until Deep Sleep. No controller stop/deinit, no NimBLE host shutdown/deinit, no repeated initialization in same wake. Existing pairing and auth FSMs remain unchanged.
 
 States: `OFF`, `STARTING`, `ADVERTISING`, `CONNECTED`, `READY_TO_SLEEP`. Optional `ERROR` represents startup failure and is handled by bounded sleep fallback, **not** an indefinite awake latch.

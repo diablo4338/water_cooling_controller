@@ -15,12 +15,12 @@ static bool add_duration(int64_t now_us, uint64_t duration_us,
 
 bool reed_detector_start(reed_detector_t *detector, bool load_on,
                          uint16_t min_speed_deci_kmh,
-                         uint16_t wheel_diameter_mm, int64_t now_us) {
+                         uint16_t wheel_circumference_mm, int64_t now_us) {
     if (!detector || detector->attempted || load_on || now_us < 0 ||
         min_speed_deci_kmh < REED_MIN_SPEED_DECI_KMH ||
         min_speed_deci_kmh > REED_MAX_SPEED_DECI_KMH ||
-        wheel_diameter_mm < REED_MIN_WHEEL_DIAMETER_MM ||
-        wheel_diameter_mm > REED_MAX_WHEEL_DIAMETER_MM) {
+        wheel_circumference_mm < REED_MIN_WHEEL_CIRCUMFERENCE_MM ||
+        wheel_circumference_mm > REED_MAX_WHEEL_CIRCUMFERENCE_MM) {
         return false;
     }
 
@@ -30,10 +30,10 @@ bool reed_detector_start(reed_detector_t *detector, bool load_on,
     detector->generation = generation;
     detector->attempted = true;
 
-    /* T_us = PI * diameter_mm * 36000 / speed_deci_kmh. */
+    /* One pulse per revolution: T_us = circumference_mm * 36000 / speed_deci_kmh. */
     const uint64_t numerator =
-        (uint64_t)3141593U * wheel_diameter_mm * 36000ULL;
-    const uint64_t denominator = 1000000ULL * min_speed_deci_kmh;
+        (uint64_t)wheel_circumference_mm * 36000ULL;
+    const uint64_t denominator = min_speed_deci_kmh;
     uint64_t interval_us = (numerator + denominator / 2ULL) / denominator;
     if (interval_us == 0 || interval_us > (uint64_t)INT64_MAX / 2ULL ||
         !add_duration(now_us, interval_us * 2ULL, &detector->deadline_us)) {

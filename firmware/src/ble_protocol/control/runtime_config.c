@@ -30,8 +30,8 @@ static const runtime_config_t default_config = {
     .buzzer_combined_ms = 1500,
     .buzzer_enabled = 1,
     .charging_blink_interval_ms = 5000,
-    .wheel_min_speed_deci_kmh = 50,
-    .wheel_diameter_mm = 2100,
+    .wheel_min_speed_deci_kmh = 100,
+    .wheel_circumference_mm = 2220,
 };
 
 static uint16_t read_u16(const uint8_t *data) {
@@ -73,14 +73,21 @@ static void encode_config(const runtime_config_t *config, uint16_t request_id,
     out[27] = config->buzzer_enabled;
     write_u16(out + 28, config->charging_blink_interval_ms);
     write_u16(out + 30, config->wheel_min_speed_deci_kmh);
-    write_u16(out + 32, config->wheel_diameter_mm);
+    write_u16(out + 32, config->wheel_circumference_mm);
 }
 
 static bool decode_config(const uint8_t *data, size_t length,
                           runtime_config_t *config, uint16_t *request_id) {
     if (!data || !config || length != RUNTIME_CONFIG_WIRE_SIZE ||
-        data[0] != RUNTIME_CONFIG_VERSION) {
+        (data[0] != RUNTIME_CONFIG_VERSION && data[0] != 5)) {
         return false;
+    }
+    /* v5 stored diameter; v6 stores circumference at the same offset. */
+    uint16_t circumference_mm = read_u16(data + 32);
+    if (data[0] == 5) {
+        if (circumference_mm < 300 || circumference_mm > 3000) return false;
+        circumference_mm = (uint16_t)(((uint64_t)circumference_mm *
+                                       3141593ULL + 500000ULL) / 1000000ULL);
     }
     if (request_id) *request_id = read_u16(data + 1);
     *config = (runtime_config_t) {
@@ -98,7 +105,7 @@ static bool decode_config(const uint8_t *data, size_t length,
         .buzzer_enabled = data[27],
         .charging_blink_interval_ms = read_u16(data + 28),
         .wheel_min_speed_deci_kmh = read_u16(data + 30),
-        .wheel_diameter_mm = read_u16(data + 32),
+        .wheel_circumference_mm = circumference_mm,
     };
     return true;
 }
@@ -120,9 +127,9 @@ static runtime_config_status_t validate_config(const runtime_config_t *config,
         *field = CONFIG_FIELD_WHEEL_MIN_SPEED;
         return CONFIG_STATUS_RANGE;
     }
-    if (config->wheel_diameter_mm < 300 ||
-        config->wheel_diameter_mm > 3000) {
-        *field = CONFIG_FIELD_WHEEL_DIAMETER;
+    if (config->wheel_circumference_mm < 900 ||
+        config->wheel_circumference_mm > 10000) {
+        *field = CONFIG_FIELD_WHEEL_CIRCUMFERENCE;
         return CONFIG_STATUS_RANGE;
     }
     if (config->voltage_max_mv <= config->voltage_min_mv) {

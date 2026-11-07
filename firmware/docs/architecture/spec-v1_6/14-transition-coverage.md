@@ -27,11 +27,12 @@ This document closes event ordering and omitted-event ambiguity; it **does not c
 
 | State | Relevant event or condition | State/action | Deadline/no-event behavior |
 |---|---|---|---|
-| IDLE | THERMAL_BUTTON_PRESSED | STARTING; request real LOAD_ON | Handle bounded GPIO action failure; do not claim success |
+| IDLE | THERMAL_BUTTON_PRESSED or WHEEL_MOTION_CONFIRMED | STARTING; request real LOAD_ON | Handle bounded GPIO action failure; do not claim success |
 | IDLE | Periodic sample | IDLE, no load-off reactivation | Next normal Deep Sleep |
 | STARTING | Matching LOAD_ON applied | STARTING; start buzzer STARTUP settle | If buzzer completion missing, startup deadline → WORKING |
 | STARTING | Matching LOAD_ON failure | ERROR; log real physical fault | No fake ON; handle physical fault separately |
 | STARTING | STARTUP buzzer complete / bounded deadline | WORKING; keep load ON | Late completion ignored |
+| STARTING / STOPPING / WORKING | WHEEL_MOTION_CONFIRMED | No-op; no duplicate startup or button cue | Existing operation deadlines unchanged |
 | WORKING | THERMAL_BUTTON_PRESSED | WORKING; no GPIO change | BLE handles press separately |
 | WORKING | Valid low-current sample | WORKING; maintain/init low-current timer | Timeout becomes STOPPING |
 | WORKING | Normal-current sample | WORKING; clear low-current timer | — |

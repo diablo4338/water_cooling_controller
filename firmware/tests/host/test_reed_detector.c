@@ -28,7 +28,9 @@ static void test_one_shot_pair_and_phase_deadlines(void) {
 
 static void test_exact_maximum_interval_confirms(void) {
     reed_detector_t detector = {0};
-    assert(reed_detector_start(&detector, false, 100, 2100, 0));
+    assert(reed_detector_start(&detector, false, 100, 2220, 0));
+    assert(detector.max_interval_us == 799200);
+    assert(detector.deadline_us == 1598400);
     int64_t first = 1000;
     assert(!reed_detector_pulse(&detector, detector.generation, first));
     assert(reed_detector_pulse(&detector, detector.generation,
@@ -78,13 +80,13 @@ static void test_debounce_rejects_bounce_but_accepts_supported_pulse(void) {
                                    100000 + REED_SWITCH_DEBOUNCE_US - 1));
     assert(reed_detector_debounce(&last,
                                   100000 + REED_SWITCH_DEBOUNCE_US));
-    assert(reed_detector_start(&(reed_detector_t){0}, false, 1200, 300, 0));
+    assert(reed_detector_start(&(reed_detector_t){0}, false, 1200, 900, 0));
 }
 
 static void test_invalid_configuration_and_stale_generation(void) {
     reed_detector_t detector = {0};
     assert(!reed_detector_start(&detector, false, 0, 2100, 0));
-    assert(!reed_detector_start(&detector, false, 50, 299, 0));
+    assert(!reed_detector_start(&detector, false, 50, 899, 0));
     assert(reed_detector_start(&detector, false, 50, 2100, 0));
     uint32_t generation = detector.generation;
     assert(!reed_detector_start(&detector, true, 50, 2100, 1));

@@ -6,6 +6,9 @@
 ## Button triggers startup and BLE
 `THERMAL_BUTTON_PRESSED → Load STARTING + BLE STARTING → physical LOAD_ON → settle 1000 ms (time check, no blocking wait) → fresh INA voltage → normal/low-battery pattern OR single three-short-error pattern → sound finished OR sound deadline → Load WORKING`. BLE independently initializes once and begins advertising. Never re-init on duplicate press.
 
+## Wheel motion triggers the same startup without BLE activation
+`WHEEL_MOTION_CONFIRMED ? Load STARTING ? LOAD_ON executed and acknowledged (or verified via executor readback) ? settle >=1000 ms ? fresh INA voltage ? configured startup signal or single three-short-error pattern ? completion or bounded deadline ? Load WORKING`. BLE ignores motion, retaining its current state and deadlines. The dispatcher forwards the original event to each FSM. Duplicate motion does not restart an operation; motion while WORKING does not play a button cue. Normal Power Manager eligibility applies after startup.
+
 ## Low-current shutdown
 `low-current deadline → Load STOPPING, output still ON → fresh INA voltage → below threshold? configured low-battery sound : silence → BUZZER_DONE OR sound deadline → force buzzer pin OFF → physical LOAD_OFF → Load IDLE`. No signal for normal battery, no INA-error triple on shutdown.
 

@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include "esp_err.h"
 
-#define RUNTIME_CONFIG_VERSION 5U
+#define RUNTIME_CONFIG_VERSION 6U
 #define RUNTIME_CONFIG_WIRE_SIZE 34U
 #define RUNTIME_CONFIG_RESULT_SIZE 5U
 
@@ -24,7 +24,7 @@ typedef struct {
     uint8_t buzzer_enabled;
     uint16_t charging_blink_interval_ms;
     uint16_t wheel_min_speed_deci_kmh;
-    uint16_t wheel_diameter_mm;
+    uint16_t wheel_circumference_mm;
 } runtime_config_t;
 
 typedef enum {
@@ -51,7 +51,7 @@ typedef enum {
     CONFIG_FIELD_BUZZER_ENABLED = 13,
     CONFIG_FIELD_CHARGING_BLINK_INTERVAL = 14,
     CONFIG_FIELD_WHEEL_MIN_SPEED = 15,
-    CONFIG_FIELD_WHEEL_DIAMETER = 16,
+    CONFIG_FIELD_WHEEL_CIRCUMFERENCE = 16,
 } runtime_config_field_t;
 
 typedef struct {

@@ -1,14 +1,14 @@
 # BLE client configuration changes
 
 This document describes the implemented firmware protocol in configuration
-version 5. The main BLE service UUID is
+version 6. The main BLE service UUID is
 `0814951d-ca1b-4581-b1af-9c4f2ca96e90`.
 
 ## Characteristics
 
 | Purpose | UUID | Properties | Payload |
 |---|---|---|---|
-| Runtime configuration | `dc881986-aada-4764-bfb9-d79326a6c03a` | Read, Write | Versioned configuration blob, 34 bytes in v5 |
+| Runtime configuration | `dc881986-aada-4764-bfb9-d79326a6c03a` | Read, Write | Versioned configuration blob, 34 bytes in v6 |
 | Configuration result | `11d1283c-ad34-406d-9d96-7a11c69db086` | Read, Notify | 5-byte result |
 | Load state metric | `a1b2c3d4-0b1c-4a2b-9c3d-4e5f60718281` | Read, Notify | One-byte state value |
 
@@ -20,12 +20,12 @@ after each write.
 
 ## Configuration version and wire layout
 
-Configuration v4 was 28 bytes. Configuration v5 is 34 bytes. All multibyte
+Configuration v4 was 28 bytes. Configuration v5 and v6 are 34 bytes. v5 offset 32 stored diameter; v6 stores circumference. All multibyte
 integers are unsigned and little-endian. Offsets are zero-based.
 
-| Offset | Size | Field / header | Type | v5 behavior |
+| Offset | Size | Field / header | Type | v6 behavior |
 |---:|---:|---|---|---|
-| 0 | 1 | `version` | `uint8` | Must be `5` for v5 writes |
+| 0 | 1 | `version` | `uint8` | Must be `6` for v6 writes |
 | 1 | 2 | `request_id` | `uint16` | Client correlation ID; echoed in the result |
 | 3 | 2 | `idle_current_ma` | `uint16` | Existing field; idle and charging current threshold |
 | 5 | 2 | `voltage_min_mv` | `uint16` | Existing field; low-voltage threshold used for NEED_CHARGING |
@@ -41,7 +41,7 @@ integers are unsigned and little-endian. Offsets are zero-based.
 | 27 | 1 | `buzzer_enabled` | `uint8` | Existing field; `0` or `1` |
 | 28 | 2 | `charging_blink_interval_ms` | `uint16` | New in v5; duration of each ON and OFF phase |
 | 30 | 2 | `wheel_min_speed_deci_kmh` | `uint16` | New in v5; speed stored in 0.1 km/h units |
-| 32 | 2 | `wheel_diameter_mm` | `uint16` | New in v5 |
+| 32 | 2 | `wheel_circumference_mm` | `uint16` | Circumference in mm since v6; v5 stored diameter |
 
 ### Configuration parameters
 
@@ -49,12 +49,12 @@ Every listed configuration field is stored together in the `runtime_cfg/values`
 NVS blob and is accessible through the runtime-configuration characteristic.
 Every field is writable as part of the full configuration blob and readable
 from the same characteristic. The firmware does not require a restart for the
-charging blink interval or thresholds; wheel speed and diameter changes are
+charging blink interval or thresholds; wheel speed and circumference changes are
 used by the reed detector on the next startup/wakeup cycle.
 
 Thus, for each field in the table: NVS = yes; BLE = yes; access = readable and
 writable; restart = no, except `wheel_min_speed_deci_kmh` and
-`wheel_diameter_mm`, which are picked up by the detector on the next
+`wheel_circumference_mm`, which are picked up by the detector on the next
 startup/wakeup cycle (not immediately in the current cycle).
 
 For legacy fields whose validation is type-only, the accepted minimum and
@@ -76,8 +76,8 @@ also be greater than `voltage_min_mv`.
 | `buzzer_combined_ms` | Existing combined buzzer duration, ms | `uint16`, 2 bytes | 1500 | 0–65535 | “Combined beep duration”, numeric ms input |
 | `buzzer_enabled` | Existing buzzer enable flag | `uint8`, 1 byte | 1 | 0 or 1 | “Enable buzzer”, boolean switch |
 | `charging_blink_interval_ms` | Duration of each NEED_CHARGING ON phase and each OFF phase, ms | `uint16`, 2 bytes | 5000 | 1000–60000 | “Charging blink interval”, numeric ms input |
-| `wheel_min_speed_deci_kmh` | Minimum speed to confirm motion, in 0.1 km/h (50 means 5.0 km/h) | `uint16`, 2 bytes | 50 | 10–1200 (1.0–120.0 km/h) | “Minimum wheel speed”, decimal km/h input converted to tenths |
-| `wheel_diameter_mm` | Wheel diameter used for one-revolution timing, mm | `uint16`, 2 bytes | 2100 | 300–3000 | “Wheel diameter”, numeric mm input |
+| `wheel_min_speed_deci_kmh` | Minimum speed to confirm motion, in 0.1 km/h (100 means 10.0 km/h) | `uint16`, 2 bytes | 100 | 10–1200 (1.0–120.0 km/h) | “Minimum wheel speed”, decimal km/h input converted to tenths |
+| `wheel_circumference_mm` | Wheel circumference used for one-revolution timing, mm | `uint16`, 2 bytes | 2220 | 900-10000 | Wheel circumference, numeric mm input |
 
 The NEED_CHARGING entry thresholds are deliberately the existing
 `voltage_min_mv` and `idle_current_ma` settings; there are no duplicate
@@ -88,6 +88,10 @@ below the threshold. Invalid or missing measurements do not count as low.
 The reed switch GPIO is a firmware board constant, not a BLE parameter:
 `BOARD_REED_SWITCH_GPIO = GPIO_NUM_6`, active-low. The detector is one-shot per
 wakeup, is not a Deep Sleep wake source, and only starts if the load is OFF.
+Confirmed motion emits `WHEEL_MOTION_CONFIRMED`: the Load FSM runs the same
+startup as a thermal-button press (GPIO ON, settling, fresh INA sample and
+configured startup sound/error handling). Motion does not initialize BLE or
+extend its advertising window.
 
 ## Configuration result payload
 
@@ -95,10 +99,10 @@ The result is five bytes:
 
 | Offset | Size | Field | Encoding |
 |---:|---:|---|---|
-| 0 | 1 | `version` | `uint8`, currently `5` |
+| 0 | 1 | `version` | `uint8`, currently `6` |
 | 1 | 2 | `request_id` | `uint16`, little-endian |
 | 3 | 1 | `status` | `uint8`: `0` OK, `1` format, `2` range, `4` voltage ordering, `5` NVS/flash failure |
-| 4 | 1 | `field` | `uint8`: `0` none, `1` idle current, `2` min voltage, `3` max voltage, `4` idle timeout, `5` button delta, `7` sleep interval, `8` buzzer threshold, `9` low delay, `10` button duration, `11` low duration, `12` combined duration, `13` buzzer enabled, `14` charging blink interval, `15` wheel minimum speed, `16` wheel diameter |
+| 4 | 1 | `field` | `uint8`: `0` none, `1` idle current, `2` min voltage, `3` max voltage, `4` idle timeout, `5` button delta, `7` sleep interval, `8` buzzer threshold, `9` low delay, `10` button duration, `11` low duration, `12` combined duration, `13` buzzer enabled, `14` charging blink interval, `15` wheel minimum speed, `16` wheel circumference |
 
 ## Load state metric
 
@@ -117,46 +121,51 @@ level (the load is kept ON during the NEED_CHARGING ON phase).
 
 ## Compatibility, migration, and examples
 
-NVS migration accepts stored v1–v4 configurations. Existing values are
-preserved; v5-only fields receive defaults (`5000 ms`, `50` deci-km/h, and
-`2100 mm`). The next successful configuration write persists the complete v5
-blob.
+NVS migration accepts stored v1-v5 configurations. v1-v4 retain existing
+settings and receive defaults for the missing fields: 5000 ms blink interval,
+100 deci-km/h minimum speed and 2220 mm circumference. v5 diameter is converted
+to circumference, rounded to the nearest mm (`round(diameter_mm * pi)`);
+other settings are preserved. The next successful write persists v6.
 
-For compatibility, the firmware also accepts a 28-byte v4 configuration
-write, preserving the current v5-only values. It still returns the current
-five-byte v5 result, and configuration reads return the 34-byte v5 layout.
-Therefore v4 clients that only write their existing 28-byte blob can continue
-to do so, but clients must be updated before they read or parse configuration
-responses as v4. Clients should not assume that a successful v4 write changes
-the new v5-only settings.
+BLE accepts v6 writes directly and v5 writes with the same diameter conversion
+(the legacy diameter range remains 300-3000 mm). A 28-byte v4 write preserves
+the current wheel and blink settings. Reads and result notifications always
+return v6. Clients must check the version: offset 32 is diameter in v5 and
+circumference in v6; do not reinterpret one as the other.
 
-Example v5 configuration write using request ID `0x1234` and all defaults:
+The detector assumes one pulse per wheel revolution and uses
+`max_interval_us = round(circumference_mm * 36000 / speed_deci_kmh)`.
+Defaults 2220 mm and 100 deci-km/h give 799200 us. Circumference range is
+900-10000 mm; its lower bound keeps the pulse interval above the existing
+20-ms debounce at the maximum supported speed of 120 km/h.
+
+Example v6 configuration write using request ID `0x1234` and all defaults:
 
 ```text
-05 34 12 64 00 C8 19 D0 20 2C 01 00 00 14 00 88 13
-58 1B 0A 00 F4 01 E8 03 DC 05 01 88 13 32 00 34 08
+06 34 12 64 00 C8 19 D0 20 2C 01 00 00 14 00 88 13
+58 1B 0A 00 F4 01 E8 03 DC 05 01 88 13 64 00 AC 08
 ```
 
 The payload is exactly 34 bytes. For example, offsets 28–33 encode the
-charging interval `0x1388 = 5000 ms`, minimum speed `0x0032 = 50` deci-km/h,
-and wheel diameter `0x0834 = 2100 mm`.
+charging interval `0x1388 = 5000 ms`, minimum speed `0x0064 = 100` deci-km/h,
+and wheel circumference `0x08AC = 2220 mm`.
 
 Example successful result for request ID `0x1234`:
 
 ```text
-05 34 12 00 00
+06 34 12 00 00
 ```
 
 ### Client implementation checklist
 
-1. Read and write the full 34-byte v5 blob; encode/decode all multibyte values
-   little-endian and set byte 0 to `5`.
+1. Read and write the full 34-byte v6 blob; encode/decode all multibyte values
+   little-endian and set byte 0 to `6`.
 2. Subscribe to the configuration-result characteristic and correlate results
    by the echoed request ID; handle all documented status and field codes.
 3. Keep the existing 28-byte v4 write path only if compatibility with older
-   firmware/clients is needed. Do not parse v5 reads as v4.
+   firmware/clients is needed. Do not parse v6 reads as v4 or interpret circumference as v5 diameter.
 4. Add UI controls for `charging_blink_interval_ms`,
-   `wheel_min_speed_deci_kmh`, and `wheel_diameter_mm`, with the documented
+   `wheel_min_speed_deci_kmh`, and `wheel_circumference_mm`, with the documented
    ranges and unit conversions.
 5. Treat load state `2` as `NEED_CHARGING`; do not infer state solely from
    whether the physical load output is currently ON.

@@ -62,16 +62,16 @@ static void write_u16(uint8_t *wire, size_t offset, uint16_t value) {
     wire[offset + 1U] = (uint8_t)(value >> 8);
 }
 
-static void test_v5_round_trip_and_ranges(void) {
+static void test_v6_round_trip_and_ranges(void) {
     CHECK(runtime_config_reset_defaults() == ESP_OK);
     uint8_t wire[RUNTIME_CONFIG_WIRE_SIZE];
     runtime_config_encode(wire, 0x1234);
     CHECK(sizeof(wire) == 34U);
-    CHECK(wire[0] == 5U);
+    CHECK(wire[0] == 6U);
     CHECK(wire[1] == 0x34U && wire[2] == 0x12U);
     CHECK(read_u16(wire, 28) == 5000U);
-    CHECK(read_u16(wire, 30) == 50U);
-    CHECK(read_u16(wire, 32) == 2100U);
+    CHECK(read_u16(wire, 30) == 100U);
+    CHECK(read_u16(wire, 32) == 2220U);
 
     runtime_config_result_t result;
     write_u16(wire, 28, 1000U);
@@ -83,7 +83,7 @@ static void test_v5_round_trip_and_ranges(void) {
     runtime_config_get(&config);
     CHECK(config.charging_blink_interval_ms == 1000U);
     CHECK(config.wheel_min_speed_deci_kmh == 1200U);
-    CHECK(config.wheel_diameter_mm == 3000U);
+    CHECK(config.wheel_circumference_mm == 3000U);
 
     write_u16(wire, 28, 999U);
     runtime_config_apply_wire(wire, sizeof(wire), &result);
@@ -111,8 +111,8 @@ static void test_v4_migration_and_write_compatibility(void) {
     CHECK(config.idle_current_ma == 75U);
     CHECK(config.buzzer_enabled == 0U);
     CHECK(config.charging_blink_interval_ms == 5000U);
-    CHECK(config.wheel_min_speed_deci_kmh == 50U);
-    CHECK(config.wheel_diameter_mm == 2100U);
+    CHECK(config.wheel_min_speed_deci_kmh == 100U);
+    CHECK(config.wheel_circumference_mm == 2220U);
 
     runtime_config_result_t result;
     runtime_config_encode(wire, 9);
@@ -131,14 +131,55 @@ static void test_v4_migration_and_write_compatibility(void) {
     CHECK(config.idle_current_ma == 80U);
     CHECK(config.charging_blink_interval_ms == 4000U);
     CHECK(config.wheel_min_speed_deci_kmh == 100U);
-    CHECK(config.wheel_diameter_mm == 1800U);
+    CHECK(config.wheel_circumference_mm == 1800U);
     CHECK(stored_length == RUNTIME_CONFIG_WIRE_SIZE);
     CHECK(stored_blob[0] == RUNTIME_CONFIG_VERSION);
     CHECK(runtime_config_reset_defaults() == ESP_OK);
 }
 
+static void test_v5_diameter_migration(void) {
+    const uint16_t diameters[] = {300, 707, 2100, 3000};
+    const uint16_t circumferences[] = {942, 2221, 6597, 9425};
+    for (size_t i = 0; i < sizeof(diameters) / sizeof(diameters[0]); ++i) {
+        CHECK(runtime_config_reset_defaults() == ESP_OK);
+        uint8_t wire[RUNTIME_CONFIG_WIRE_SIZE];
+        runtime_config_encode(wire, 42);
+        wire[0] = 5;
+        write_u16(wire, 3, 77);
+        write_u16(wire, 32, diameters[i]);
+        memcpy(stored_blob, wire, sizeof(wire));
+        stored_length = sizeof(wire);
+        runtime_config_init();
+        runtime_config_t config;
+        runtime_config_get(&config);
+        CHECK(config.idle_current_ma == 77);
+        CHECK(config.wheel_circumference_mm == circumferences[i]);
+        runtime_config_result_t result;
+        runtime_config_apply_wire(wire, sizeof(wire), &result);
+        CHECK(result.status == CONFIG_STATUS_OK);
+        CHECK(result.request_id == 42);
+        CHECK(stored_blob[0] == 6);
+        CHECK(read_u16(stored_blob, 32) == circumferences[i]);
+        runtime_config_init();
+        runtime_config_get(&config);
+        CHECK(config.wheel_circumference_mm == circumferences[i]);
+    }
+    CHECK(runtime_config_reset_defaults() == ESP_OK);
+    uint8_t wire[RUNTIME_CONFIG_WIRE_SIZE];
+    runtime_config_encode(wire, 0);
+    runtime_config_result_t result;
+    const uint16_t values[] = {899, 900, 10000, 10001};
+    for (size_t i = 0; i < 4; ++i) {
+        write_u16(wire, 32, values[i]);
+        runtime_config_apply_wire(wire, sizeof(wire), &result);
+        CHECK(result.status == ((i == 0 || i == 3) ? CONFIG_STATUS_RANGE : CONFIG_STATUS_OK));
+    }
+    CHECK(runtime_config_reset_defaults() == ESP_OK);
+}
+
 int main(void) {
-    test_v5_round_trip_and_ranges();
+    test_v6_round_trip_and_ranges();
+    test_v5_diameter_migration();
     test_v4_migration_and_write_compatibility();
     if (failures != 0) {
         fprintf(stderr, "%d runtime config assertions failed\n", failures);
