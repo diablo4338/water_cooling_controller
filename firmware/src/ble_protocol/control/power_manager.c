@@ -10,6 +10,8 @@ const char *power_manager_block_reason_name(power_sleep_block_reason_t reason) {
         case POWER_BLOCK_ACTION: return "action_pending";
         case POWER_BLOCK_EVENT: return "event_pending";
         case POWER_BLOCK_CRITICAL: return "critical_pending";
+        case POWER_BLOCK_NEED_CHARGING: return "need_charging";
+        case POWER_BLOCK_REED_DETECTOR: return "reed_detection";
         default: return "unknown";
     }
 }
@@ -26,6 +28,10 @@ power_sleep_block_reason_t power_manager_sleep_block_reason(
         return POWER_BLOCK_LOAD_TRANSITION;
     }
     if (snapshot->load_state == LOAD_FSM_ERROR) return POWER_BLOCK_LOAD_ERROR;
+    if (snapshot->load_state == LOAD_FSM_NEED_CHARGING) {
+        return POWER_BLOCK_NEED_CHARGING;
+    }
+    if (snapshot->reed_detection_pending) return POWER_BLOCK_REED_DETECTOR;
     if (snapshot->buzzer_state != BUZZER_FSM_IDLE) return POWER_BLOCK_BUZZER;
     if (snapshot->action_pending) return POWER_BLOCK_ACTION;
     if (snapshot->event_pending) return POWER_BLOCK_EVENT;

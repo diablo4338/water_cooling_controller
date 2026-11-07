@@ -113,6 +113,18 @@ int main(void) {
     CHECK(event_bus_receive(&received, 0));
     CHECK(received.request_id == 10U);
 
+    runtime_event_t queued_before_motion = event_with_id(11);
+    runtime_event_t motion = runtime_event_make(RTEVT_WHEEL_MOTION_CONFIRMED, 0);
+    motion.request_id = 12;
+    CHECK(event_bus_publish(&queued_before_motion));
+    CHECK(event_bus_publish(&motion));
+    CHECK(event_bus_receive(&received, 0));
+    CHECK(received.request_id == 11U);
+    CHECK(received.kind == RTEVT_THERMAL_BUTTON_PRESSED);
+    CHECK(event_bus_receive(&received, 0));
+    CHECK(received.request_id == 12U);
+    CHECK(received.kind == RTEVT_WHEEL_MOTION_CONFIRMED);
+
     for (uint32_t id = 0; id < EVENT_BUS_DEPTH; ++id) {
         runtime_event_t event = event_with_id(id);
         CHECK(event_bus_publish_isr(&event));
@@ -141,6 +153,15 @@ int main(void) {
         .load_state = LOAD_FSM_WORKING,
         .buzzer_state = BUZZER_FSM_IDLE,
     };
+    CHECK(power_manager_can_sleep(&snapshot));
+    snapshot.reed_detection_pending = true;
+    CHECK(!power_manager_can_sleep(&snapshot));
+    CHECK(power_manager_sleep_block_reason(&snapshot) ==
+          POWER_BLOCK_REED_DETECTOR);
+    snapshot.reed_detection_pending = false;
+    snapshot.event_pending = true;
+    CHECK(power_manager_sleep_block_reason(&snapshot) == POWER_BLOCK_EVENT);
+    snapshot.event_pending = false;
     CHECK(power_manager_can_sleep(&snapshot));
 
     if (failures != 0) {

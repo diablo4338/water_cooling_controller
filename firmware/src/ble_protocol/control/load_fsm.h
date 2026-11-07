@@ -13,11 +13,26 @@ typedef enum {
     LOAD_FSM_WORKING,
     LOAD_FSM_STOPPING,
     LOAD_FSM_ERROR,
+    LOAD_FSM_NEED_CHARGING,
 } load_fsm_state_t;
+
+typedef enum {
+    LOAD_CHARGE_NONE = 0,
+    LOAD_CHARGE_TURNING_ON,
+    LOAD_CHARGE_ON,
+    LOAD_CHARGE_MEASURING,
+    LOAD_CHARGE_RETRY_MEASUREMENT,
+    LOAD_CHARGE_TURNING_OFF,
+    LOAD_CHARGE_OFF,
+} load_charging_phase_t;
 
 typedef struct {
     float low_current_ma;
+    float low_voltage_v;
     int64_t low_current_timeout_us;
+    int64_t need_charging_confirm_us;
+    int64_t measure_timeout_us;
+    uint16_t charging_blink_interval_ms;
 } load_fsm_config_t;
 
 typedef struct {
@@ -26,10 +41,16 @@ typedef struct {
     bool off_requested;
     bool verification_pending;
     bool low_current_pending;
+    bool low_voltage_current_pending;
+    bool charging_measure_pending;
     int64_t low_current_since_us;
+    int64_t low_voltage_current_since_us;
+    int64_t charging_deadline_us;
     uint32_t operation_id;      /* current startup or shutdown operation */
     uint32_t startup_operation_id;
     uint32_t shutdown_operation_id;
+    uint32_t charging_request_id;
+    load_charging_phase_t charging_phase;
     uint8_t off_retries;
     uint8_t on_retries;
     uint8_t verification_retries;

@@ -29,6 +29,9 @@ static const runtime_config_t default_config = {
     .buzzer_low_ms = 1000,
     .buzzer_combined_ms = 1500,
     .buzzer_enabled = 1,
+    .charging_blink_interval_ms = 5000,
+    .wheel_min_speed_deci_kmh = 50,
+    .wheel_diameter_mm = 2100,
 };
 
 static uint16_t read_u16(const uint8_t *data) {
@@ -68,6 +71,9 @@ static void encode_config(const runtime_config_t *config, uint16_t request_id,
     write_u16(out + 23, config->buzzer_low_ms);
     write_u16(out + 25, config->buzzer_combined_ms);
     out[27] = config->buzzer_enabled;
+    write_u16(out + 28, config->charging_blink_interval_ms);
+    write_u16(out + 30, config->wheel_min_speed_deci_kmh);
+    write_u16(out + 32, config->wheel_diameter_mm);
 }
 
 static bool decode_config(const uint8_t *data, size_t length,
@@ -90,6 +96,9 @@ static bool decode_config(const uint8_t *data, size_t length,
         .buzzer_low_ms = read_u16(data + 23),
         .buzzer_combined_ms = read_u16(data + 25),
         .buzzer_enabled = data[27],
+        .charging_blink_interval_ms = read_u16(data + 28),
+        .wheel_min_speed_deci_kmh = read_u16(data + 30),
+        .wheel_diameter_mm = read_u16(data + 32),
     };
     return true;
 }
@@ -99,6 +108,21 @@ static runtime_config_status_t validate_config(const runtime_config_t *config,
     *field = CONFIG_FIELD_NONE;
     if (config->buzzer_enabled > 1) {
         *field = CONFIG_FIELD_BUZZER_ENABLED;
+        return CONFIG_STATUS_RANGE;
+    }
+    if (config->charging_blink_interval_ms < 1000 ||
+        config->charging_blink_interval_ms > 60000) {
+        *field = CONFIG_FIELD_CHARGING_BLINK_INTERVAL;
+        return CONFIG_STATUS_RANGE;
+    }
+    if (config->wheel_min_speed_deci_kmh < 10 ||
+        config->wheel_min_speed_deci_kmh > 1200) {
+        *field = CONFIG_FIELD_WHEEL_MIN_SPEED;
+        return CONFIG_STATUS_RANGE;
+    }
+    if (config->wheel_diameter_mm < 300 ||
+        config->wheel_diameter_mm > 3000) {
+        *field = CONFIG_FIELD_WHEEL_DIAMETER;
         return CONFIG_STATUS_RANGE;
     }
     if (config->voltage_max_mv <= config->voltage_min_mv) {
@@ -124,7 +148,8 @@ void runtime_config_init(void) {
     bool decoded = err == ESP_OK && decode_config(wire, length, &loaded, NULL);
     if (!decoded && err == ESP_OK &&
         ((length == 19 && wire[0] == 1) || (length == 17 && wire[0] == 2) ||
-         (length == 27 && wire[0] == 3))) {
+         (length == 27 && wire[0] == 3) ||
+         (length == 28 && wire[0] == 4))) {
         /* Preserve existing settings and initialize only fields missing in older versions. */
         loaded = default_config;
         loaded.idle_current_ma = read_u16(wire + 3);
@@ -143,6 +168,14 @@ void runtime_config_init(void) {
             loaded.buzzer_button_ms = read_u16(wire + 21);
             loaded.buzzer_low_ms = read_u16(wire + 23);
             loaded.buzzer_combined_ms = read_u16(wire + 25);
+        }
+        if (wire[0] == 4) {
+            loaded.buzzer_threshold_mv = read_u16(wire + 17);
+            loaded.buzzer_low_delay_s = read_u16(wire + 19);
+            loaded.buzzer_button_ms = read_u16(wire + 21);
+            loaded.buzzer_low_ms = read_u16(wire + 23);
+            loaded.buzzer_combined_ms = read_u16(wire + 25);
+            loaded.buzzer_enabled = wire[27];
         }
         decoded = true;
     }
@@ -212,7 +245,25 @@ void runtime_config_apply_wire(const uint8_t *data, size_t length,
         .field = CONFIG_FIELD_NONE,
     };
     runtime_config_t candidate;
-    if (!decode_config(data, length, &candidate, &result->request_id)) return;
+    bool decoded = decode_config(data, length, &candidate, &result->request_id);
+    if (!decoded && data && length == 28 && data[0] == 4) {
+        runtime_config_get(&candidate);
+        result->request_id = read_u16(data + 1);
+        candidate.idle_current_ma = read_u16(data + 3);
+        candidate.voltage_min_mv = read_u16(data + 5);
+        candidate.voltage_max_mv = read_u16(data + 7);
+        candidate.idle_timeout_s = read_u32(data + 9);
+        candidate.button_delta_deci_c = read_u16(data + 13);
+        candidate.deep_sleep_ms = read_u16(data + 15);
+        candidate.buzzer_threshold_mv = read_u16(data + 17);
+        candidate.buzzer_low_delay_s = read_u16(data + 19);
+        candidate.buzzer_button_ms = read_u16(data + 21);
+        candidate.buzzer_low_ms = read_u16(data + 23);
+        candidate.buzzer_combined_ms = read_u16(data + 25);
+        candidate.buzzer_enabled = data[27];
+        decoded = true;
+    }
+    if (!decoded) return;
     result->status = validate_config(&candidate, &result->field);
     if (result->status != CONFIG_STATUS_OK) return;
 

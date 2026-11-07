@@ -24,8 +24,10 @@
 #include "load_metrics_ble.h"
 #include "load_output.h"
 #include "load_state.h"
+#include "board_config.h"
 #include "pair_mode.h"
 #include "power_manager.h"
+#include "reed_detector.h"
 #include "runtime_config.h"
 #include "runtime_core.h"
 #include "runtime_events.h"
@@ -42,12 +44,13 @@
 #define BUTTON_LED_GPIO GPIO_NUM_1
 
 #define PERIODIC_INTERVAL_US (1000LL * 1000LL)
-#define DEADLINE_CHECK_INTERVAL_US (250LL * 1000LL)
+#define DEADLINE_CHECK_INTERVAL_US (10LL * 1000LL)
 #define SLEEP_CHECK_INTERVAL_US (250LL * 1000LL)
 #define BOOT_MEASUREMENT_TIMEOUT_US (10LL * 1000LL * 1000LL)
-#define DISPATCH_RECEIVE_TIMEOUT_MS 50U
+#define DISPATCH_RECEIVE_TIMEOUT_MS 10U
 #define DISPATCH_LOCK_TIMEOUT_MS 100U
 #define DISPATCH_EVENT_BATCH_MAX 8U
+#define REED_DEADLINE_CHECK_INTERVAL_US (25LL * 1000LL)
 
 typedef struct {
     uint32_t magic;
@@ -77,6 +80,13 @@ static load_runtime_snapshot_t s_snapshot = {
 
 static portMUX_TYPE s_pair_button_mux = portMUX_INITIALIZER_UNLOCKED;
 static volatile bool s_pair_button_irq_pending;
+static portMUX_TYPE s_reed_irq_mux = portMUX_INITIALIZER_UNLOCKED;
+static volatile bool s_reed_irq_enabled;
+static volatile uint32_t s_reed_irq_generation;
+static int64_t s_reed_last_pulse_us = -1;
+static reed_detector_t s_reed_detector;
+static bool s_reed_publication_fault;
+static bool s_reed_publication_pending;
 
 static bool s_boot_measurement_pending;
 static bool s_event_bus_fault_reported;
@@ -100,6 +110,7 @@ static void sleep_request_set(bool requested) {
 static int64_t s_next_periodic_us;
 static int64_t s_next_deadline_us;
 static int64_t s_next_sleep_us;
+static int64_t s_next_reed_deadline_check_us;
 
 static int64_t wall_time_us(void) {
     struct timeval now;
@@ -112,6 +123,35 @@ static void IRAM_ATTR pair_button_isr(void *arg) {
     portENTER_CRITICAL_ISR(&s_pair_button_mux);
     s_pair_button_irq_pending = true;
     portEXIT_CRITICAL_ISR(&s_pair_button_mux);
+}
+
+static void IRAM_ATTR reed_switch_isr(void *arg) {
+    (void)arg;
+    int64_t timestamp_us = esp_timer_get_time();
+    uint32_t generation = 0;
+    bool accepted = false;
+    portENTER_CRITICAL_ISR(&s_reed_irq_mux);
+    if (s_reed_irq_enabled &&
+        reed_detector_debounce(&s_reed_last_pulse_us, timestamp_us)) {
+        generation = s_reed_irq_generation;
+        accepted = true;
+    }
+    portEXIT_CRITICAL_ISR(&s_reed_irq_mux);
+    if (!accepted) return;
+
+    runtime_event_t event = runtime_event_make(RTEVT_REED_PULSE, 0);
+    event.operation_id = generation;
+    event.monotonic_timestamp_us = timestamp_us;
+    (void)event_bus_publish_isr(&event);
+}
+
+static void reed_irq_set_enabled(bool enabled, uint32_t generation) {
+    portENTER_CRITICAL(&s_reed_irq_mux);
+    bool new_generation = generation != s_reed_irq_generation;
+    s_reed_irq_enabled = enabled;
+    s_reed_irq_generation = generation;
+    if (new_generation) s_reed_last_pulse_us = -1;
+    portEXIT_CRITICAL(&s_reed_irq_mux);
 }
 
 static bool take_pair_button_press(void) {
@@ -134,8 +174,14 @@ static void refresh_configs(void) {
     runtime_config_get(&config);
 
     s_load_config.low_current_ma = (float)config.idle_current_ma;
+    s_load_config.low_voltage_v = (float)config.voltage_min_mv / 1000.0f;
     s_load_config.low_current_timeout_us =
         (int64_t)config.idle_timeout_s * 1000000LL;
+    s_load_config.need_charging_confirm_us = 5000000LL;
+    s_load_config.measure_timeout_us =
+        (int64_t)BUZZER_MEASURE_TIMEOUT_MS * 1000LL;
+    s_load_config.charging_blink_interval_ms =
+        config.charging_blink_interval_ms;
 
     s_buzzer_config = (buzzer_fsm_config_t) {
         .enabled = config.buzzer_enabled != 0,
@@ -180,7 +226,10 @@ static void retained_init(void) {
 
 static void snapshot_update_load(void) {
     portENTER_CRITICAL(&s_snapshot_mux);
-    s_snapshot.load_state = s_core.load.output_on ? LOAD_WORKING : LOAD_IDLE;
+    s_snapshot.load_state =
+        s_core.load.state == LOAD_FSM_NEED_CHARGING
+            ? LOAD_NEED_CHARGING
+            : (s_core.load.output_on ? LOAD_WORKING : LOAD_IDLE);
     s_snapshot.button_pressed = s_retained.load.button_was_pressed ? 1U : 0U;
     portEXIT_CRITICAL(&s_snapshot_mux);
 }
@@ -296,6 +345,27 @@ static void process_event_locked(const runtime_event_t *event) {
     int64_t now_us = event->timestamp_us > 0 ? event->timestamp_us
                                              : wall_time_us();
 
+    if (event->kind == RTEVT_REED_PULSE) {
+        bool confirmed = reed_detector_pulse(
+            &s_reed_detector, event->operation_id,
+            event->monotonic_timestamp_us);
+        if (!s_reed_detector.active) {
+            reed_irq_set_enabled(false, s_reed_detector.generation);
+        }
+        if (confirmed) {
+            runtime_event_t motion = runtime_event_make(
+                RTEVT_WHEEL_MOTION_CONFIRMED, wall_time_us());
+            motion.operation_id = s_reed_detector.generation;
+            s_reed_publication_pending = true;
+            if (!event_bus_publish(&motion)) {
+                s_reed_publication_fault = true;
+                ESP_LOGE(TAG, "motion event rejected; sleep remains blocked");
+            }
+            s_reed_publication_pending = false;
+        }
+        return;
+    }
+
     if (event->kind == RTEVT_BLE_PAIR_TIMEOUT) {
         if (!pair_mode_is_active() ||
             event->request_id != pair_mode_deadline_ms()) {
@@ -329,9 +399,14 @@ static void process_event_locked(const runtime_event_t *event) {
                event->kind == RTEVT_INA_SAMPLE_FAILED) {
         /* Only expose a startup/shutdown reading that still belongs to the
          * Buzzer's current measurement request. */
-        bool accepted = s_core.buzzer.state == BUZZER_FSM_MEASURING &&
-                        event->request_id != 0 &&
-                        event->request_id == s_core.buzzer.request_id;
+        bool accepted =
+            (s_core.buzzer.state == BUZZER_FSM_MEASURING &&
+             event->request_id != 0 &&
+             event->request_id == s_core.buzzer.request_id) ||
+            (s_core.load.state == LOAD_FSM_NEED_CHARGING &&
+             s_core.load.charging_measure_pending &&
+             event->context == MEASURE_NEED_CHARGING &&
+             event->request_id == s_core.load.charging_request_id);
         if (accepted) {
             bool valid = event->kind == RTEVT_INA_SAMPLE_OK;
             snapshot_set_measurement(valid, event->voltage_v,
@@ -359,6 +434,10 @@ static void process_event_locked(const runtime_event_t *event) {
                              ? event->monotonic_timestamp_us
                              : esp_timer_get_time();
     runtime_core_step(&s_core, event, ble_now_us, &commands);
+    if (s_reed_detector.active && s_core.load.state != LOAD_FSM_IDLE) {
+        reed_detector_stop(&s_reed_detector);
+        reed_irq_set_enabled(false, s_reed_detector.generation);
+    }
 
     log_transitions(previous_load, previous_buzzer, previous_ble);
 
@@ -530,6 +609,21 @@ static void scheduler_locked(int64_t wall_now_us, int64_t monotonic_now_us) {
         process_event_locked(&event);
     }
 
+    if (monotonic_now_us >= s_next_reed_deadline_check_us) {
+        s_next_reed_deadline_check_us =
+            monotonic_now_us + REED_DEADLINE_CHECK_INTERVAL_US;
+        if (s_reed_detector.active &&
+            monotonic_now_us >= s_reed_detector.deadline_us) {
+            reed_irq_set_enabled(false, s_reed_detector.generation);
+            if (event_bus_pending() != 0) {
+                reed_irq_set_enabled(true, s_reed_detector.generation);
+            } else {
+                (void)reed_detector_expire(&s_reed_detector,
+                                           monotonic_now_us);
+            }
+        }
+    }
+
     if (wall_now_us >= s_next_sleep_us) {
         s_next_sleep_us = wall_now_us + SLEEP_CHECK_INTERVAL_US;
         maybe_request_sleep_locked(wall_now_us);
@@ -574,6 +668,19 @@ void load_runtime_init(void) {
     ESP_ERROR_CHECK(gpio_set_level(
         BUTTON_LED_GPIO, s_retained.load.button_was_pressed ? 1 : 0));
 
+    bool reed_pin_ready = !restored_working &&
+        GPIO_IS_VALID_GPIO(BOARD_REED_SWITCH_GPIO) &&
+        BOARD_REED_SWITCH_GPIO != GPIO_NUM_0 &&
+        BOARD_REED_SWITCH_GPIO != GPIO_NUM_1 &&
+        BOARD_REED_SWITCH_GPIO != GPIO_NUM_3 &&
+        BOARD_REED_SWITCH_GPIO != GPIO_NUM_4 &&
+        BOARD_REED_SWITCH_GPIO != GPIO_NUM_5 &&
+        BOARD_REED_SWITCH_GPIO != GPIO_NUM_10 &&
+        BOARD_REED_SWITCH_GPIO != PAIR_BUTTON_GPIO;
+    if (!restored_working && !reed_pin_ready) {
+        ESP_LOGE(TAG, "reed switch GPIO assignment is invalid or conflicts");
+    }
+
     const gpio_config_t pair_button = {
         .pin_bit_mask = 1ULL << PAIR_BUTTON_GPIO,
         .mode = GPIO_MODE_INPUT,
@@ -588,6 +695,25 @@ void load_runtime_init(void) {
     }
     ESP_ERROR_CHECK(gpio_isr_handler_add(PAIR_BUTTON_GPIO, pair_button_isr,
                                          NULL));
+    if (reed_pin_ready) {
+        const gpio_config_t reed_input = {
+            .pin_bit_mask = 1ULL << BOARD_REED_SWITCH_GPIO,
+            .mode = GPIO_MODE_INPUT,
+            .pull_up_en = GPIO_PULLUP_ENABLE,
+            .pull_down_en = GPIO_PULLDOWN_DISABLE,
+            .intr_type = GPIO_INTR_NEGEDGE,
+        };
+        esp_err_t reed_err = gpio_config(&reed_input);
+        if (reed_err == ESP_OK) {
+            reed_err = gpio_isr_handler_add(BOARD_REED_SWITCH_GPIO,
+                                            reed_switch_isr, NULL);
+        }
+        if (reed_err != ESP_OK) {
+            ESP_LOGE(TAG, "reed switch GPIO setup failed: %s",
+                     esp_err_to_name(reed_err));
+            reed_pin_ready = false;
+        }
+    }
 
     if (gpio_get_level(PAIR_BUTTON_GPIO) != PAIR_BUTTON_ACTIVE_LEVEL) {
         s_retained.reset_button_was_down = false;
@@ -612,6 +738,27 @@ void load_runtime_init(void) {
         s_retained.buzzer_low_pending, s_retained.buzzer_low_alerted,
         s_retained.buzzer_low_since_us);
 
+    if (reed_pin_ready) {
+        runtime_config_t config;
+        runtime_config_get(&config);
+        int64_t monotonic_now_us = esp_timer_get_time();
+        if (reed_detector_start(&s_reed_detector, restored_working,
+                                config.wheel_min_speed_deci_kmh,
+                                config.wheel_diameter_mm,
+                                monotonic_now_us)) {
+            reed_irq_set_enabled(true, s_reed_detector.generation);
+            s_next_reed_deadline_check_us = monotonic_now_us;
+            ESP_LOGI(TAG, "reed detector started GPIO=%d generation=%u",
+                     (int)BOARD_REED_SWITCH_GPIO,
+                     (unsigned)s_reed_detector.generation);
+        } else {
+            reed_irq_set_enabled(false, s_reed_detector.generation);
+        }
+    } else {
+        reed_detector_stop(&s_reed_detector);
+        reed_irq_set_enabled(false, s_reed_detector.generation);
+    }
+
     portENTER_CRITICAL(&s_snapshot_mux);
     s_snapshot.load_state = restored_working ? LOAD_WORKING : LOAD_IDLE;
     s_snapshot.button_pressed =
@@ -626,6 +773,10 @@ void load_runtime_init(void) {
     s_next_periodic_us = 0;
     s_next_deadline_us = 0;
     s_next_sleep_us = 0;
+    s_next_reed_deadline_check_us =
+        s_reed_detector.active ? esp_timer_get_time() : 0;
+    s_reed_publication_fault = false;
+    s_reed_publication_pending = false;
 
     ESP_LOGI(TAG, "restored load=%s button=%d",
              restored_working ? "WORKING" : "IDLE",
@@ -681,7 +832,12 @@ void load_runtime_get_power_snapshot(power_snapshot_t *out) {
     out->action_pending = action_executor_pending() > 0;
     out->event_pending = event_bus_pending() > 0;
     out->critical_pending = pair_button_irq_pending() ||
-                            s_boot_measurement_pending;
+                            s_boot_measurement_pending ||
+                            s_reed_publication_pending ||
+                            s_reed_publication_fault ||
+                            event_bus_delivery_faulted();
+    out->reed_detection_pending = s_reed_detector.active ||
+                                  s_reed_publication_pending;
 }
 
 bool load_runtime_prepare_sleep(void) {
@@ -696,6 +852,9 @@ bool load_runtime_prepare_sleep(void) {
         s_core.load.state == LOAD_FSM_STARTING ||
         s_core.load.state == LOAD_FSM_STOPPING ||
         s_core.load.state == LOAD_FSM_ERROR ||
+        s_core.load.state == LOAD_FSM_NEED_CHARGING ||
+        s_reed_detector.active || s_reed_publication_pending ||
+        s_reed_publication_fault ||
         s_core.buzzer.state != BUZZER_FSM_IDLE ||
         event_bus_pending() != 0 || action_executor_pending() != 0 ||
         event_bus_sleep_abort_requested()) {

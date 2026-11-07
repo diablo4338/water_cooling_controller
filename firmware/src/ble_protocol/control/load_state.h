@@ -7,6 +7,7 @@
 typedef enum {
     LOAD_IDLE = 0,
     LOAD_WORKING = 1,
+    LOAD_NEED_CHARGING = 2,
 } load_mode_t;
 
 /* Retained in RTC memory by the application, never written each second to NVS. */

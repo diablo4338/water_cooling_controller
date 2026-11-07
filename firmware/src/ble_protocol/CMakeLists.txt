@@ -13,6 +13,7 @@ set(SRCS
     "control/runtime_core.c"
     "control/runtime_events.c"
     "control/runtime_config.c"
+    "control/reed_detector.c"
     "hw/load_output.c"
     "ble/access.c"
     "ble/load_metrics_ble.c"

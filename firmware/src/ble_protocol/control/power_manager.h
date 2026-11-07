@@ -16,6 +16,8 @@ typedef enum {
     POWER_BLOCK_ACTION,
     POWER_BLOCK_EVENT,
     POWER_BLOCK_CRITICAL,
+    POWER_BLOCK_NEED_CHARGING,
+    POWER_BLOCK_REED_DETECTOR,
 } power_sleep_block_reason_t;
 
 typedef struct {
@@ -25,6 +27,7 @@ typedef struct {
     bool action_pending;
     bool event_pending;
     bool critical_pending;
+    bool reed_detection_pending;
 } power_snapshot_t;
 
 power_sleep_block_reason_t power_manager_sleep_block_reason(

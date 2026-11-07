@@ -36,6 +36,8 @@ typedef enum {
     RTEVT_ACTION_FAILED,
     RTEVT_EVENT_BUS_FAULT,
     RTEVT_LOAD_GPIO_VERIFIED,
+    RTEVT_REED_PULSE,
+    RTEVT_WHEEL_MOTION_CONFIRMED,
 } runtime_event_kind_t;
 
 #define RUNTIME_ERROR_ACTION_REJECTED (-1)
@@ -44,6 +46,7 @@ typedef enum {
     MEASURE_PERIODIC = 0,
     MEASURE_STARTUP,
     MEASURE_SHUTDOWN,
+    MEASURE_NEED_CHARGING,
 } measure_context_t;
 
 typedef enum {

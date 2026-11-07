@@ -81,6 +81,11 @@ void runtime_core_step(runtime_core_t *core, const runtime_event_t *event,
                        int64_t now_us, runtime_command_list_t *commands) {
     if (!core || !event || !commands) return;
 
+    runtime_event_t routed_event = *event;
+    if (routed_event.kind == RTEVT_WHEEL_MOTION_CONFIRMED) {
+        routed_event.kind = RTEVT_THERMAL_BUTTON_PRESSED;
+    }
+
     bool load_on_confirmed =
         (event->kind == RTEVT_LOAD_GPIO_APPLIED && event->bool_value) ||
         (event->kind == RTEVT_LOAD_GPIO_VERIFIED &&
@@ -97,7 +102,8 @@ void runtime_core_step(runtime_core_t *core, const runtime_event_t *event,
     load_fsm_state_t previous_load_state = core->load.state;
     bool previous_output_on = core->load.output_on;
 
-    load_fsm_step(&core->load, event, &core->load_config, now_us, commands);
+    load_fsm_step(&core->load, &routed_event, &core->load_config, now_us,
+                  commands);
     if (previous_output_on && !core->load.output_on) {
         buzzer_fsm_reset_low_warning(&core->buzzer);
     }
@@ -112,24 +118,25 @@ void runtime_core_step(runtime_core_t *core, const runtime_event_t *event,
 
     /* Only a newly accepted physical ON result may begin startup feedback.
      * Shutdown requests are correlated with the Load operation as well. */
-    runtime_event_t buzzer_event = *event;
+    runtime_event_t buzzer_event = routed_event;
     if (new_load_on_ack &&
         event->kind == RTEVT_LOAD_GPIO_VERIFIED) {
         buzzer_event.kind = RTEVT_LOAD_GPIO_APPLIED;
         buzzer_event.bool_value = true;
     }
 
-    if ((event->kind != RTEVT_LOAD_GPIO_APPLIED || new_load_on_ack) &&
-        (event->kind != RTEVT_BUZZER_REQUEST_SHUTDOWN ||
+    if ((routed_event.kind != RTEVT_LOAD_GPIO_APPLIED || new_load_on_ack) &&
+        (routed_event.kind != RTEVT_BUZZER_REQUEST_SHUTDOWN ||
          current_shutdown_request)) {
         buzzer_fsm_config_t buzzer_config = core->buzzer_config;
         buzzer_config.load_output_on =
-            event->kind == RTEVT_THERMAL_BUTTON_PRESSED
+            routed_event.kind == RTEVT_THERMAL_BUTTON_PRESSED
                 ? previous_output_on : core->load.output_on;
         buzzer_fsm_step(&core->buzzer, &buzzer_event, &buzzer_config,
                         now_us, commands);
     }
-    ble_fsm_step(&core->ble, event, &core->ble_config, now_us, commands);
+    ble_fsm_step(&core->ble, &routed_event, &core->ble_config, now_us,
+                 commands);
 }
 
 bool runtime_core_command_event(const runtime_command_t *command,

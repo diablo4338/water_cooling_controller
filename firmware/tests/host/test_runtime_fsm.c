@@ -97,7 +97,11 @@ typedef struct {
 
 static const load_fsm_config_t k_load_config = {
     .low_current_ma = 100.0f,
+    .low_voltage_v = 6.6f,
     .low_current_timeout_us = 300000000LL,
+    .need_charging_confirm_us = 5000000LL,
+    .measure_timeout_us = 1500000LL,
+    .charging_blink_interval_ms = 5000U,
 };
 
 static const buzzer_fsm_config_t k_buzzer_config = {
@@ -481,6 +485,33 @@ static void test_load_startup_sequence(void) {
     CHECK_INT(mock.beep_count, 2);
     CHECK_INT(mock.beeps[1].pattern, BUZZER_PATTERN_NORMAL);
     CHECK_INT(mock.beeps[1].duration_ms, 500);
+}
+
+static void test_wheel_motion_uses_normal_button_startup(void) {
+    runtime_core_t core;
+    mock_t mock;
+    memset(&mock, 0, sizeof(mock));
+    init_core(&core, false, true);
+
+    step(&core, &mock,
+         make_event(RTEVT_WHEEL_MOTION_CONFIRMED, 0), 0);
+    CHECK_INT(core.load.state, LOAD_FSM_STARTING);
+    CHECK_INT(mock.load_on_count, 1);
+    CHECK_INT(mock.ble_start_count, 1);
+    CHECK_INT(mock.settle_count, 0);
+    uint32_t operation_id = mock.last_load_on_op;
+    step(&core, &mock, load_ack_event(true, operation_id, 100), 100);
+    CHECK_INT(core.buzzer.state, BUZZER_FSM_WAIT_SETTLE);
+    CHECK_INT(mock.settle_count, 1);
+
+    runtime_core_t already_on;
+    mock_t on_mock;
+    memset(&on_mock, 0, sizeof(on_mock));
+    init_core(&already_on, true, true);
+    step(&already_on, &on_mock,
+         make_event(RTEVT_WHEEL_MOTION_CONFIRMED, 0), 0);
+    CHECK_INT(already_on.load.state, LOAD_FSM_WORKING);
+    CHECK_INT(on_mock.load_on_count, 0);
 }
 
 static void test_startup_ina_error_once(void) {
@@ -1876,6 +1907,8 @@ typedef struct {
 
 static const test_case_t k_tests[] = {
     {"load_startup_sequence", test_load_startup_sequence},
+    {"wheel_motion_uses_normal_button_startup",
+     test_wheel_motion_uses_normal_button_startup},
     {"startup_ina_error_once", test_startup_ina_error_once},
     {"startup_voltage_selects_cue", test_startup_voltage_selects_cue},
     {"periodic_failures_silent", test_periodic_failures_silent},
