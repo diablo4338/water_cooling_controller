@@ -69,7 +69,7 @@ static void test_v6_round_trip_and_ranges(void) {
     CHECK(sizeof(wire) == 34U);
     CHECK(wire[0] == 6U);
     CHECK(wire[1] == 0x34U && wire[2] == 0x12U);
-    CHECK(read_u16(wire, 28) == 5000U);
+    CHECK(read_u16(wire, 28) == 1000U);
     CHECK(read_u16(wire, 30) == 100U);
     CHECK(read_u16(wire, 32) == 2220U);
 
@@ -110,7 +110,7 @@ static void test_v4_migration_and_write_compatibility(void) {
     runtime_config_get(&config);
     CHECK(config.idle_current_ma == 75U);
     CHECK(config.buzzer_enabled == 0U);
-    CHECK(config.charging_blink_interval_ms == 5000U);
+    CHECK(config.charging_blink_interval_ms == 1000U);
     CHECK(config.wheel_min_speed_deci_kmh == 100U);
     CHECK(config.wheel_circumference_mm == 2220U);
 

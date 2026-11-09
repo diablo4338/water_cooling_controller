@@ -44,7 +44,7 @@ static void ready_to_sleep(ble_fsm_t *fsm) {
     fsm->window_deadline_us = 0;
     fsm->startup_deadline_us = 0;
     fsm->connection_deadline_us = 0;
-    fsm->conn_handle = UINT16_MAX;
+    /* A deadline does not physically close an existing GAP connection. */
     fsm->adv_request_id = 0;
 }
 
@@ -119,8 +119,12 @@ void ble_fsm_step(ble_fsm_t *fsm, const runtime_event_t *event,
                 case BLE_FSM_ADVERTISING:
                     extend_window(fsm, config, now_us);
                     break;
-                case BLE_FSM_CONNECTED:
                 case BLE_FSM_READY_TO_SLEEP:
+                    if (fsm->conn_handle == UINT16_MAX) {
+                        begin_start(fsm, config, now_us, commands);
+                    }
+                    break;
+                case BLE_FSM_CONNECTED:
                 default:
                     break;
             }
@@ -148,6 +152,10 @@ void ble_fsm_step(ble_fsm_t *fsm, const runtime_event_t *event,
                     break;
                 }
                 case BLE_FSM_READY_TO_SLEEP:
+                    if (fsm->conn_handle == UINT16_MAX) {
+                        begin_start(fsm, config, now_us, commands);
+                    }
+                    break;
                 default:
                     break;
             }
@@ -219,8 +227,10 @@ void ble_fsm_step(ble_fsm_t *fsm, const runtime_event_t *event,
             return;
 
         case RTEVT_CLIENT_DISCONNECTED:
-            if (fsm->state == BLE_FSM_CONNECTED &&
+            if ((fsm->state == BLE_FSM_CONNECTED ||
+                 fsm->state == BLE_FSM_READY_TO_SLEEP) &&
                 event->conn_handle == fsm->conn_handle) {
+                fsm->conn_handle = UINT16_MAX;
                 ready_to_sleep(fsm);
             }
             return;

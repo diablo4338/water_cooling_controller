@@ -318,7 +318,117 @@ static void test_gpio_off_retry_keeps_charging_safe(void) {
     assert(fsm.state == LOAD_FSM_NEED_CHARGING && !fsm.output_on);
 }
 
+static void test_confirmation_survives_short_sleep_cycles(void) {
+    load_fsm_t fsm;
+    load_fsm_init(&fsm, true, false, 0);
+    for (int cycle = 0; cycle <= 5; ++cycle) {
+        int64_t now = 1000000LL + cycle * 1200000LL;
+        runtime_event_t low = sample(RTEVT_INA_SAMPLE_OK, MEASURE_PERIODIC,
+                                     cycle + 1, 2.14f, 0.5f, now);
+        (void)step(&fsm, low, now);
+        if (cycle < 5) {
+            assert(fsm.state == LOAD_FSM_WORKING);
+            bool pending = fsm.low_voltage_current_pending;
+            int64_t since = fsm.low_voltage_current_since_us;
+            /* Each wake constructs a fresh FSM, just like the runtime. */
+            load_fsm_init(&fsm, true, false, 0);
+            load_fsm_restore_charging_confirmation(&fsm, pending, since);
+            assert(fsm.low_voltage_current_pending);
+            assert(fsm.low_voltage_current_since_us == 1000000);
+        }
+    }
+    assert(fsm.state == LOAD_FSM_NEED_CHARGING);
+
+    load_fsm_init(&fsm, false, false, 0);
+    load_fsm_restore_charging_confirmation(&fsm, true, 1000000);
+    assert(!fsm.low_voltage_current_pending);
+
+    load_fsm_init(&fsm, true, false, 0);
+    load_fsm_restore_charging_confirmation(&fsm, true, 1000000);
+    runtime_event_t failed = sample(RTEVT_INA_SAMPLE_FAILED, MEASURE_PERIODIC,
+                                    10, NAN, NAN, 7000000);
+    (void)step(&fsm, failed, 7000000);
+    assert(!fsm.low_voltage_current_pending);
+    runtime_event_t low = sample(RTEVT_INA_SAMPLE_OK, MEASURE_PERIODIC,
+                                 11, 2.14f, 0.5f, 8000000);
+    (void)step(&fsm, low, 8000000);
+    assert(fsm.state == LOAD_FSM_WORKING);
+    assert(fsm.low_voltage_current_since_us == 8000000);
+}
+
+static void test_configured_low_voltage_threshold(void) {
+    load_fsm_t fsm;
+    load_fsm_config_t policy = config;
+    policy.low_voltage_v = 7.0f;
+    load_fsm_init(&fsm, true, false, 0);
+    runtime_command_list_t commands;
+    runtime_event_t low = sample(RTEVT_INA_SAMPLE_OK, MEASURE_PERIODIC,
+                                 1, 6.8f, 0.5f, 1000000);
+    runtime_command_list_init(&commands);
+    load_fsm_step(&fsm, &low, &policy, 1000000, &commands);
+    assert(fsm.low_voltage_current_pending);
+    low.timestamp_us = 6000000;
+    load_fsm_step(&fsm, &low, &policy, 6000000, &commands);
+    assert(fsm.state == LOAD_FSM_NEED_CHARGING);
+
+    load_fsm_init(&fsm, true, false, 0);
+    low.voltage_v = 7.0f;
+    runtime_command_list_init(&commands);
+    load_fsm_step(&fsm, &low, &policy, 6000000, &commands);
+    assert(!fsm.low_voltage_current_pending);
+    policy.low_voltage_v = 0;
+    low.voltage_v = 0;
+    load_fsm_step(&fsm, &low, &policy, 6000000, &commands);
+    assert(!fsm.low_voltage_current_pending);
+}
+
+static void test_voltage_recovery_uses_updated_threshold(void) {
+    const float thresholds[] = {5.5f, 6.0f, 0.0f};
+    for (unsigned i = 0; i < sizeof(thresholds) / sizeof(thresholds[0]); ++i) {
+        load_fsm_t fsm;
+        qualify_need_charging(&fsm);
+        acknowledge(&fsm, true, fsm.operation_id, 6000000);
+        runtime_command_t request = request_charge_measurement(&fsm, 7000000);
+        load_fsm_config_t updated = config;
+        updated.low_voltage_v = thresholds[i];
+        runtime_event_t fresh = sample(RTEVT_INA_SAMPLE_OK,
+                                       MEASURE_NEED_CHARGING, request.request_id,
+                                       6.0f, 0.5f, 7000001);
+        runtime_command_list_t commands;
+        runtime_command_list_init(&commands);
+        load_fsm_step(&fsm, &fresh, &updated, 7000001, &commands);
+        assert(fsm.state == LOAD_FSM_WORKING);
+        assert(fsm.output_on);
+        assert(fsm.charging_phase == LOAD_CHARGE_NONE);
+        assert(!fsm.low_voltage_current_pending);
+        assert(count_command(&commands, RCMD_LOAD_OUTPUT_OFF) == 0);
+    }
+}
+
+static void test_periodic_voltage_cannot_recover_charging(void) {
+    load_fsm_t fsm;
+    qualify_need_charging(&fsm);
+    acknowledge(&fsm, true, fsm.operation_id, 6000000);
+    runtime_event_t periodic = sample(RTEVT_INA_SAMPLE_OK, MEASURE_PERIODIC,
+                                      99, 8.4f, 0.5f, 6500000);
+    (void)step(&fsm, periodic, 6500000);
+    assert(fsm.state == LOAD_FSM_NEED_CHARGING);
+    runtime_command_t request = request_charge_measurement(&fsm, 7000000);
+    runtime_event_t stale = sample(RTEVT_INA_SAMPLE_OK, MEASURE_NEED_CHARGING,
+                                   request.request_id + 1, 8.4f, 0.5f, 7000001);
+    (void)step(&fsm, stale, 7000001);
+    assert(fsm.state == LOAD_FSM_NEED_CHARGING);
+    stale.request_id = request.request_id;
+    stale.timestamp_us = 7000002;
+    (void)step(&fsm, stale, 7000002);
+    assert(fsm.state == LOAD_FSM_WORKING && fsm.output_on);
+}
+
 int main(void) {
+    test_voltage_recovery_uses_updated_threshold();
+    test_periodic_voltage_cannot_recover_charging();
+    test_configured_low_voltage_threshold();
+    test_confirmation_survives_short_sleep_cycles();
     test_confirmation_and_timer_reset_conditions();
     test_low_measurement_precedes_off_and_repeated_cycle();
     test_invalid_and_failed_measurements_never_turn_off();

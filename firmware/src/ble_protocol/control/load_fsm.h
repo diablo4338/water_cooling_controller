@@ -61,6 +61,11 @@ typedef struct {
 void load_fsm_init(load_fsm_t *fsm, bool restored_working,
                    bool low_current_pending, int64_t low_current_since_us);
 
+/* Restore wall-clock confirmation history after a short Deep Sleep cycle.
+ * Transient charging phases themselves are never restored. */
+void load_fsm_restore_charging_confirmation(load_fsm_t *fsm, bool pending,
+                                            int64_t since_us);
+
 void load_fsm_step(load_fsm_t *fsm, const runtime_event_t *event,
                    const load_fsm_config_t *config,
                    int64_t now_us,

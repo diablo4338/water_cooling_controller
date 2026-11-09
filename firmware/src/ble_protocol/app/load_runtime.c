@@ -36,7 +36,7 @@
 
 #define TAG "runtime"
 
-#define RETAINED_MAGIC 0x4C4F4109U
+#define RETAINED_MAGIC 0x4C4F410AU
 /* Physical ADS input 2 maps to logical temperature channel 4. */
 #define BUTTON_ADS_INPUT 2
 #define PAIR_BUTTON_GPIO GPIO_NUM_19
@@ -55,6 +55,8 @@
 typedef struct {
     uint32_t magic;
     load_state_t load;
+    bool charging_low_pending;
+    int64_t charging_low_since_us;
     bool buzzer_low_pending;
     bool buzzer_low_alerted;
     int64_t buzzer_low_since_us;
@@ -174,7 +176,7 @@ static void refresh_configs(void) {
     runtime_config_get(&config);
 
     s_load_config.low_current_ma = (float)config.idle_current_ma;
-    s_load_config.low_voltage_v = (float)config.voltage_min_mv / 1000.0f;
+    s_load_config.low_voltage_v = (float)config.buzzer_threshold_mv / 1000.0f;
     s_load_config.low_current_timeout_us =
         (int64_t)config.idle_timeout_s * 1000000LL;
     s_load_config.need_charging_confirm_us = 5000000LL;
@@ -256,6 +258,9 @@ static void update_retained_from_core(void) {
                                : LOAD_IDLE;
     s_retained.load.low_current_pending = s_core.load.low_current_pending;
     s_retained.load.low_current_since_us = s_core.load.low_current_since_us;
+
+    s_retained.charging_low_pending = s_core.load.low_voltage_current_pending;
+    s_retained.charging_low_since_us = s_core.load.low_voltage_current_since_us;
 
     s_retained.buzzer_low_pending = s_core.buzzer.low_pending;
     s_retained.buzzer_low_alerted = s_core.buzzer.low_alerted;
@@ -737,6 +742,9 @@ void load_runtime_init(void) {
         s_retained.load.low_current_since_us,
         s_retained.buzzer_low_pending, s_retained.buzzer_low_alerted,
         s_retained.buzzer_low_since_us);
+    load_fsm_restore_charging_confirmation(
+        &s_core.load, s_retained.charging_low_pending,
+        s_retained.charging_low_since_us);
 
     if (reed_pin_ready) {
         runtime_config_t config;
@@ -870,18 +878,6 @@ bool load_runtime_prepare_sleep(void) {
         ESP_LOGE(TAG, "timer wakeup config failed: %s",
                  esp_err_to_name(err));
         return false;
-    }
-
-    if (esp_sleep_is_valid_wakeup_gpio(PAIR_BUTTON_GPIO)) {
-        err = esp_deep_sleep_enable_gpio_wakeup(
-            1ULL << PAIR_BUTTON_GPIO, ESP_GPIO_WAKEUP_GPIO_LOW);
-        if (err != ESP_OK) {
-            ESP_LOGW(TAG, "GPIO wakeup config failed: %s", esp_err_to_name(err));
-        }
-    } else {
-        ESP_LOGI(TAG,
-                 "GPIO%d cannot wake from deep sleep; using timer wakeup",
-                 (int)PAIR_BUTTON_GPIO);
     }
 
     err = load_output_hold();

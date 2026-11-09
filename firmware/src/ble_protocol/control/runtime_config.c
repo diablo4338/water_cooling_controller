@@ -29,7 +29,7 @@ static const runtime_config_t default_config = {
     .buzzer_low_ms = 1000,
     .buzzer_combined_ms = 1500,
     .buzzer_enabled = 1,
-    .charging_blink_interval_ms = 5000,
+    .charging_blink_interval_ms = 1000,
     .wheel_min_speed_deci_kmh = 100,
     .wheel_circumference_mm = 2220,
 };

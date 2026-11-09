@@ -18,8 +18,16 @@ States: `OFF`, `STARTING`, `ADVERTISING`, `CONNECTED`, `READY_TO_SLEEP`. Optiona
 | CONNECTED | thermal press | CONNECTED | Ignore for BLE |
 | CONNECTED | client disconnects | READY_TO_SLEEP | Do not advertise again |
 | CONNECTED | now >= connection deadline | READY_TO_SLEEP | **Go to Deep Sleep directly. Do not disconnect first.** |
-| READY_TO_SLEEP | press | READY_TO_SLEEP | Do not reinitialize/advertise before next wake |
+| READY_TO_SLEEP | press, no live GAP connection | STARTING | Reopen window using existing host |
+| READY_TO_SLEEP | press, GAP connection still live | READY_TO_SLEEP | Do not start another window |
 
 **Sleep policy:** READY_TO_SLEEP permits immediate Deep Sleep once bounded mandatory load/buzzer actions finish, whether NimBLE still reports active advertising/client or not; `esp_deep_sleep_start()` ends the session. 60 s window counts from activation/latest qualifying repeat press when not connected. 600 s counts strictly from successful connection, independent of activity. If callbacks fail or get lost, deadline must still make progress; do not wait for BLE STOPPED, ADV_COMPLETE, or a disconnect ACK. No 60-s extra disconnect deadline, no two disconnect attempts, no DISCONNECTING/STOPPING state.
 
 A real connected client may momentarily remain connected as the chip enters Deep Sleep; this is intentional. No attempt to guarantee polite protocol disconnect. Preserve GPIO19 physical pairing/reset button behavior and existing security/GATT configuration. Distinguish pairing timeout/security from this **overall** BLE lifecycle policy; old timers must not accidentally restart advertising after READY_TO_SLEEP.
+
+Reopening is allowed without Deep Sleep, including while NEED_CHARGING blocks
+sleep. Preserve the live connection handle after a connection deadline until
+GAP actually reports disconnect. Reusing an already-synced NimBLE host emits
+BLE_READY for the new window operation; no host reinitialization is needed.
+Activity tracking and notification publication changes are not part of this
+reopening behavior; the fixed 600-second connection timeout is unchanged.

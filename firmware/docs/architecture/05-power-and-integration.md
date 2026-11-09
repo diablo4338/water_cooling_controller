@@ -42,8 +42,8 @@ ring and an unstoreable event raises a sticky fault that blocks sleep. This clos
 the queue-empty/consumer-local-event race. The final pending/abort check is repeated
 after wake configuration/output hold. It cannot be atomic with
 `esp_deep_sleep_start()`: an event after that last check is safe only if its source is
-a configured Deep Sleep wake source. GPIO19 is not a valid Deep Sleep wake source
-on ESP32-C3, so sleep uses the configured timer; a GPIO19 press is handled on a
+a configured Deep Sleep wake source. Only timer wakeup is configured; GPIO
+wakeup is deliberately not enabled. A GPIO19 press is handled on a
 timer wake only if the button is still held. The code makes no check-and-sleep
 atomicity claim for other sources.
 Store only required RTC stable fields; avoid NVS write each wake. Power measurements:

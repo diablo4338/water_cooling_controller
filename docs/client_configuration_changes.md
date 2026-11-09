@@ -28,7 +28,7 @@ integers are unsigned and little-endian. Offsets are zero-based.
 | 0 | 1 | `version` | `uint8` | Must be `6` for v6 writes |
 | 1 | 2 | `request_id` | `uint16` | Client correlation ID; echoed in the result |
 | 3 | 2 | `idle_current_ma` | `uint16` | Existing field; idle and charging current threshold |
-| 5 | 2 | `voltage_min_mv` | `uint16` | Existing field; low-voltage threshold used for NEED_CHARGING |
+| 5 | 2 | `voltage_min_mv` | `uint16` | Existing field; battery display lower voltage bound |
 | 7 | 2 | `voltage_max_mv` | `uint16` | Existing field |
 | 9 | 4 | `idle_timeout_s` | `uint32` | Existing field |
 | 13 | 2 | `button_delta_deci_c` | `uint16` | Existing field |
@@ -64,7 +64,7 @@ also be greater than `voltage_min_mv`.
 | Exact field name | Description and units | Type / size | Default | Accepted values | Suggested UI |
 |---|---|---:|---:|---|---|
 | `idle_current_ma` | Low-current threshold, mA; also used by NEED_CHARGING confirmation and blink measurement | `uint16`, 2 bytes | 100 | 0–65535 | “Low current threshold”, numeric mA input |
-| `voltage_min_mv` | Low-voltage threshold, mV; battery voltage must be below it for NEED_CHARGING | `uint16`, 2 bytes | 6600 | 0–65535; must be less than `voltage_max_mv` | “Low battery threshold”, numeric mV input |
+| `voltage_min_mv` | Battery display lower voltage bound, mV | `uint16`, 2 bytes | 6600 | 0–65535; must be less than `voltage_max_mv` | “Low battery threshold”, numeric mV input |
 | `voltage_max_mv` | Existing upper voltage bound, mV | `uint16`, 2 bytes | 8400 | 0–65535; must be greater than `voltage_min_mv` | “High battery threshold”, numeric mV input |
 | `idle_timeout_s` | Existing low-current idle shutdown delay, seconds | `uint32`, 4 bytes | 300 | 0–4294967295 | “Idle timeout”, numeric seconds input |
 | `button_delta_deci_c` | Existing thermal-button threshold delta, 0.1 °C | `uint16`, 2 bytes | 20 | 0–65535 | “Button temperature delta”, numeric 0.1 °C input |
@@ -75,15 +75,28 @@ also be greater than `voltage_min_mv`.
 | `buzzer_low_ms` | Existing low-voltage buzzer duration, ms | `uint16`, 2 bytes | 1000 | 0–65535 | “Low-voltage beep duration”, numeric ms input |
 | `buzzer_combined_ms` | Existing combined buzzer duration, ms | `uint16`, 2 bytes | 1500 | 0–65535 | “Combined beep duration”, numeric ms input |
 | `buzzer_enabled` | Existing buzzer enable flag | `uint8`, 1 byte | 1 | 0 or 1 | “Enable buzzer”, boolean switch |
-| `charging_blink_interval_ms` | Duration of each NEED_CHARGING ON phase and each OFF phase, ms | `uint16`, 2 bytes | 5000 | 1000–60000 | “Charging blink interval”, numeric ms input |
+| `charging_blink_interval_ms` | Duration of each NEED_CHARGING ON phase and each OFF phase, ms | `uint16`, 2 bytes | 1000 | 1000–60000 | “Charging blink interval”, numeric ms input |
 | `wheel_min_speed_deci_kmh` | Minimum speed to confirm motion, in 0.1 km/h (100 means 10.0 km/h) | `uint16`, 2 bytes | 100 | 10–1200 (1.0–120.0 km/h) | “Minimum wheel speed”, decimal km/h input converted to tenths |
 | `wheel_circumference_mm` | Wheel circumference used for one-revolution timing, mm | `uint16`, 2 bytes | 2220 | 900-10000 | Wheel circumference, numeric mm input |
 
-The NEED_CHARGING entry thresholds are deliberately the existing
-`voltage_min_mv` and `idle_current_ma` settings; there are no duplicate
-threshold fields. Low voltage and low current must both be confirmed for five
-seconds. The current condition uses absolute measured current and is strictly
+The NEED_CHARGING entry thresholds are the existing `buzzer_threshold_mv`
+and `idle_current_ma` settings; there are no duplicate threshold fields.
+`voltage_min_mv` is the battery display lower bound, not the charging-state
+threshold. A zero `buzzer_threshold_mv` disables low-voltage entry. Low voltage and low current must both be confirmed for five
+seconds of RTC-backed wall time, including Deep Sleep between valid samples.
+The pending confirmation and its start timestamp survive timer wakeups. A failed
+reading or a valid sample outside either low threshold resets confirmation;
+time without measurements is not independently treated as a low reading.
+The current condition uses absolute measured current and is strictly
 below the threshold. Invalid or missing measurements do not count as low.
+NEED_CHARGING returns to WORKING when a fresh correlated ON-phase measurement
+has voltage at/above the current `buzzer_threshold_mv` or absolute current above
+`idle_current_ma`. Lowering the threshold through BLE takes effect on that next
+measurement; setting it to zero also permits recovery. Periodic readings during
+blink phases and stale results cannot trigger recovery.
+
+NEED_CHARGING is silent, including thermal presses and ON/OFF blink cycles;
+entry cancels any active warning and discards queued button cues.
 
 The reed switch GPIO is a firmware board constant, not a BLE parameter:
 `BOARD_REED_SWITCH_GPIO = GPIO_NUM_6`, active-low. The detector is one-shot per
@@ -122,7 +135,7 @@ level (the load is kept ON during the NEED_CHARGING ON phase).
 ## Compatibility, migration, and examples
 
 NVS migration accepts stored v1-v5 configurations. v1-v4 retain existing
-settings and receive defaults for the missing fields: 5000 ms blink interval,
+settings and receive defaults for the missing fields: 1000 ms blink interval,
 100 deci-km/h minimum speed and 2220 mm circumference. v5 diameter is converted
 to circumference, rounded to the nearest mm (`round(diameter_mm * pi)`);
 other settings are preserved. The next successful write persists v6.
@@ -143,11 +156,11 @@ Example v6 configuration write using request ID `0x1234` and all defaults:
 
 ```text
 06 34 12 64 00 C8 19 D0 20 2C 01 00 00 14 00 88 13
-58 1B 0A 00 F4 01 E8 03 DC 05 01 88 13 64 00 AC 08
+58 1B 0A 00 F4 01 E8 03 DC 05 01 E8 03 64 00 AC 08
 ```
 
 The payload is exactly 34 bytes. For example, offsets 28–33 encode the
-charging interval `0x1388 = 5000 ms`, minimum speed `0x0064 = 100` deci-km/h,
+charging interval `0x03E8 = 1000 ms`, minimum speed `0x0064 = 100` deci-km/h,
 and wheel circumference `0x08AC = 2220 mm`.
 
 Example successful result for request ID `0x1234`:

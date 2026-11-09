@@ -27,7 +27,7 @@ TEST_CASE("global reset persists factory runtime config", "[config]") {
     TEST_ASSERT_EQUAL(8000, config.buzzer_threshold_mv);
     TEST_ASSERT_EQUAL(1000, config.buzzer_button_ms);
     TEST_ASSERT_EQUAL(1, config.buzzer_enabled);
-    TEST_ASSERT_EQUAL(5000, config.charging_blink_interval_ms);
+    TEST_ASSERT_EQUAL(1000, config.charging_blink_interval_ms);
     TEST_ASSERT_EQUAL(100, config.wheel_min_speed_deci_kmh);
     TEST_ASSERT_EQUAL(2220, config.wheel_circumference_mm);
 
@@ -52,7 +52,7 @@ TEST_CASE("global reset persists factory runtime config", "[config]") {
     TEST_ASSERT_EQUAL(1000, config.buzzer_low_ms);
     TEST_ASSERT_EQUAL(1500, config.buzzer_combined_ms);
     TEST_ASSERT_EQUAL(1, config.buzzer_enabled);
-    TEST_ASSERT_EQUAL(5000, config.charging_blink_interval_ms);
+    TEST_ASSERT_EQUAL(1000, config.charging_blink_interval_ms);
     TEST_ASSERT_EQUAL(100, config.wheel_min_speed_deci_kmh);
     TEST_ASSERT_EQUAL(2220, config.wheel_circumference_mm);
 
@@ -144,7 +144,7 @@ TEST_CASE("version four config migrates with reed and blink defaults", "[config]
     runtime_config_get(&config);
     TEST_ASSERT_EQUAL(75, config.idle_current_ma);
     TEST_ASSERT_EQUAL(0, config.buzzer_enabled);
-    TEST_ASSERT_EQUAL(5000, config.charging_blink_interval_ms);
+    TEST_ASSERT_EQUAL(1000, config.charging_blink_interval_ms);
     TEST_ASSERT_EQUAL(100, config.wheel_min_speed_deci_kmh);
     TEST_ASSERT_EQUAL(2220, config.wheel_circumference_mm);
     TEST_ASSERT_EQUAL(ESP_OK, runtime_config_reset_defaults());

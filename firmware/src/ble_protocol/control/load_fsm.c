@@ -31,6 +31,15 @@ void load_fsm_init(load_fsm_t *fsm, bool restored_working,
     };
 }
 
+void load_fsm_restore_charging_confirmation(load_fsm_t *fsm, bool pending,
+                                            int64_t since_us) {
+    if (!fsm) return;
+    fsm->low_voltage_current_pending =
+        fsm->state == LOAD_FSM_WORKING && pending;
+    fsm->low_voltage_current_since_us =
+        fsm->low_voltage_current_pending ? since_us : 0;
+}
+
 static void command_output(load_fsm_t *fsm, runtime_command_list_t *commands,
                            runtime_command_kind_t kind) {
     runtime_command_t command = runtime_command_make(kind, fsm->operation_id);
@@ -471,7 +480,10 @@ void load_fsm_step(load_fsm_t *fsm, const runtime_event_t *event,
                 }
                 fsm->charging_measure_pending = false;
                 fsm->charging_deadline_us = 0;
-                if (fabsf(event->current_ma) > config->low_current_ma) {
+                /* Use the current threshold, including changes made over BLE.
+                 * Only a fresh ON-phase sample may end charging indication. */
+                if (event->voltage_v >= config->low_voltage_v ||
+                    fabsf(event->current_ma) > config->low_current_ma) {
                     charging_recover_to_working(fsm, commands);
                 } else {
                     charging_begin_off(fsm, now_us, commands);

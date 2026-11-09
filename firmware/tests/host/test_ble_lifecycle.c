@@ -187,8 +187,8 @@ static void test_repeated_press_extends_without_restarting_advertising(void) {
 
     step(&runtime, event(RTEVT_ADV_COMPLETE, 91000000LL), 91000000LL);
     press(&runtime, 92000000LL);
-    CHECK(runtime.core.ble.state == BLE_FSM_READY_TO_SLEEP);
-    CHECK(runtime.start_count == 1);
+    CHECK(runtime.core.ble.state == BLE_FSM_STARTING);
+    CHECK(runtime.start_count == 2);
     CHECK(runtime.advertise_count == 1);
     CHECK(runtime.refresh_count == 0);
 }
@@ -247,9 +247,36 @@ static void test_disconnect_completes_without_readvertising(void) {
 
     press(&runtime, 4000000LL);
     sync_host(&runtime, 5000000LL);
+    CHECK(runtime.core.ble.state == BLE_FSM_ADVERTISING);
+    CHECK(runtime.start_count == 2);
+    CHECK(runtime.advertise_count == 2);
+    connect_client(&runtime, 10, 6000000LL);
+    CHECK(runtime.core.ble.state == BLE_FSM_CONNECTED);
+}
+
+static void test_reopen_while_charging_blocks_sleep(void) {
+    test_runtime_t runtime;
+    init_runtime(&runtime);
+    press(&runtime, 0);
+    sync_host(&runtime, 1000000);
+    connect_client(&runtime, 9, 2000000);
+    runtime.core.load.state = LOAD_FSM_NEED_CHARGING;
+    CHECK(!ble_sleep_allowed(&runtime, LOAD_FSM_NEED_CHARGING));
+    int64_t deadline = 2000000 + CONNECTION_TIMEOUT_US;
+    step(&runtime, event(RTEVT_DEADLINE_CHECK, deadline), deadline);
+    press(&runtime, deadline + 1);
     CHECK(runtime.core.ble.state == BLE_FSM_READY_TO_SLEEP);
-    CHECK(runtime.start_count == 1);
-    CHECK(runtime.advertise_count == 1);
+    CHECK(runtime.start_count == 1); /* Physical connection is still live. */
+    runtime_event_t disconnected = event(RTEVT_CLIENT_DISCONNECTED, deadline + 2);
+    disconnected.conn_handle = 9;
+    step(&runtime, disconnected, deadline + 2);
+    press(&runtime, deadline + 3);
+    CHECK(runtime.core.ble.state == BLE_FSM_STARTING);
+    CHECK(runtime.start_count == 2);
+    sync_host(&runtime, deadline + 4);
+    connect_client(&runtime, 10, deadline + 5);
+    CHECK(runtime.core.ble.state == BLE_FSM_CONNECTED);
+    CHECK(runtime.core.load.state == LOAD_FSM_NEED_CHARGING);
 }
 
 static void test_startup_failure_and_missing_sync_are_bounded(void) {
@@ -296,8 +323,8 @@ static void test_stale_and_duplicate_events_cannot_restart_lifecycle(void) {
     step(&runtime, duplicate_disconnect, 63000000LL);
     press(&runtime, 64000000LL);
 
-    CHECK(runtime.core.ble.state == BLE_FSM_READY_TO_SLEEP);
-    CHECK(runtime.start_count == 1);
+    CHECK(runtime.core.ble.state == BLE_FSM_STARTING);
+    CHECK(runtime.start_count == 2);
     CHECK(runtime.advertise_count == 1);
     CHECK(runtime.disconnect_count == 0);
 }
@@ -334,6 +361,8 @@ int main(void) {
          test_connected_deadline_is_hard_and_ignores_adv_expiry},
         {"disconnect_without_restart",
          test_disconnect_completes_without_readvertising},
+        {"reopen_while_charging_blocks_sleep",
+         test_reopen_while_charging_blocks_sleep},
         {"bounded_startup_failure",
          test_startup_failure_and_missing_sync_are_bounded},
         {"stale_and_duplicate_events",

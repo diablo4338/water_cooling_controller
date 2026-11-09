@@ -121,7 +121,21 @@ void runtime_core_step(runtime_core_t *core, const runtime_event_t *event,
         buzzer_event.bool_value = true;
     }
 
-    if ((event->kind != RTEVT_LOAD_GPIO_APPLIED || new_load_on_ack) &&
+    /* Charging blink cycles and thermal presses must remain silent. Cancel
+     * any warning already playing when Load enters this state, and discard
+     * queued cues so they cannot resume after recovery. */
+    if (core->load.state == LOAD_FSM_NEED_CHARGING &&
+        previous_load_state != LOAD_FSM_NEED_CHARGING) {
+        if (buzzer_fsm_is_active(&core->buzzer)) {
+            runtime_command_t cancel = runtime_command_make(
+                RCMD_BUZZER_CANCEL, core->buzzer.operation_id);
+            runtime_command_list_push(commands, &cancel);
+        }
+        buzzer_fsm_init(&core->buzzer, &core->buzzer_config, false, false, 0);
+    }
+
+    if (core->load.state != LOAD_FSM_NEED_CHARGING &&
+        (event->kind != RTEVT_LOAD_GPIO_APPLIED || new_load_on_ack) &&
         (event->kind != RTEVT_BUZZER_REQUEST_SHUTDOWN ||
          current_shutdown_request)) {
         buzzer_fsm_config_t buzzer_config = core->buzzer_config;

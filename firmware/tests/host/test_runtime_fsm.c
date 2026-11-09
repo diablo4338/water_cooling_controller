@@ -849,8 +849,8 @@ static void test_ble_lazy_start_and_deadline(void) {
     CHECK_INT(mock.ble_stop_count, 0);
     step(&core, &mock, make_event(RTEVT_THERMAL_BUTTON_PRESSED, 73000000),
          73000000);
-    CHECK_INT(core.ble.state, BLE_FSM_READY_TO_SLEEP);
-    CHECK_INT(mock.ble_start_count, 1);
+    CHECK_INT(core.ble.state, BLE_FSM_STARTING);
+    CHECK_INT(mock.ble_start_count, 2);
     CHECK_INT(mock.ble_adv_start_count, 1);
 }
 
@@ -900,7 +900,7 @@ static void test_ble_disconnect_completes_lifecycle(void) {
     CHECK_INT(mock.ble_adv_start_count, 1);
 }
 
-static void test_ble_ready_ignores_press(void) {
+static void test_ble_ready_reopens_on_press(void) {
     runtime_core_t core;
     mock_t mock;
     memset(&mock, 0, sizeof(mock));
@@ -914,8 +914,8 @@ static void test_ble_ready_ignores_press(void) {
 
     step(&core, &mock, make_event(RTEVT_THERMAL_BUTTON_PRESSED, 61000000LL),
          61000000LL);
-    CHECK_INT(core.ble.state, BLE_FSM_READY_TO_SLEEP);
-    CHECK_INT(mock.ble_start_count, 1);
+    CHECK_INT(core.ble.state, BLE_FSM_STARTING);
+    CHECK_INT(mock.ble_start_count, 2);
     CHECK_INT(mock.ble_stop_count, 0);
 }
 
@@ -970,20 +970,20 @@ static void test_ble_late_callbacks_ignored(void) {
 
     step(&core, &mock, make_event(RTEVT_THERMAL_BUTTON_PRESSED, 5000000),
          5000000);
-    CHECK_INT(core.ble.state, BLE_FSM_READY_TO_SLEEP);
+    CHECK_INT(core.ble.state, BLE_FSM_STARTING);
 
     runtime_event_t late_complete = make_event(RTEVT_ADV_COMPLETE, 7000000);
     late_complete.operation_id = old_op;
     late_complete.request_id = old_adv;
     step(&core, &mock, late_complete, 7000000);
-    CHECK_INT(core.ble.state, BLE_FSM_READY_TO_SLEEP);
+    CHECK_INT(core.ble.state, BLE_FSM_STARTING);
 
     runtime_event_t late_disconnect = make_event(RTEVT_CLIENT_DISCONNECTED,
                                                  8000000);
     late_disconnect.conn_handle = 9;
     step(&core, &mock, late_disconnect, 8000000);
-    CHECK_INT(core.ble.state, BLE_FSM_READY_TO_SLEEP);
-    CHECK_INT(mock.ble_start_count, 1);
+    CHECK_INT(core.ble.state, BLE_FSM_STARTING);
+    CHECK_INT(mock.ble_start_count, 2);
     CHECK_INT(mock.ble_stop_count, 0);
 }
 
@@ -1856,9 +1856,9 @@ static void test_startup_waits_for_warning_to_finish(void) {
     memset(&mock, 0, sizeof(mock));
     init_core(&core, true, true);
     step(&core, &mock, ina_event(true, 7101, 0, MEASURE_PERIODIC,
-                                 6.5f, 50.0f, 0), 0);
+                                 6.5f, 150.0f, 0), 0);
     step(&core, &mock, ina_event(true, 7102, 0, MEASURE_PERIODIC,
-                                 6.5f, 50.0f, 10000001LL), 10000001LL);
+                                 6.5f, 150.0f, 10000001LL), 10000001LL);
     CHECK_INT(mock.beep_count, 1);
     uint32_t warning_id = core.buzzer.operation_id;
 
@@ -1890,9 +1890,9 @@ static void test_warning_playback_deadline_forces_buzzer_off(void) {
     memset(&mock, 0, sizeof(mock));
     init_core(&core, true, true);
     step(&core, &mock, ina_event(true, 7201, 0, MEASURE_PERIODIC,
-                                 6.5f, 50.0f, 0), 0);
+                                 6.5f, 150.0f, 0), 0);
     step(&core, &mock, ina_event(true, 7202, 0, MEASURE_PERIODIC,
-                                 6.5f, 50.0f, 10000001LL), 10000001LL);
+                                 6.5f, 150.0f, 10000001LL), 10000001LL);
     CHECK_INT(core.buzzer.state, BUZZER_FSM_BEEPING);
     CHECK_INT(mock.beep_count, 1);
 
@@ -1949,7 +1949,57 @@ typedef struct {
     test_fn_t fn;
 } test_case_t;
 
+static void test_need_charging_silences_buzzer_and_keeps_client(void) {
+    runtime_core_t core;
+    load_fsm_config_t load = {
+        .low_current_ma = 100, .low_voltage_v = 6.6f,
+        .need_charging_confirm_us = 5000000,
+    };
+    buzzer_fsm_config_t buzzer = {
+        .enabled = true, .threshold_mv = 6600,
+        .button_ms = 300, .combined_ms = 600, .low_ms = 300,
+    };
+    runtime_core_init(&core, &load, &buzzer, NULL, true,
+                      false, 0, false, false, 0);
+    core.ble.state = BLE_FSM_CONNECTED;
+    core.ble.conn_handle = 1;
+    runtime_event_t sample = runtime_event_make(RTEVT_INA_SAMPLE_OK, 1000000);
+    sample.context = MEASURE_PERIODIC;
+    sample.voltage_v = 2.14f;
+    sample.current_ma = 0.5f;
+    runtime_command_list_t commands;
+    runtime_command_list_init(&commands);
+    runtime_core_step(&core, &sample, 1000000, &commands);
+    core.buzzer.state = BUZZER_FSM_BEEPING;
+    core.buzzer.operation = BUZZER_OP_WARNING;
+    core.buzzer.operation_id = 123;
+    core.buzzer.pending_button_count = 1;
+    sample.timestamp_us = 6000000;
+    runtime_command_list_init(&commands);
+    runtime_core_step(&core, &sample, 6000000, &commands);
+    CHECK_INT(core.load.state, LOAD_FSM_NEED_CHARGING);
+    CHECK_INT(core.buzzer.state, BUZZER_FSM_IDLE);
+    CHECK_INT(core.buzzer.pending_button_count, 0);
+    int cancels = 0;
+    for (uint8_t i = 0; i < commands.count; ++i) {
+        CHECK(commands.items[i].kind != RCMD_BUZZER_PLAY);
+        if (commands.items[i].kind == RCMD_BUZZER_CANCEL) ++cancels;
+    }
+    CHECK_INT(cancels, 1);
+    runtime_event_t press = runtime_event_make(RTEVT_THERMAL_BUTTON_PRESSED, 7000000);
+    press.voltage_v = 2.14f;
+    runtime_command_list_init(&commands);
+    runtime_core_step(&core, &press, 7000000, &commands);
+    CHECK_INT(core.load.state, LOAD_FSM_NEED_CHARGING);
+    CHECK_INT(core.buzzer.state, BUZZER_FSM_IDLE);
+    CHECK_INT(core.ble.state, BLE_FSM_CONNECTED);
+    CHECK_INT(core.ble.conn_handle, 1);
+    CHECK_INT(commands.count, 0);
+}
+
 static const test_case_t k_tests[] = {
+    {"need_charging_silences_buzzer_and_keeps_client",
+     test_need_charging_silences_buzzer_and_keeps_client},
     {"load_startup_sequence", test_load_startup_sequence},
     {"wheel_motion_uses_shared_startup_without_ble",
      test_wheel_motion_uses_shared_startup_without_ble},
@@ -1969,7 +2019,7 @@ static const test_case_t k_tests[] = {
     {"ble_lazy_start_and_deadline", test_ble_lazy_start_and_deadline},
     {"ble_disconnect_completes_lifecycle",
      test_ble_disconnect_completes_lifecycle},
-    {"ble_ready_ignores_press", test_ble_ready_ignores_press},
+    {"ble_ready_reopens_on_press", test_ble_ready_reopens_on_press},
     {"ble_adv_complete_does_not_control_lifecycle",
      test_ble_adv_complete_does_not_control_lifecycle},
     {"ble_late_callbacks_ignored", test_ble_late_callbacks_ignored},

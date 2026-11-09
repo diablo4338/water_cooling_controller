@@ -265,7 +265,14 @@ bool gap_ble_start(uint32_t operation_id) {
 
     if (s_fatal_error) return false;
 
-    if (s_initialized) return true;
+    if (s_initialized) {
+        /* Reuse the synced host; sync_cb will not run again for this window. */
+        if (ble_hs_synced()) {
+            publish_event(RTEVT_BLE_READY, operation_id, 0,
+                          BLE_HS_CONN_HANDLE_NONE, 0);
+        }
+        return true;
+    }
 
     esp_err_t err = nimble_port_init();
     if (err != ESP_OK) {
