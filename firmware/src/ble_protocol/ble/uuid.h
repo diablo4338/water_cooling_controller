@@ -15,6 +15,7 @@ extern const char *UUID_PAIR_CONFIRM_STR;
 extern const char *UUID_PAIR_FINISH_STR;
 
 extern const char *UUID_AUTH_NONCE_STR;
+extern const char *UUID_KEEP_ALIVE_STR;
 extern const char *UUID_AUTH_PROOF_STR;
 extern const char *UUID_RUNTIME_CONFIG_STR;
 extern const char *UUID_CONFIG_RESULT_STR;
@@ -35,6 +36,7 @@ extern ble_uuid_any_t UUID_PAIR_CONFIRM;
 extern ble_uuid_any_t UUID_PAIR_FINISH;
 
 extern ble_uuid_any_t UUID_AUTH_NONCE;
+extern ble_uuid_any_t UUID_KEEP_ALIVE;
 extern ble_uuid_any_t UUID_AUTH_PROOF;
 extern ble_uuid_any_t UUID_RUNTIME_CONFIG;
 extern ble_uuid_any_t UUID_CONFIG_RESULT;

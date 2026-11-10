@@ -11,6 +11,7 @@ const char *UUID_PAIR_CONFIRM_STR   = "dacbbf11-ed96-4cbf-8eac-058540aa041b";
 const char *UUID_PAIR_FINISH_STR    = "cdec3bfc-4d5f-4a40-8d9e-353a234eca2d";
 
 const char *UUID_AUTH_NONCE_STR     = "b5e032c6-697d-4ae1-a0d3-4aa27733bb09";
+const char *UUID_KEEP_ALIVE_STR = "f5024a72-58bc-4f33-a778-cf6507593bea";
 const char *UUID_AUTH_PROOF_STR     = "82a3e36a-db27-445c-998b-8420446461a1";
 const char *UUID_RUNTIME_CONFIG_STR = "dc881986-aada-4764-bfb9-d79326a6c03a";
 const char *UUID_CONFIG_RESULT_STR  = "11d1283c-ad34-406d-9d96-7a11c69db086";
@@ -33,6 +34,7 @@ ble_uuid_any_t UUID_PAIR_CONFIRM;
 ble_uuid_any_t UUID_PAIR_FINISH;
 
 ble_uuid_any_t UUID_AUTH_NONCE;
+ble_uuid_any_t UUID_KEEP_ALIVE;
 ble_uuid_any_t UUID_AUTH_PROOF;
 ble_uuid_any_t UUID_RUNTIME_CONFIG;
 ble_uuid_any_t UUID_CONFIG_RESULT;

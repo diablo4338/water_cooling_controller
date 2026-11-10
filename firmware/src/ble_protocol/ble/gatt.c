@@ -3,10 +3,15 @@
 
 #include "esp_log.h"
 
+#include "nimble/nimble_port.h"
+#include "nimble/nimble_npl.h"
 #include "host/ble_att.h"
 #include "host/ble_gatt.h"
 #include "host/ble_hs.h"
+#include "os/os_mbuf.h"
 
+#include "esp_timer.h"
+#include "event_bus.h"
 #include "access.h"
 #include "crypto.h"
 #include "ecdh.h"
@@ -204,6 +209,24 @@ static int gatt_write_auth_proof(uint16_t conn_handle, uint16_t attr_handle,
     return 0;
 }
 
+/* Keep the NimBLE callback short; only the runtime dispatcher owns deadlines. */
+static int gatt_write_keep_alive(uint16_t conn_handle, uint16_t attr_handle,
+                                  struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    (void)attr_handle; (void)arg;
+    if (!can_access_data() || !auth_conn_check(conn_handle)) {
+        return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    }
+    if (OS_MBUF_PKTLEN(ctxt->om) != 1) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+    uint8_t version;
+    if (os_mbuf_copydata(ctxt->om, 0, 1, &version) != 0 || version != 1) {
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+    runtime_event_t event = runtime_event_make(RTEVT_CLIENT_KEEP_ALIVE, 0);
+    event.conn_handle = conn_handle;
+    event.monotonic_timestamp_us = esp_timer_get_time();
+    return event_bus_publish(&event) ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+}
+
 static uint16_t config_result_attr_handle;
 static uint8_t last_config_result[RUNTIME_CONFIG_RESULT_SIZE] = {
     RUNTIME_CONFIG_VERSION, 0, 0, CONFIG_STATUS_OK, CONFIG_FIELD_NONE
@@ -231,10 +254,35 @@ static int gatt_read_config_result(uint16_t conn_handle, uint16_t attr_handle,
         ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
 }
 
+/* Run after the ATT write callback releases its receive buffers. */
+static struct ble_npl_event config_notify_event;
+static uint16_t config_notify_conn_handle;
+
+static void notify_config_result(struct ble_npl_event *event) {
+    (void)event;
+    uint16_t conn = config_notify_conn_handle;
+    if (!can_access_data() || !auth_conn_check(conn)) return;
+    struct os_mbuf *notification = ble_hs_mbuf_from_flat(
+        last_config_result, sizeof(last_config_result));
+    if (!notification) {
+        ESP_LOGW(TAG, "Config result notify: no mbuf; result available via read");
+        return;
+    }
+    /* NimBLE consumes the mbuf even on failure. */
+    int rc = ble_gatts_notify_custom(conn, config_result_attr_handle, notification);
+    if (rc != 0) {
+        ESP_LOGW(TAG, "Config result notify rc=%d; result available via read", rc);
+    }
+}
+
 static int gatt_write_runtime_config(uint16_t conn_handle, uint16_t attr_handle,
                                      struct ble_gatt_access_ctxt *ctxt, void *arg) {
-    (void)attr_handle; (void)arg;
+    (void)arg;
+    ESP_LOGI(TAG, "Config write received conn=%u attr=%u len=%u mbufs_free=%d",
+             (unsigned)conn_handle, (unsigned)attr_handle,
+             (unsigned)OS_MBUF_PKTLEN(ctxt->om), os_msys_num_free());
     if (!can_access_data() || !auth_conn_check(conn_handle)) {
+        ESP_LOGW(TAG, "Config write rejected: unauthorized conn=%u", (unsigned)conn_handle);
         return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
     }
     int length = OS_MBUF_PKTLEN(ctxt->om);
@@ -245,12 +293,8 @@ static int gatt_write_runtime_config(uint16_t conn_handle, uint16_t attr_handle,
     runtime_config_result_t result;
     runtime_config_apply_wire(wire, (size_t)length, &result);
     runtime_config_result_encode(&result, last_config_result);
-    struct os_mbuf *notification = ble_hs_mbuf_from_flat(
-        last_config_result, sizeof(last_config_result));
-    if (notification) {
-        int rc = ble_gatts_notify_custom(conn_handle, config_result_attr_handle, notification);
-        if (rc != 0) ESP_LOGW(TAG, "Config result notify rc=%d", rc);
-    }
+    config_notify_conn_handle = conn_handle;
+    ble_npl_eventq_put(nimble_port_get_dflt_eventq(), &config_notify_event);
     ESP_LOGI(TAG, "Config request=%u status=%u field=%u",
              (unsigned)result.request_id, (unsigned)result.status,
              (unsigned)result.field);
@@ -327,6 +371,7 @@ static struct ble_gatt_chr_def main_chrs[] = {
     { .uuid = NULL, .access_cb = gatt_read_config_result,
       .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
       .val_handle = &config_result_attr_handle },
+    { .uuid = NULL, .access_cb = gatt_write_keep_alive, .flags = BLE_GATT_CHR_F_WRITE },
     { 0 }
 };
 
@@ -365,6 +410,8 @@ static void parse_uuid_or_abort(const char *s, ble_uuid_any_t *out) {
 }
 
 void gatt_init_uuids_and_services(void) {
+    ble_npl_event_init(&config_notify_event, notify_config_result, NULL);
+    ESP_LOGI(TAG, "Config diagnostics v4: telemetry 1Hz, reserve=4, deferred config notify");
     parse_uuid_or_abort(UUID_PAIR_SVC_STR, &UUID_PAIR_SVC);
     parse_uuid_or_abort(UUID_MAIN_SVC_STR, &UUID_MAIN_SVC);
     parse_uuid_or_abort(UUID_METRICS_SVC_STR, &UUID_METRICS_SVC);
@@ -375,6 +422,7 @@ void gatt_init_uuids_and_services(void) {
     parse_uuid_or_abort(UUID_PAIR_FINISH_STR, &UUID_PAIR_FINISH);
     parse_uuid_or_abort(UUID_AUTH_NONCE_STR, &UUID_AUTH_NONCE);
     parse_uuid_or_abort(UUID_AUTH_PROOF_STR, &UUID_AUTH_PROOF);
+    parse_uuid_or_abort(UUID_KEEP_ALIVE_STR, &UUID_KEEP_ALIVE);
     parse_uuid_or_abort(UUID_RUNTIME_CONFIG_STR, &UUID_RUNTIME_CONFIG);
     parse_uuid_or_abort(UUID_CONFIG_RESULT_STR, &UUID_CONFIG_RESULT);
     parse_uuid_or_abort(UUID_LOAD_STATE_STR, &UUID_LOAD_STATE);
@@ -395,6 +443,7 @@ void gatt_init_uuids_and_services(void) {
     main_chrs[1].uuid = &UUID_AUTH_PROOF.u;
     main_chrs[2].uuid = &UUID_RUNTIME_CONFIG.u;
     main_chrs[3].uuid = &UUID_CONFIG_RESULT.u;
+    main_chrs[4].uuid = &UUID_KEEP_ALIVE.u;
     metrics_chrs[0].uuid = &UUID_LOAD_STATE.u;
     metrics_chrs[1].uuid = &UUID_BUTTON_STATE.u;
     metrics_chrs[2].uuid = &UUID_TEMPERATURE.u;

@@ -341,6 +341,30 @@ static void test_power_manager_ble_eligibility_and_working_load(void) {
     CHECK(ble_sleep_allowed(&runtime, LOAD_FSM_WORKING));
 }
 
+static void test_keep_alive(void) {
+    test_runtime_t runtime;
+    init_runtime(&runtime);
+    press(&runtime, 0);
+    sync_host(&runtime, 1000);
+    connect_client(&runtime, 7, 2000);
+    int64_t original = runtime.core.ble.connection_deadline_us;
+    runtime_event_t alive = event(RTEVT_CLIENT_KEEP_ALIVE, 30000000);
+    alive.conn_handle = 8;
+    step(&runtime, alive, 30000000);
+    CHECK(runtime.core.ble.connection_deadline_us == original);
+    alive.conn_handle = 7;
+    step(&runtime, alive, 30000000);
+    CHECK(runtime.core.ble.connection_deadline_us == 30000000 + CONNECTION_TIMEOUT_US);
+    step(&runtime, event(RTEVT_DEADLINE_CHECK, original), original);
+    CHECK(runtime.core.ble.state == BLE_FSM_CONNECTED);
+    int64_t expiry = runtime.core.ble.connection_deadline_us;
+    step(&runtime, alive, expiry);
+    CHECK(runtime.core.ble.state == BLE_FSM_READY_TO_SLEEP);
+    CHECK(runtime.core.ble.connection_deadline_us == 0);
+    step(&runtime, alive, expiry + 1);
+    CHECK(runtime.core.ble.state == BLE_FSM_READY_TO_SLEEP);
+}
+
 typedef void (*test_fn_t)(void);
 
 typedef struct {
@@ -350,6 +374,7 @@ typedef struct {
 
 int main(void) {
     const test_case_t tests[] = {
+        {"keep_alive", test_keep_alive},
         {"boot_and_one_shot_start", test_boot_and_one_shot_start},
         {"sync_and_advertising_extension",
          test_sync_starts_advertising_and_press_extends_window},

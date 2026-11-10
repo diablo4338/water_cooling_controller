@@ -226,6 +226,15 @@ void ble_fsm_step(ble_fsm_t *fsm, const runtime_event_t *event,
             }
             return;
 
+        case RTEVT_CLIENT_KEEP_ALIVE:
+            /* Expired sessions cannot be revived, even before the next tick. */
+            check_deadline(fsm, now_us);
+            if (fsm->state == BLE_FSM_CONNECTED &&
+                event->conn_handle == fsm->conn_handle) {
+                fsm->connection_deadline_us = now_us + BLE_CONNECTION_TIMEOUT_US;
+            }
+            return;
+
         case RTEVT_CLIENT_DISCONNECTED:
             if ((fsm->state == BLE_FSM_CONNECTED ||
                  fsm->state == BLE_FSM_READY_TO_SLEEP) &&

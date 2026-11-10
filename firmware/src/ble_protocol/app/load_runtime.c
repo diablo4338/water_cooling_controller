@@ -465,7 +465,8 @@ static void process_event_locked(const runtime_event_t *event) {
     apply_commands_locked(&commands, now_us);
     update_retained_from_core();
     snapshot_update_load();
-    load_metrics_publish();
+    /* Publish from the 1 Hz periodic cycle only. Deadline checks and action
+     * events can arrive every few milliseconds and must not flood BLE. */
 }
 
 static void handle_pair_button_locked(int64_t now_us) {
