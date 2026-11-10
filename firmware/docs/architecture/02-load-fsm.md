@@ -1,5 +1,7 @@
 # 02 — Load FSM contract
 
+Актуальное поведение NEED_CHARGING и планирование сна: [07-charging-sleep.md](07-charging-sleep.md). Этот раздел уточняет раннее описание ниже.
+
 States: `LOAD_IDLE` (output OFF); `LOAD_STARTING` (output ON, startup sequence in progress); `LOAD_WORKING` (output ON); `LOAD_STOPPING` (output ON, shutdown completion pending). Adding transient states avoids reporting IDLE while output is still ON.
 
 | State | Event/guard | Next state | Commands |

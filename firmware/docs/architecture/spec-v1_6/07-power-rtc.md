@@ -10,4 +10,6 @@ If retained load state is valid, restore requested output state. Otherwise set d
 A startup settle or buzzer playback may hold off sleep only until its finite deadline; failure to deliver completion triggers fallback, never infinite waiting. A real LOAD_OFF GPIO failure is distinct: do not claim OFF; according to the chosen physical-fault policy it may remain awake for diagnosis/recovery. BLE window/connection hard deadlines must be independently checked, regardless of dispatcher state.
 
 ## Implementation note
-Deep Sleep can interrupt a currently connected BLE client; this is intended. Do not add disconnected/retry states to make the shutdown graceful. Before entering sleep, perform the minimal RTC and GPIO-hold preparation already required by hardware. No controller-off confirmation required.
+Active BLE blocks sleep under the current BLE policy; READY_TO_SLEEP permits it. Charging indication does not bypass that gate. Do not add disconnected/retry states to make the shutdown graceful. Before entering sleep, perform the minimal RTC and GPIO-hold preparation already required by hardware. No controller-off confirmation required.
+
+Current charging/RTC continuation: [07-charging-sleep.md](../07-charging-sleep.md).

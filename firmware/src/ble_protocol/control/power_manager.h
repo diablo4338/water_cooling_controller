@@ -24,6 +24,7 @@ typedef struct {
     ble_fsm_state_t ble_state;
     load_fsm_state_t load_state;
     buzzer_fsm_state_t buzzer_state;
+    bool charging_sleepable;
     bool action_pending;
     bool event_pending;
     bool critical_pending;
@@ -32,6 +33,9 @@ typedef struct {
 
 power_sleep_block_reason_t power_manager_sleep_block_reason(
     const power_snapshot_t *snapshot);
+/* Wall-clock deadlines; return now when overdue work must run before sleep. */
+int64_t power_manager_next_wake(const load_fsm_t *load, int64_t now_us,
+                                int64_t normal_wake_us);
 bool power_manager_can_sleep(const power_snapshot_t *snapshot);
 const char *power_manager_block_reason_name(power_sleep_block_reason_t reason);
 

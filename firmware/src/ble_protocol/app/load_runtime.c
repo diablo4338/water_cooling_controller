@@ -36,7 +36,7 @@
 
 #define TAG "runtime"
 
-#define RETAINED_MAGIC 0x4C4F410AU
+#define RETAINED_MAGIC 0x4C4F410BU
 /* Physical ADS input 2 maps to logical temperature channel 4. */
 #define BUTTON_ADS_INPUT 2
 #define PAIR_BUTTON_GPIO GPIO_NUM_19
@@ -55,6 +55,12 @@
 typedef struct {
     uint32_t magic;
     load_state_t load;
+    bool charging;
+    bool charging_output_on;
+    int64_t charging_phase_us;
+    int64_t charging_end_us;
+    int64_t next_periodic_us;
+    int64_t next_reed_probe_us;
     bool charging_low_pending;
     int64_t charging_low_since_us;
     bool buzzer_low_pending;
@@ -109,6 +115,8 @@ static void sleep_request_set(bool requested) {
     s_sleep_requested = requested;
     portEXIT_CRITICAL(&s_sleep_request_mux);
 }
+static int64_t s_next_reed_probe_us;
+static bool s_reed_pin_ready;
 static int64_t s_next_periodic_us;
 static int64_t s_next_deadline_us;
 static int64_t s_next_sleep_us;
@@ -211,6 +219,9 @@ static void retained_init(void) {
                  s_retained.magic == RETAINED_MAGIC &&
                  (s_retained.load.mode == LOAD_IDLE ||
                   s_retained.load.mode == LOAD_WORKING) &&
+                 (!s_retained.charging ||
+                  (s_retained.charging_phase_us > 0 &&
+                   s_retained.charging_end_us > 0)) &&
                  s_retained.load.temperature_count <= 5 &&
                  s_retained.load.temperature_next < 5 &&
                  (!s_retained.load.low_current_pending ||
@@ -251,11 +262,19 @@ static void snapshot_set_measurement(bool valid, float voltage_v,
 }
 
 static void update_retained_from_core(void) {
-    /* Only durable states are retained.  A reset during STARTING/STOPPING
-     * restores IDLE, so the output is driven off on the next boot. */
+    /* Retain stable modes only, never asynchronous operations. Cold resets
+     * invalidate RTC data; deep sleep restores WORKING or a stable blink phase. */
     s_retained.load.mode = s_core.load.state == LOAD_FSM_WORKING
                                ? LOAD_WORKING
                                : LOAD_IDLE;
+    s_retained.charging = load_fsm_charging_sleepable(&s_core.load);
+    if (s_retained.charging) {
+        s_retained.charging_output_on = s_core.load.output_on;
+        s_retained.charging_phase_us = s_core.load.charging_deadline_us;
+        s_retained.charging_end_us = s_core.load.charging_end_us;
+    }
+    s_retained.next_periodic_us = s_next_periodic_us;
+    s_retained.next_reed_probe_us = s_next_reed_probe_us;
     s_retained.load.low_current_pending = s_core.load.low_current_pending;
     s_retained.load.low_current_since_us = s_core.load.low_current_since_us;
 
@@ -289,6 +308,26 @@ static void log_transitions(load_fsm_state_t previous_load,
 }
 
 static void process_event_locked(const runtime_event_t *event);
+
+static void maybe_start_reed_probe_locked(int64_t wall_now_us) {
+    bool needed = s_core.load.state == LOAD_FSM_IDLE ||
+                  s_core.load.state == LOAD_FSM_NEED_CHARGING ||
+                  (s_core.load.state == LOAD_FSM_WORKING &&
+                   (s_core.load.low_voltage_current_pending ||
+                    s_core.load.low_current_pending));
+    if (!s_reed_pin_ready || !needed || s_reed_detector.active ||
+        wall_now_us < s_next_reed_probe_us) return;
+    runtime_config_t config;
+    runtime_config_get(&config);
+    s_reed_detector.attempted = false;
+    if (reed_detector_start(&s_reed_detector, false,
+                            config.wheel_min_speed_deci_kmh,
+                            config.wheel_circumference_mm,
+                            esp_timer_get_time())) {
+        reed_irq_set_enabled(true, s_reed_detector.generation);
+    }
+    s_next_reed_probe_us = wall_now_us + (int64_t)config.deep_sleep_ms * 1000LL;
+}
 
 static void apply_commands_locked(const runtime_command_list_t *commands,
                                   int64_t now_us) {
@@ -439,7 +478,12 @@ static void process_event_locked(const runtime_event_t *event) {
                              ? event->monotonic_timestamp_us
                              : esp_timer_get_time();
     runtime_core_step(&s_core, event, ble_now_us, &commands);
-    if (s_reed_detector.active && s_core.load.state != LOAD_FSM_IDLE) {
+    if (s_reed_detector.active &&
+        s_core.load.state != LOAD_FSM_IDLE &&
+        s_core.load.state != LOAD_FSM_NEED_CHARGING &&
+        !(s_core.load.state == LOAD_FSM_WORKING &&
+          (s_core.load.low_voltage_current_pending ||
+           s_core.load.low_current_pending))) {
         reed_detector_stop(&s_reed_detector);
         reed_irq_set_enabled(false, s_reed_detector.generation);
     }
@@ -603,7 +647,11 @@ static void scheduler_locked(int64_t wall_now_us, int64_t monotonic_now_us) {
     handle_pair_button_locked(wall_now_us);
 
     if (wall_now_us >= s_next_periodic_us) {
-        s_next_periodic_us = wall_now_us + PERIODIC_INTERVAL_US;
+        runtime_config_t config;
+        runtime_config_get(&config);
+        int64_t interval_us = s_core.load.state == LOAD_FSM_NEED_CHARGING
+            ? (int64_t)config.deep_sleep_ms * 1000LL : PERIODIC_INTERVAL_US;
+        s_next_periodic_us = wall_now_us + interval_us;
         periodic_cycle_locked(wall_now_us);
     }
 
@@ -624,11 +672,16 @@ static void scheduler_locked(int64_t wall_now_us, int64_t monotonic_now_us) {
             if (event_bus_pending() != 0) {
                 reed_irq_set_enabled(true, s_reed_detector.generation);
             } else {
-                (void)reed_detector_expire(&s_reed_detector,
-                                           monotonic_now_us);
+                if (reed_detector_expire(&s_reed_detector, monotonic_now_us)) {
+                    runtime_event_t stopped = runtime_event_make(
+                        RTEVT_WHEEL_STOP_CONFIRMED, wall_now_us);
+                    process_event_locked(&stopped);
+                }
             }
         }
     }
+
+    maybe_start_reed_probe_locked(wall_now_us);
 
     if (wall_now_us >= s_next_sleep_us) {
         s_next_sleep_us = wall_now_us + SLEEP_CHECK_INTERVAL_US;
@@ -644,13 +697,16 @@ void load_runtime_init(void) {
     retained_init();
 
     bool restored_working = s_retained.load.mode == LOAD_WORKING;
-    esp_err_t output_err = load_output_restore(restored_working);
+    bool restored_charging = s_retained.charging;
+    esp_err_t output_err = load_output_restore(
+        restored_charging ? s_retained.charging_output_on : restored_working);
     if (output_err != ESP_OK) {
         ESP_LOGE(TAG, "load output restore failed: %s",
                  esp_err_to_name(output_err));
         (void)load_output_set(false);
         s_retained.load.mode = LOAD_IDLE;
         restored_working = false;
+        restored_charging = false;
     }
 
     const gpio_config_t buzzer = {
@@ -674,7 +730,7 @@ void load_runtime_init(void) {
     ESP_ERROR_CHECK(gpio_set_level(
         BUTTON_LED_GPIO, s_retained.load.button_was_pressed ? 1 : 0));
 
-    bool reed_pin_ready = !restored_working &&
+    bool reed_pin_ready =
         GPIO_IS_VALID_GPIO(BOARD_REED_SWITCH_GPIO) &&
         BOARD_REED_SWITCH_GPIO != GPIO_NUM_0 &&
         BOARD_REED_SWITCH_GPIO != GPIO_NUM_1 &&
@@ -683,7 +739,7 @@ void load_runtime_init(void) {
         BOARD_REED_SWITCH_GPIO != GPIO_NUM_5 &&
         BOARD_REED_SWITCH_GPIO != GPIO_NUM_10 &&
         BOARD_REED_SWITCH_GPIO != PAIR_BUTTON_GPIO;
-    if (!restored_working && !reed_pin_ready) {
+    if (!reed_pin_ready) {
         ESP_LOGE(TAG, "reed switch GPIO assignment is invalid or conflicts");
     }
 
@@ -747,29 +803,20 @@ void load_runtime_init(void) {
         &s_core.load, s_retained.charging_low_pending,
         s_retained.charging_low_since_us);
 
-    if (reed_pin_ready) {
-        runtime_config_t config;
-        runtime_config_get(&config);
-        int64_t monotonic_now_us = esp_timer_get_time();
-        if (reed_detector_start(&s_reed_detector, restored_working,
-                                config.wheel_min_speed_deci_kmh,
-                                config.wheel_circumference_mm,
-                                monotonic_now_us)) {
-            reed_irq_set_enabled(true, s_reed_detector.generation);
-            s_next_reed_deadline_check_us = monotonic_now_us;
-            ESP_LOGI(TAG, "reed detector started GPIO=%d generation=%u",
-                     (int)BOARD_REED_SWITCH_GPIO,
-                     (unsigned)s_reed_detector.generation);
-        } else {
-            reed_irq_set_enabled(false, s_reed_detector.generation);
-        }
-    } else {
-        reed_detector_stop(&s_reed_detector);
-        reed_irq_set_enabled(false, s_reed_detector.generation);
+    if (restored_charging) {
+        load_fsm_restore_charging(&s_core.load, s_retained.charging_output_on,
+                                   s_retained.charging_phase_us,
+                                   s_retained.charging_end_us);
     }
+    s_reed_pin_ready = reed_pin_ready;
+    s_next_reed_probe_us = restored_charging ? s_retained.next_reed_probe_us : 0;
+
+    reed_detector_stop(&s_reed_detector);
+    reed_irq_set_enabled(false, s_reed_detector.generation);
 
     portENTER_CRITICAL(&s_snapshot_mux);
-    s_snapshot.load_state = restored_working ? LOAD_WORKING : LOAD_IDLE;
+    s_snapshot.load_state = restored_charging ? LOAD_NEED_CHARGING :
+        (restored_working ? LOAD_WORKING : LOAD_IDLE);
     s_snapshot.button_pressed =
         s_retained.load.button_was_pressed ? 1U : 0U;
     s_snapshot.temperature_c = NAN;
@@ -777,9 +824,9 @@ void load_runtime_init(void) {
     s_snapshot.current_ma = NAN;
     portEXIT_CRITICAL(&s_snapshot_mux);
 
-    s_boot_measurement_pending = true;
+    s_boot_measurement_pending = !restored_charging;
     s_boot_started_us = wall_time_us();
-    s_next_periodic_us = 0;
+    s_next_periodic_us = restored_charging ? s_retained.next_periodic_us : 0;
     s_next_deadline_us = 0;
     s_next_sleep_us = 0;
     s_next_reed_deadline_check_us =
@@ -838,7 +885,8 @@ void load_runtime_get_power_snapshot(power_snapshot_t *out) {
     out->ble_state = s_core.ble.state;
     out->load_state = s_core.load.state;
     out->buzzer_state = s_core.buzzer.state;
-    out->action_pending = action_executor_pending() > 0;
+    out->charging_sleepable = load_fsm_charging_sleepable(&s_core.load);
+    out->action_pending = action_executor_pending() > 0 || s_periodic_pending;
     out->event_pending = event_bus_pending() > 0;
     out->critical_pending = pair_button_irq_pending() ||
                             s_boot_measurement_pending ||
@@ -861,7 +909,9 @@ bool load_runtime_prepare_sleep(void) {
         s_core.load.state == LOAD_FSM_STARTING ||
         s_core.load.state == LOAD_FSM_STOPPING ||
         s_core.load.state == LOAD_FSM_ERROR ||
-        s_core.load.state == LOAD_FSM_NEED_CHARGING ||
+        (s_core.load.state == LOAD_FSM_NEED_CHARGING &&
+         !load_fsm_charging_sleepable(&s_core.load)) ||
+        s_periodic_pending ||
         s_reed_detector.active || s_reed_publication_pending ||
         s_reed_publication_fault ||
         s_core.buzzer.state != BUZZER_FSM_IDLE ||
@@ -873,8 +923,16 @@ bool load_runtime_prepare_sleep(void) {
 
     runtime_config_t config;
     runtime_config_get(&config);
-    esp_err_t err = esp_sleep_enable_timer_wakeup(
-        (uint64_t)config.deep_sleep_ms * 1000ULL);
+    int64_t now_us = wall_time_us();
+    int64_t wake_us = now_us + (int64_t)config.deep_sleep_ms * 1000LL;
+    if (s_core.load.state == LOAD_FSM_NEED_CHARGING) {
+        if (s_next_periodic_us < wake_us) wake_us = s_next_periodic_us;
+    }
+    wake_us = power_manager_next_wake(&s_core.load, now_us, wake_us);
+    if (wake_us <= now_us) return false; /* Dispatch overdue work first. */
+    update_retained_from_core();
+    uint64_t sleep_us = (uint64_t)(wake_us - now_us);
+    esp_err_t err = esp_sleep_enable_timer_wakeup(sleep_us);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "timer wakeup config failed: %s",
                  esp_err_to_name(err));
@@ -895,7 +953,7 @@ bool load_runtime_prepare_sleep(void) {
         return false;
     }
     ESP_LOGI(TAG, "entering deep sleep for %u ms",
-             (unsigned)config.deep_sleep_ms);
+             (unsigned)(sleep_us / 1000ULL));
     esp_deep_sleep_start();
     ESP_LOGE(TAG, "deep sleep returned unexpectedly");
     return false;

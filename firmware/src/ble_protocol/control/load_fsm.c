@@ -40,6 +40,25 @@ void load_fsm_restore_charging_confirmation(load_fsm_t *fsm, bool pending,
         fsm->low_voltage_current_pending ? since_us : 0;
 }
 
+bool load_fsm_charging_sleepable(const load_fsm_t *fsm) {
+    return fsm && fsm->state == LOAD_FSM_NEED_CHARGING &&
+           (fsm->charging_phase == LOAD_CHARGE_ON ||
+            fsm->charging_phase == LOAD_CHARGE_OFF) &&
+           !fsm->charging_measure_pending && !fsm->verification_pending &&
+           fsm->action_deadline_us == 0;
+}
+
+void load_fsm_restore_charging(load_fsm_t *fsm, bool output_on,
+                               int64_t phase_deadline_us, int64_t end_us) {
+    load_fsm_init(fsm, false, false, 0);
+    fsm->state = LOAD_FSM_NEED_CHARGING;
+    fsm->output_on = output_on;
+    fsm->charging_phase = output_on ? LOAD_CHARGE_ON : LOAD_CHARGE_OFF;
+    fsm->charging_deadline_us = phase_deadline_us;
+    fsm->charging_end_us = end_us;
+    fsm->wheel_stopped = true;
+}
+
 static void command_output(load_fsm_t *fsm, runtime_command_list_t *commands,
                            runtime_command_kind_t kind) {
     runtime_command_t command = runtime_command_make(kind, fsm->operation_id);
@@ -92,6 +111,7 @@ static void charging_retry_measurement(load_fsm_t *fsm, int64_t now_us) {
 static void begin_need_charging(load_fsm_t *fsm, int64_t now_us,
                                 runtime_command_list_t *commands) {
     fsm->state = LOAD_FSM_NEED_CHARGING;
+    fsm->charging_end_us = add_ms(now_us, 600000U);
     fsm->low_current_pending = false;
     fsm->low_voltage_current_pending = false;
     fsm->charging_measure_pending = false;
@@ -281,10 +301,17 @@ static void handle_gpio_verification(load_fsm_t *fsm,
                 fsm->charging_phase = LOAD_CHARGE_ON;
                 fsm->charging_deadline_us =
                     add_ms(now_us, config->charging_blink_interval_ms);
+                if (!fsm->wheel_stopped) charging_recover_to_working(fsm, commands);
             } else {
                 fsm->charging_phase = LOAD_CHARGE_OFF;
                 fsm->charging_deadline_us =
                     add_ms(now_us, config->charging_blink_interval_ms);
+                if (!fsm->wheel_stopped) {
+                    fsm->operation_id = runtime_event_next_id();
+                    fsm->charging_phase = LOAD_CHARGE_TURNING_ON;
+                    fsm->action_deadline_us = now_us + LOAD_ACTION_ACK_TIMEOUT_US;
+                    command_output(fsm, commands, RCMD_LOAD_OUTPUT_ON);
+                }
             }
         } else {
             fsm->output_on = false;
@@ -315,13 +342,56 @@ void load_fsm_step(load_fsm_t *fsm, const runtime_event_t *event,
                    runtime_command_list_t *commands) {
     if (!fsm || !event || !config || !commands) return;
 
+    if (fsm->state == LOAD_FSM_NEED_CHARGING &&
+        fsm->charging_end_us > 0 && now_us >= fsm->charging_end_us) {
+        if (fsm->charging_measure_pending) {
+            runtime_command_t cancel = runtime_command_make(
+                RCMD_CANCEL_MEASURE_TIMEOUT, fsm->operation_id);
+            runtime_command_list_push(commands, &cancel);
+        }
+        fsm->state = LOAD_FSM_STOPPING;
+        fsm->charging_phase = LOAD_CHARGE_NONE;
+        fsm->charging_measure_pending = false;
+        fsm->charging_deadline_us = 0;
+        fsm->operation_id = runtime_event_next_id();
+        fsm->off_requested = true;
+        fsm->verification_pending = false;
+        fsm->off_retries = 0;
+        fsm->action_deadline_us = now_us + LOAD_ACTION_ACK_TIMEOUT_US;
+        command_output(fsm, commands, RCMD_LOAD_OUTPUT_OFF);
+        return;
+    }
+
     switch (event->kind) {
         case RTEVT_EVENT_BUS_FAULT:
             /* Per-operation deadlines, not delivery diagnostics, resolve work. */
             return;
 
-        case RTEVT_THERMAL_BUTTON_PRESSED:
+        case RTEVT_WHEEL_STOP_CONFIRMED:
+            fsm->wheel_stopped = true;
+            return;
+
         case RTEVT_WHEEL_MOTION_CONFIRMED:
+            fsm->wheel_stopped = false;
+            fsm->low_voltage_current_pending = false;
+            if (fsm->state == LOAD_FSM_NEED_CHARGING) {
+                if (fsm->output_on &&
+                    fsm->charging_phase != LOAD_CHARGE_TURNING_OFF) {
+                    charging_recover_to_working(fsm, commands);
+                } else {
+                    /* Serialize with any OFF already submitted. Its ACK will
+                     * issue ON before recovery, so late writes cannot win. */
+                    if (fsm->charging_phase == LOAD_CHARGE_OFF) {
+                        fsm->operation_id = runtime_event_next_id();
+                        fsm->charging_phase = LOAD_CHARGE_TURNING_ON;
+                        fsm->action_deadline_us = now_us + LOAD_ACTION_ACK_TIMEOUT_US;
+                        command_output(fsm, commands, RCMD_LOAD_OUTPUT_ON);
+                    }
+                }
+                return;
+            }
+            /* fall through */
+        case RTEVT_THERMAL_BUTTON_PRESSED:
             if (fsm->state == LOAD_FSM_IDLE) {
                 begin_startup(fsm, now_us, commands);
             }
@@ -347,6 +417,9 @@ void load_fsm_step(load_fsm_t *fsm, const runtime_event_t *event,
                     fsm->verification_pending = false;
                     fsm->verification_retries = 0;
                     fsm->on_retries = 0;
+                    if (!fsm->wheel_stopped) {
+                        charging_recover_to_working(fsm, commands);
+                    }
                 } else if (!event->bool_value &&
                            fsm->charging_phase == LOAD_CHARGE_TURNING_OFF) {
                     fsm->output_on = false;
@@ -357,6 +430,12 @@ void load_fsm_step(load_fsm_t *fsm, const runtime_event_t *event,
                     fsm->verification_pending = false;
                     fsm->verification_retries = 0;
                     fsm->off_retries = 0;
+                    if (!fsm->wheel_stopped) {
+                        fsm->operation_id = runtime_event_next_id();
+                        fsm->charging_phase = LOAD_CHARGE_TURNING_ON;
+                        fsm->action_deadline_us = now_us + LOAD_ACTION_ACK_TIMEOUT_US;
+                        command_output(fsm, commands, RCMD_LOAD_OUTPUT_ON);
+                    }
                 } else {
                     return;
                 }
@@ -516,13 +595,14 @@ void load_fsm_step(load_fsm_t *fsm, const runtime_event_t *event,
                                event->timestamp_us -
                                        fsm->low_voltage_current_since_us >=
                                    config->need_charging_confirm_us) {
-                        begin_need_charging(fsm, now_us, commands);
+                        if (fsm->wheel_stopped) begin_need_charging(fsm, now_us, commands);
                     }
                     return;
                 }
 
                 fsm->low_voltage_current_pending = false;
                 if (!current_low) {
+                    fsm->wheel_stopped = false;
                     fsm->low_current_pending = false;
                     return;
                 }

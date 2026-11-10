@@ -28,7 +28,8 @@ power_sleep_block_reason_t power_manager_sleep_block_reason(
         return POWER_BLOCK_LOAD_TRANSITION;
     }
     if (snapshot->load_state == LOAD_FSM_ERROR) return POWER_BLOCK_LOAD_ERROR;
-    if (snapshot->load_state == LOAD_FSM_NEED_CHARGING) {
+    if (snapshot->load_state == LOAD_FSM_NEED_CHARGING &&
+        !snapshot->charging_sleepable) {
         return POWER_BLOCK_NEED_CHARGING;
     }
     if (snapshot->reed_detection_pending) return POWER_BLOCK_REED_DETECTOR;
@@ -43,4 +44,16 @@ power_sleep_block_reason_t power_manager_sleep_block_reason(
 
 bool power_manager_can_sleep(const power_snapshot_t *snapshot) {
     return power_manager_sleep_block_reason(snapshot) == POWER_SLEEP_ALLOWED;
+}
+
+int64_t power_manager_next_wake(const load_fsm_t *load, int64_t now_us,
+                                int64_t normal_wake_us) {
+    int64_t wake_us = normal_wake_us;
+    if (load && load->state == LOAD_FSM_NEED_CHARGING) {
+        if (load->charging_deadline_us < wake_us)
+            wake_us = load->charging_deadline_us;
+        if (load->charging_end_us < wake_us)
+            wake_us = load->charging_end_us;
+    }
+    return wake_us < now_us ? now_us : wake_us;
 }

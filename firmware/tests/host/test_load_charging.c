@@ -60,6 +60,7 @@ static int count_command(const runtime_command_list_t *commands,
 
 static void qualify_need_charging(load_fsm_t *fsm) {
     load_fsm_init(fsm, true, false, 0);
+    (void)step(fsm, event(RTEVT_WHEEL_STOP_CONFIRMED, 1), 1);
     runtime_event_t low = sample(RTEVT_INA_SAMPLE_OK, MEASURE_PERIODIC, 1,
                                  6.0f, 50.0f, 1000000);
     runtime_command_list_t commands = step(fsm, low, 1000000);
@@ -99,6 +100,7 @@ static runtime_command_t request_charge_measurement(load_fsm_t *fsm,
 static void test_confirmation_and_timer_reset_conditions(void) {
     load_fsm_t fsm;
     load_fsm_init(&fsm, true, false, 0);
+    fsm.wheel_stopped = true;
     runtime_event_t low = sample(RTEVT_INA_SAMPLE_OK, MEASURE_PERIODIC, 1,
                                  6.0f, 50.0f, 1000000);
     (void)step(&fsm, low, 1000000);
@@ -321,6 +323,7 @@ static void test_gpio_off_retry_keeps_charging_safe(void) {
 static void test_confirmation_survives_short_sleep_cycles(void) {
     load_fsm_t fsm;
     load_fsm_init(&fsm, true, false, 0);
+    fsm.wheel_stopped = true;
     for (int cycle = 0; cycle <= 5; ++cycle) {
         int64_t now = 1000000LL + cycle * 1200000LL;
         runtime_event_t low = sample(RTEVT_INA_SAMPLE_OK, MEASURE_PERIODIC,
@@ -332,6 +335,7 @@ static void test_confirmation_survives_short_sleep_cycles(void) {
             int64_t since = fsm.low_voltage_current_since_us;
             /* Each wake constructs a fresh FSM, just like the runtime. */
             load_fsm_init(&fsm, true, false, 0);
+    fsm.wheel_stopped = true;
             load_fsm_restore_charging_confirmation(&fsm, pending, since);
             assert(fsm.low_voltage_current_pending);
             assert(fsm.low_voltage_current_since_us == 1000000);
@@ -344,6 +348,7 @@ static void test_confirmation_survives_short_sleep_cycles(void) {
     assert(!fsm.low_voltage_current_pending);
 
     load_fsm_init(&fsm, true, false, 0);
+    fsm.wheel_stopped = true;
     load_fsm_restore_charging_confirmation(&fsm, true, 1000000);
     runtime_event_t failed = sample(RTEVT_INA_SAMPLE_FAILED, MEASURE_PERIODIC,
                                     10, NAN, NAN, 7000000);
@@ -361,6 +366,7 @@ static void test_configured_low_voltage_threshold(void) {
     load_fsm_config_t policy = config;
     policy.low_voltage_v = 7.0f;
     load_fsm_init(&fsm, true, false, 0);
+    fsm.wheel_stopped = true;
     runtime_command_list_t commands;
     runtime_event_t low = sample(RTEVT_INA_SAMPLE_OK, MEASURE_PERIODIC,
                                  1, 6.8f, 0.5f, 1000000);
@@ -372,6 +378,7 @@ static void test_configured_low_voltage_threshold(void) {
     assert(fsm.state == LOAD_FSM_NEED_CHARGING);
 
     load_fsm_init(&fsm, true, false, 0);
+    fsm.wheel_stopped = true;
     low.voltage_v = 7.0f;
     runtime_command_list_init(&commands);
     load_fsm_step(&fsm, &low, &policy, 6000000, &commands);
@@ -424,7 +431,89 @@ static void test_periodic_voltage_cannot_recover_charging(void) {
     assert(fsm.state == LOAD_FSM_WORKING && fsm.output_on);
 }
 
+static void test_stop_required_and_no_idle_entry(void) {
+    load_fsm_t fsm;
+    load_fsm_init(&fsm, true, false, 0);
+    runtime_event_t low = sample(RTEVT_INA_SAMPLE_OK, MEASURE_PERIODIC, 1,
+                                 6.0f, 50.0f, 1000000);
+    (void)step(&fsm, low, 1000000);
+    (void)step(&fsm, low, 6000000);
+    assert(fsm.state == LOAD_FSM_WORKING);
+    (void)step(&fsm, event(RTEVT_WHEEL_STOP_CONFIRMED, 6000001), 6000001);
+    (void)step(&fsm, low, 6000002);
+    assert(fsm.state == LOAD_FSM_NEED_CHARGING);
+    load_fsm_init(&fsm, false, false, 0);
+    (void)step(&fsm, event(RTEVT_WHEEL_STOP_CONFIRMED, 1), 1);
+    (void)step(&fsm, low, 1000000);
+    (void)step(&fsm, low, 9000000);
+    assert(fsm.state == LOAD_FSM_IDLE);
+}
+
+static void test_sleep_restore_deadlines_and_ble_policy(void) {
+    load_fsm_t fsm;
+    qualify_need_charging(&fsm);
+    acknowledge(&fsm, true, fsm.operation_id, 6000000);
+    assert(load_fsm_charging_sleepable(&fsm));
+    int64_t end = fsm.charging_end_us;
+    assert(end == 606000000);
+    assert(power_manager_next_wake(&fsm, 6000000, 16000000) == 7000000);
+    assert(power_manager_next_wake(&fsm, 6000000, 6500000) == 6500000);
+    load_fsm_restore_charging(&fsm, true, 7000000, end);
+    assert(load_fsm_charging_sleepable(&fsm));
+    runtime_command_t request = request_charge_measurement(&fsm, 7000000);
+    assert(!load_fsm_charging_sleepable(&fsm));
+    runtime_event_t low = sample(RTEVT_INA_SAMPLE_OK, MEASURE_NEED_CHARGING,
+                                 request.request_id, 6, 50, 7000001);
+    (void)step(&fsm, low, 7000001);
+    acknowledge(&fsm, false, fsm.operation_id, 7000002);
+    assert(load_fsm_charging_sleepable(&fsm));
+    load_fsm_restore_charging(&fsm, false, 8000002, end);
+    assert(!fsm.output_on && fsm.charging_end_us == end);
+    power_snapshot_t snapshot = { .ble_state = BLE_FSM_OFF,
+        .load_state = LOAD_FSM_NEED_CHARGING,
+        .buzzer_state = BUZZER_FSM_IDLE, .charging_sleepable = true };
+    assert(power_manager_can_sleep(&snapshot));
+    snapshot.ble_state = BLE_FSM_CONNECTED;
+    assert(power_manager_sleep_block_reason(&snapshot) == POWER_BLOCK_BLE);
+    snapshot.ble_state = BLE_FSM_ADVERTISING;
+    assert(power_manager_sleep_block_reason(&snapshot) == POWER_BLOCK_BLE);
+    fsm.charging_deadline_us = end;
+    assert(power_manager_next_wake(&fsm, end, end + 10000000) == end);
+    runtime_command_list_t commands = step(&fsm, event(RTEVT_DEADLINE_CHECK, end), end);
+    assert(fsm.state == LOAD_FSM_STOPPING);
+    assert(count_command(&commands, RCMD_LOAD_OUTPUT_OFF) == 1);
+    assert(count_command(&commands, RCMD_LOAD_OUTPUT_ON) == 0);
+    assert(count_command(&commands, RCMD_BUZZER_REQUEST_SHUTDOWN) == 0);
+    acknowledge(&fsm, false, fsm.operation_id, end + 1);
+    assert(fsm.state == LOAD_FSM_IDLE);
+}
+
+static void test_motion_recovers_all_blink_phases(void) {
+    const load_charging_phase_t phases[] = { LOAD_CHARGE_ON, LOAD_CHARGE_OFF,
+        LOAD_CHARGE_TURNING_OFF, LOAD_CHARGE_TURNING_ON, LOAD_CHARGE_MEASURING };
+    for (unsigned i = 0; i < sizeof(phases) / sizeof(phases[0]); ++i) {
+        load_fsm_t fsm;
+        load_fsm_restore_charging(&fsm, phases[i] != LOAD_CHARGE_OFF &&
+                                  phases[i] != LOAD_CHARGE_TURNING_ON,
+                                  7000000, 606000000);
+        fsm.charging_phase = phases[i];
+        (void)step(&fsm, event(RTEVT_WHEEL_MOTION_CONFIRMED, 6500000), 6500000);
+        if (phases[i] == LOAD_CHARGE_TURNING_OFF) {
+            acknowledge(&fsm, false, fsm.operation_id, 6500001);
+        }
+        if (fsm.state == LOAD_FSM_NEED_CHARGING) {
+            assert(fsm.charging_phase == LOAD_CHARGE_TURNING_ON);
+            acknowledge(&fsm, true, fsm.operation_id, 6500002);
+        }
+        assert(fsm.state == LOAD_FSM_WORKING && fsm.output_on);
+        assert(!fsm.wheel_stopped);
+    }
+}
+
 int main(void) {
+    test_stop_required_and_no_idle_entry();
+    test_sleep_restore_deadlines_and_ble_policy();
+    test_motion_recovers_all_blink_phases();
     test_voltage_recovery_uses_updated_threshold();
     test_periodic_voltage_cannot_recover_charging();
     test_configured_low_voltage_threshold();

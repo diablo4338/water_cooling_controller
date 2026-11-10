@@ -2,8 +2,11 @@
 
 The normal firmware path restores its RTC state and output pins, samples ADS1115
 and INA226, advances the load state machine, applies a static DC output, and enters
-deep sleep for 1 second. Boot and measurement time is additional to that second.
+deep sleep for the configured interval (default 5 seconds). Boot and measurement time is additional.
 BLE is started only in the pairing/authorization service window.
+
+The current charging indication, timer-only sleep scheduling, reed observation,
+and RTC continuation are described in [Charging and sleep](../firmware/docs/architecture/07-charging-sleep.md).
 
 ## Current defaults
 
@@ -100,7 +103,7 @@ BLE connections cannot persist through deep sleep.
 
 | Metric | Encoding |
 | --- | --- |
-| Controller state | `uint8`: 0 = idle, 1 = working |
+| Controller state | `uint8`: 0 = idle, 1 = working, 2 = need charging |
 | Thermal button | `uint8`: 0 = released, 1 = pressed |
 | Temperature | little-endian `float32`, degrees Celsius |
 | INA bus voltage | little-endian `float32`, V |

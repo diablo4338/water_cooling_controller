@@ -1,5 +1,7 @@
 # ESP32-C3 runtime FSM architecture — contract v1
 
+Актуальное поведение NEED_CHARGING и планирование сна: [07-charging-sleep.md](07-charging-sleep.md). Этот раздел уточняет раннее описание ниже.
+
 Status: **approved functional requirements**, implementation pending. Source baseline: `firmware(1).zip` supplied 2026-10-30. This specification is the authority for the intended refactor; current source remains authority for existing hardware pinout, BLE security/pairing, and configuration defaults unless explicitly overridden here.
 
 Read in order:

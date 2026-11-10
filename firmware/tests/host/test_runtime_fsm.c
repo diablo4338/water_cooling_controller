@@ -1963,6 +1963,7 @@ static void test_need_charging_silences_buzzer_and_keeps_client(void) {
                       false, 0, false, false, 0);
     core.ble.state = BLE_FSM_CONNECTED;
     core.ble.conn_handle = 1;
+    core.load.wheel_stopped = true;
     runtime_event_t sample = runtime_event_make(RTEVT_INA_SAMPLE_OK, 1000000);
     sample.context = MEASURE_PERIODIC;
     sample.voltage_v = 2.14f;
@@ -1976,8 +1977,9 @@ static void test_need_charging_silences_buzzer_and_keeps_client(void) {
     core.buzzer.pending_button_count = 1;
     sample.timestamp_us = 6000000;
     runtime_command_list_init(&commands);
-    runtime_core_step(&core, &sample, 6000000, &commands);
+    runtime_core_step(&core, &sample, 2000000, &commands);
     CHECK_INT(core.load.state, LOAD_FSM_NEED_CHARGING);
+    CHECK(core.load.charging_end_us == 606000000LL);
     CHECK_INT(core.buzzer.state, BUZZER_FSM_IDLE);
     CHECK_INT(core.buzzer.pending_button_count, 0);
     int cancels = 0;

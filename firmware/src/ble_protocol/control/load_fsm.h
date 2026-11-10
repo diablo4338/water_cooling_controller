@@ -43,6 +43,8 @@ typedef struct {
     bool low_current_pending;
     bool low_voltage_current_pending;
     bool charging_measure_pending;
+    bool wheel_stopped;
+    int64_t charging_end_us;
     int64_t low_current_since_us;
     int64_t low_voltage_current_since_us;
     int64_t charging_deadline_us;
@@ -61,8 +63,7 @@ typedef struct {
 void load_fsm_init(load_fsm_t *fsm, bool restored_working,
                    bool low_current_pending, int64_t low_current_since_us);
 
-/* Restore wall-clock confirmation history after a short Deep Sleep cycle.
- * Transient charging phases themselves are never restored. */
+/* Restore wall-clock confirmation history after a short Deep Sleep cycle. */
 void load_fsm_restore_charging_confirmation(load_fsm_t *fsm, bool pending,
                                             int64_t since_us);
 
@@ -70,6 +71,11 @@ void load_fsm_step(load_fsm_t *fsm, const runtime_event_t *event,
                    const load_fsm_config_t *config,
                    int64_t now_us,
                    runtime_command_list_t *commands);
+
+/* Only stable ON/OFF phases may be restored or put to sleep. */
+bool load_fsm_charging_sleepable(const load_fsm_t *fsm);
+void load_fsm_restore_charging(load_fsm_t *fsm, bool output_on,
+                               int64_t phase_deadline_us, int64_t end_us);
 
 const char *load_fsm_state_name(load_fsm_state_t state);
 

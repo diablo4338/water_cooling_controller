@@ -1,5 +1,7 @@
 # 05 — Integration, wake/sleep, chronological traces
 
+Актуальное поведение NEED_CHARGING и планирование сна: [07-charging-sleep.md](07-charging-sleep.md). Этот раздел уточняет раннее описание ниже.
+
 ## Boot without button
 1. Cold/Deep Sleep wake; restore RTC Load state, held GPIO; set BLE OFF and Buzzer IDLE.
 2. Initialize sensors and execute one measurement cycle. Route valid/failed INA result to Load FSM; failed periodic read is **silent**.

@@ -98,18 +98,19 @@ void runtime_core_step(runtime_core_t *core, const runtime_event_t *event,
     load_fsm_state_t previous_load_state = core->load.state;
     bool previous_output_on = core->load.output_on;
 
-    load_fsm_step(&core->load, event, &core->load_config, now_us,
+    int64_t load_now_us = event->timestamp_us > 0 ? event->timestamp_us : now_us;
+    load_fsm_step(&core->load, event, &core->load_config, load_now_us,
                   commands);
     if (previous_output_on && !core->load.output_on) {
         buzzer_fsm_reset_low_warning(&core->buzzer);
     }
     if (new_load_on_ack && core->load.state == LOAD_FSM_STARTING) {
         core->load.feedback_deadline_us = add_milliseconds(
-            now_us, startup_feedback_timeout_ms(&core->buzzer_config));
+            load_now_us, startup_feedback_timeout_ms(&core->buzzer_config));
     } else if (previous_load_state == LOAD_FSM_WORKING &&
                core->load.state == LOAD_FSM_STOPPING) {
         core->load.feedback_deadline_us = add_milliseconds(
-            now_us, shutdown_feedback_timeout_ms(&core->buzzer_config));
+            load_now_us, shutdown_feedback_timeout_ms(&core->buzzer_config));
     }
 
     /* Only a newly accepted physical ON result may begin startup feedback.
