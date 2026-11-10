@@ -20,6 +20,7 @@
 #include "connect_window.h"
 #include "event_bus.h"
 #include "ina226.h"
+#include "gap.h"
 #include "load_fsm.h"
 #include "load_metrics_ble.h"
 #include "load_output.h"
@@ -939,9 +940,14 @@ bool load_runtime_prepare_sleep(void) {
         return false;
     }
 
+    if (config.sleep_type == SLEEP_TYPE_LIGHT) {
+        if (!gap_ble_stop()) return false;
+    }
+
     err = load_output_hold();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "load output hold failed: %s", esp_err_to_name(err));
+        (void)load_output_restore(s_core.load.output_on);
         return false;
     }
 
@@ -950,7 +956,32 @@ bool load_runtime_prepare_sleep(void) {
         pair_button_irq_pending() ||
         gpio_get_level(PAIR_BUTTON_GPIO) == PAIR_BUTTON_ACTIVE_LEVEL) {
         ESP_LOGW(TAG, "sleep aborted: event arrived during final preparation");
+        (void)load_output_restore(s_core.load.output_on);
         return false;
+    }
+    if (config.sleep_type == SLEEP_TYPE_LIGHT) {
+        int64_t remaining_us = wake_us - wall_time_us();
+        err = gpio_wakeup_enable(PAIR_BUTTON_GPIO, GPIO_INTR_LOW_LEVEL);
+        if (err == ESP_OK) err = esp_sleep_enable_gpio_wakeup();
+        if (err == ESP_OK && remaining_us > 0) {
+            err = esp_sleep_enable_timer_wakeup((uint64_t)remaining_us);
+        }
+        if (err != ESP_OK || remaining_us <= 0) {
+            (void)esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO);
+            (void)load_output_restore(s_core.load.output_on);
+            return false;
+        }
+        ESP_LOGI(TAG, "entering light sleep for %u ms",
+                 (unsigned)(sleep_us / 1000ULL));
+        err = esp_light_sleep_start();
+        (void)esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO);
+        esp_err_t restore_err = load_output_restore(s_core.load.output_on);
+        if (err != ESP_OK || restore_err != ESP_OK) {
+            ESP_LOGE(TAG, "light sleep/restore failed: %s / %s",
+                     esp_err_to_name(err), esp_err_to_name(restore_err));
+            return false;
+        }
+        return true;
     }
     ESP_LOGI(TAG, "entering deep sleep for %u ms",
              (unsigned)(sleep_us / 1000ULL));

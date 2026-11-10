@@ -9,6 +9,8 @@ void gap_init(void);
 
 /* Lazy lifecycle.  Initialize the host/controller once per wake cycle. */
 bool gap_ble_start(uint32_t operation_id);
+/* Called by the action executor while runtime dispatch is locked. */
+bool gap_ble_stop(void);
 bool gap_is_initialized(void);
 bool gap_is_radio_quiet(void);
 

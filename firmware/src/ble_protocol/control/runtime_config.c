@@ -17,6 +17,7 @@ static portMUX_TYPE config_mux = portMUX_INITIALIZER_UNLOCKED;
 static runtime_config_t current_config;
 
 static const runtime_config_t default_config = {
+    .sleep_type = SLEEP_TYPE_DEEP,
     .idle_current_ma = 100,
     .voltage_min_mv = 6600,
     .voltage_max_mv = 8400,
@@ -74,6 +75,7 @@ static void encode_config(const runtime_config_t *config, uint16_t request_id,
     write_u16(out + 28, config->charging_blink_interval_ms);
     write_u16(out + 30, config->wheel_min_speed_deci_kmh);
     write_u16(out + 32, config->wheel_circumference_mm);
+    out[34] = config->sleep_type;
 }
 
 static bool decode_config(const uint8_t *data, size_t length,
@@ -84,6 +86,7 @@ static bool decode_config(const uint8_t *data, size_t length,
     }
     if (request_id) *request_id = read_u16(data + 1);
     *config = (runtime_config_t) {
+        .sleep_type = data[34],
         .idle_current_ma = read_u16(data + 3),
         .voltage_min_mv = read_u16(data + 5),
         .voltage_max_mv = read_u16(data + 7),
@@ -106,6 +109,10 @@ static bool decode_config(const uint8_t *data, size_t length,
 static runtime_config_status_t validate_config(const runtime_config_t *config,
                                                runtime_config_field_t *field) {
     *field = CONFIG_FIELD_NONE;
+    if (config->sleep_type > SLEEP_TYPE_LIGHT) {
+        *field = CONFIG_FIELD_SLEEP_TYPE;
+        return CONFIG_STATUS_RANGE;
+    }
     if (config->buzzer_enabled > 1) {
         *field = CONFIG_FIELD_BUZZER_ENABLED;
         return CONFIG_STATUS_RANGE;
@@ -145,6 +152,12 @@ void runtime_config_init(void) {
     nvs_close(handle);
     runtime_config_t loaded;
     runtime_config_field_t field;
+    /* Migrate the previous NVS format while preserving its settings. */
+    if (err == ESP_OK && length == 34 && wire[0] == 6) {
+        wire[0] = RUNTIME_CONFIG_VERSION;
+        wire[34] = SLEEP_TYPE_DEEP;
+        length = sizeof(wire);
+    }
     bool decoded = err == ESP_OK && decode_config(wire, length, &loaded, NULL);
     if (!decoded || validate_config(&loaded, &field) != CONFIG_STATUS_OK) {
         ESP_LOGW(CONFIG_TAG, "Stored config missing or invalid; using defaults");

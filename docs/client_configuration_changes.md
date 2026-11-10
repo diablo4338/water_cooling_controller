@@ -1,3 +1,27 @@
+## Sleep type, protocol v7
+
+Runtime configuration now uses version 7 and a 35-byte payload. Bytes 0–33 retain
+the v6 layout. Byte 34 is `sleep_type`, an unsigned byte with values
+`0` for deep sleep and `1` for light sleep. The default is deep sleep.
+Use a “Тип сна” selector with “Тяжёлый” and “Лёгкий” choices.
+Invalid values return `CONFIG_STATUS_RANGE` with field ID 17.
+The existing `deep_sleep_ms` interval applies to both modes.
+Result messages also carry version 7. Clients must send the complete v7 payload.
+Stored v6 NVS settings are loaded with deep sleep selected.
+
+Light sleep stops NimBLE using `nimble_port_stop()`, waits for the host loop
+to return, deletes its FreeRTOS task, then calls `nimble_port_deinit()`.
+ESP-IDF 5.4.4 implements controller disable/deinit inside that last call.
+BLE starts through the existing button event handling. Waking from light sleep
+does not initialize BLE. The scheduler resumes with its existing deadlines.
+
+References
+
+- [ESP-IDF 5.4 sleep modes](https://docs.espressif.com/projects/esp-idf/en/v5.4/esp32c3/api-reference/system/sleep_modes.html)
+- [ESP-IDF 5.4 NimBLE API](https://docs.espressif.com/projects/esp-idf/en/v5.4/esp32c3/api-reference/bluetooth/nimble/index.html)
+
+The remaining sections describe the preceding v6 layout.
+
 # BLE client configuration changes
 
 This document describes the implemented firmware protocol in configuration

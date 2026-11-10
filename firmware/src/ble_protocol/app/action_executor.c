@@ -376,14 +376,15 @@ static void execute_sleep(void) {
         power_manager_sleep_block_reason(&snapshot);
     bool can_sleep = gate_ok && reason == POWER_SLEEP_ALLOWED;
 
-    if (can_sleep && load_runtime_prepare_sleep()) {
-        /* Deep sleep entered; this should not return. */
-        ESP_LOGE(TAG, "deep sleep returned unexpectedly");
-    }
+    bool woke = can_sleep && load_runtime_prepare_sleep();
 
     event_bus_cancel_sleep_gate();
     event_bus_unlock_dispatch();
     s_executing_sleep = false;
+    if (woke) {
+        load_runtime_sleep_attempt_finished();
+        return;
+    }
     ESP_LOGI(TAG, "sleep aborted reason=%s gate_ok=%d",
              power_manager_block_reason_name(reason), (int)gate_ok);
     publish_simple(RTEVT_SLEEP_ABORTED, 0);

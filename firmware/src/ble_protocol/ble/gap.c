@@ -1,6 +1,9 @@
 #include <string.h>
 
 #include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+#include "freertos/task.h"
 #include "esp_log.h"
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
@@ -26,6 +29,8 @@
 static const char *GAP_TAG = "ble-lifecycle";
 
 static bool s_initialized;
+static SemaphoreHandle_t s_host_stopped;
+static bool s_host_started;
 static bool s_radio_quiet = true;
 /* A failed one-time service registration cannot be retried in this wake cycle. */
 static bool s_fatal_error;
@@ -274,6 +279,8 @@ bool gap_ble_start(uint32_t operation_id) {
         return true;
     }
 
+    if (!s_host_stopped) s_host_stopped = xSemaphoreCreateBinary();
+    if (!s_host_stopped) return false;
     esp_err_t err = nimble_port_init();
     if (err != ESP_OK) {
         ESP_LOGE(GAP_TAG, "nimble_port_init failed: %s", esp_err_to_name(err));
@@ -288,6 +295,7 @@ bool gap_ble_start(uint32_t operation_id) {
     }
     ble_hs_cfg.sync_cb = ble_app_on_sync;
     s_radio_quiet = false;
+    s_host_started = true;
     nimble_port_freertos_init(ble_host_task);
     ESP_LOGI(GAP_TAG, "NimBLE initialized lazily operation=%u",
              (unsigned)operation_id);
@@ -297,6 +305,32 @@ bool gap_ble_start(uint32_t operation_id) {
 void ble_host_task(void *param) {
     (void)param;
     nimble_port_run();
+    xSemaphoreGive(s_host_stopped);
+    vTaskSuspend(NULL);
+}
+
+bool gap_ble_stop(void) {
+    if (!s_initialized) return true;
+    if (s_host_started) {
+        int rc = nimble_port_stop();
+        if (rc != 0) {
+            ESP_LOGE(GAP_TAG, "nimble_port_stop failed rc=%d", rc);
+            return false;
+        }
+        /* Wait until run() has returned before deleting the host task. */
+        xSemaphoreTake(s_host_stopped, portMAX_DELAY);
+        nimble_port_freertos_deinit();
+        s_host_started = false;
+    }
+    esp_err_t err = nimble_port_deinit();
+    if (err != ESP_OK) {
+        s_fatal_error = true;
+        ESP_LOGE(GAP_TAG, "nimble_port_deinit failed: %s", esp_err_to_name(err));
+        return false;
+    }
+    s_initialized = false;
+    s_radio_quiet = true;
+    return true;
 }
 
 // ====== GAP callbacks ======

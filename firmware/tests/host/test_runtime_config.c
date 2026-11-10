@@ -66,8 +66,8 @@ static void test_v6_round_trip_and_ranges(void) {
     CHECK(runtime_config_reset_defaults() == ESP_OK);
     uint8_t wire[RUNTIME_CONFIG_WIRE_SIZE];
     runtime_config_encode(wire, 0x1234);
-    CHECK(sizeof(wire) == 34U);
-    CHECK(wire[0] == 6U);
+    CHECK(sizeof(wire) == 35U);
+    CHECK(wire[0] == 7U);
     CHECK(wire[1] == 0x34U && wire[2] == 0x12U);
     CHECK(read_u16(wire, 28) == 1000U);
     CHECK(read_u16(wire, 30) == 100U);
@@ -93,7 +93,7 @@ static void test_v6_round_trip_and_ranges(void) {
 }
 
 static void test_only_current_format_is_accepted(void) {
-    const size_t lengths[] = {19, 17, 27, 28, 34};
+    const size_t lengths[] = {19, 17, 27, 28, 34, 34};
     for (unsigned version = 1; version < RUNTIME_CONFIG_VERSION; ++version) {
         CHECK(runtime_config_reset_defaults() == ESP_OK);
         uint8_t wire[RUNTIME_CONFIG_WIRE_SIZE];
@@ -112,7 +112,8 @@ static void test_only_current_format_is_accepted(void) {
         stored_length = lengths[version - 1];
         runtime_config_init();
         runtime_config_get(&config);
-        CHECK(config.idle_current_ma == 100);
+        CHECK(config.idle_current_ma == (version == 6 ? 77 : 100));
+        CHECK(config.sleep_type == SLEEP_TYPE_DEEP);
         CHECK(config.wheel_circumference_mm == 2220);
     }
     CHECK(runtime_config_reset_defaults() == ESP_OK);
@@ -148,6 +149,21 @@ int main(void) {
     test_v6_round_trip_and_ranges();
     test_only_current_format_is_accepted();
     test_circumference_boundaries();
+    uint8_t wire[RUNTIME_CONFIG_WIRE_SIZE];
+    runtime_config_encode(wire, 99);
+    runtime_config_result_t result;
+    wire[34] = SLEEP_TYPE_LIGHT;
+    runtime_config_apply_wire(wire, sizeof(wire), &result);
+    CHECK(result.status == CONFIG_STATUS_OK);
+    runtime_config_init();
+    runtime_config_t config;
+    runtime_config_get(&config);
+    CHECK(config.sleep_type == SLEEP_TYPE_LIGHT);
+    wire[34] = 2;
+    runtime_config_apply_wire(wire, sizeof(wire), &result);
+    CHECK(result.status == CONFIG_STATUS_RANGE);
+    CHECK(result.field == CONFIG_FIELD_SLEEP_TYPE);
+    CHECK(runtime_config_reset_defaults() == ESP_OK);
     if (failures != 0) {
         fprintf(stderr, "%d runtime config assertions failed\n", failures);
         return 1;

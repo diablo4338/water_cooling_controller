@@ -5,9 +5,14 @@
 #include <stdint.h>
 #include "esp_err.h"
 
-#define RUNTIME_CONFIG_VERSION 6U
-#define RUNTIME_CONFIG_WIRE_SIZE 34U
+#define RUNTIME_CONFIG_VERSION 7U
+#define RUNTIME_CONFIG_WIRE_SIZE 35U
 #define RUNTIME_CONFIG_RESULT_SIZE 5U
+
+typedef enum {
+    SLEEP_TYPE_DEEP = 0,
+    SLEEP_TYPE_LIGHT = 1,
+} runtime_sleep_type_t;
 
 typedef struct {
     uint16_t idle_current_ma;
@@ -25,6 +30,7 @@ typedef struct {
     uint16_t charging_blink_interval_ms;
     uint16_t wheel_min_speed_deci_kmh;
     uint16_t wheel_circumference_mm;
+    uint8_t sleep_type;
 } runtime_config_t;
 
 typedef enum {
@@ -36,6 +42,7 @@ typedef enum {
 } runtime_config_status_t;
 
 typedef enum {
+    CONFIG_FIELD_SLEEP_TYPE = 17,
     CONFIG_FIELD_NONE = 0,
     CONFIG_FIELD_IDLE_CURRENT = 1,
     CONFIG_FIELD_VOLTAGE_MIN = 2,
