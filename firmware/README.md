@@ -45,3 +45,13 @@ This build enables `PAIR_RUN_TESTS=1`.
 ## Related docs
 - [`../docs/firmware.md`](../docs/firmware.md) - short firmware summary.
 - [`../docs/architecture.md`](../docs/architecture.md) - architecture notes and protocol details.
+
+## Stored formats and paired updates
+
+Firmware and client are updated together. Runtime configuration accepts only
+the current 34-byte v6 format over BLE and in NVS. Unsupported saved settings
+use factory defaults; they are not migrated. A successful save persists the
+current format. Trust storage accepts only the current multi-client blob
+(version 2); the former single-client keys are neither read nor migrated.
+Devices containing only that obsolete trust format require pairing again.
+Pairing cryptography and the current multi-client store are unchanged.

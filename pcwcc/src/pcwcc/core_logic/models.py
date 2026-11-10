@@ -26,7 +26,6 @@ class DeviceParams:
     fan3_monitoring_enabled: bool
     fan4_monitoring_enabled: bool
     overheat_alarm_enabled: bool
-    protocol_version: int = 6
 
 
 @dataclass(frozen=True)

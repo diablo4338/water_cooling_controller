@@ -411,7 +411,7 @@ static void parse_uuid_or_abort(const char *s, ble_uuid_any_t *out) {
 
 void gatt_init_uuids_and_services(void) {
     ble_npl_event_init(&config_notify_event, notify_config_result, NULL);
-    ESP_LOGI(TAG, "Config diagnostics v4: telemetry 1Hz, reserve=4, deferred config notify");
+    ESP_LOGI(TAG, "Config diagnostics: telemetry 1Hz, reserve=4, deferred config notify");
     parse_uuid_or_abort(UUID_PAIR_SVC_STR, &UUID_PAIR_SVC);
     parse_uuid_or_abort(UUID_MAIN_SVC_STR, &UUID_MAIN_SVC);
     parse_uuid_or_abort(UUID_METRICS_SVC_STR, &UUID_METRICS_SVC);

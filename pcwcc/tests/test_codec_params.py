@@ -1,10 +1,12 @@
 import struct
 
+import pytest
+
 from pcwcc.core_logic.codec import (
     PARAMS_PAYLOAD_LEN,
-    PARAMS_PAYLOAD_LEN_V5,
     decode_device_status,
     decode_params,
+    decode_params_status,
     encode_params,
 )
 from pcwcc.core_logic.models import DeviceParams
@@ -37,26 +39,19 @@ def test_params_round_trip_uses_full_payload_length() -> None:
     assert decode_params(payload) == params
 
 
-def test_params_v5_round_trip_keeps_legacy_payload() -> None:
-    params = DeviceParams(
-        fan_min_speed=42,
-        fan_control_type=1,
-        fan_max_temp=65,
-        fan_off_delta=7,
-        fan_start_temp=33,
-        fan_mode=2,
-        fan_monitoring_enabled=True,
-        fan2_monitoring_enabled=False,
-        fan3_monitoring_enabled=True,
-        fan4_monitoring_enabled=False,
-        overheat_alarm_enabled=True,
-        protocol_version=5,
-    )
+@pytest.mark.parametrize("version", [1, 2, 3, 4, 5, 7])
+def test_params_rejects_other_versions(version: int) -> None:
+    payload = bytearray(PARAMS_PAYLOAD_LEN)
+    payload[0] = version
+    with pytest.raises(RuntimeError, match="Unsupported params version"):
+        decode_params(bytes(payload))
+    with pytest.raises(RuntimeError, match="Unsupported params status version"):
+        decode_params_status(bytes([version, 0, 0]))
 
-    payload = encode_params(params)
 
-    assert len(payload) == PARAMS_PAYLOAD_LEN_V5
-    assert decode_params(payload) == params
+def test_params_rejects_short_payload() -> None:
+    with pytest.raises(RuntimeError, match="Bad params len"):
+        decode_params(bytes([6]) + bytes(PARAMS_PAYLOAD_LEN - 2))
 
 
 def test_decode_device_status_exposes_overheat_flag() -> None:

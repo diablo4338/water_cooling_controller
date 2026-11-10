@@ -45,11 +45,10 @@ The battery display and runtime estimate use a factory voltage range of 6.6–8.
 The client checks that values are numeric and fit their BLE fields. The firmware
 checks the wire format, the buzzer's boolean flag, and that the upper battery
 bound is strictly above the lower one. No other semantic ranges are imposed.
-The BLE configuration format is version 4 (28 bytes); the client negotiates an
-MTU large enough to read and write it. Existing version 1, 2 and 3 settings in
-NVS are migrated. Version 3 buzzer settings are preserved and the new global
-enable flag defaults to on; earlier versions receive factory buzzer settings.
-Version 1 also receives the 2 °C button delta.
+The BLE configuration format is version 6 (34 bytes); the client negotiates an
+MTU large enough to read and write it. Only this exact version and length are
+accepted. Stored configurations in any other format are ignored and factory
+defaults are used. No settings migration is performed.
 The buzzer threshold (default 7 V, 0 disables voltage alerts), low-voltage delay
 (10 s), the three signal durations (0.5 / 1 / 1.5 s), and global buzzer enable
 can be changed over BLE. Once the controller confirms disabling the buzzer, the

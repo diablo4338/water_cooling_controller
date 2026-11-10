@@ -6,7 +6,7 @@
 
 /*
  * Events exchanged by the three runtime FSMs.  The pairing/auth FSM in
- * pairing/state.h is a separate, legacy state machine and deliberately uses a
+ * pairing/state.h is a separate state machine and deliberately uses a
  * different event type.
  */
 typedef enum {

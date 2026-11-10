@@ -27,7 +27,6 @@ class MainWindowParamsMixin:
             fan3_monitoring_enabled=True,
             fan4_monitoring_enabled=True,
             overheat_alarm_enabled=True,
-            protocol_version=6,
         )
 
     def _set_fan_status_indicator(self, channel: int, color: str) -> None:
@@ -123,11 +122,6 @@ class MainWindowParamsMixin:
                 else:
                     widget.setValue(value)
                 widget.setEnabled(True)
-                if spec["key"] == "overheat_alarm_enabled" and params.protocol_version < 6:
-                    widget.setEnabled(False)
-                    widget.setToolTip("Requires firmware with parameters protocol v6")
-                elif spec["key"] == "overheat_alarm_enabled":
-                    widget.setToolTip("")
             for idx, key in enumerate(FAN_MONITORING_KEYS):
                 self.fan_monitor_checkboxes[idx].setChecked(bool(getattr(params, key)))
                 self.fan_monitor_checkboxes[idx].setEnabled(idx > 0)
@@ -170,11 +164,6 @@ class MainWindowParamsMixin:
             fan3_monitoring_enabled=bool(values["fan3_monitoring_enabled"]),
             fan4_monitoring_enabled=bool(values["fan4_monitoring_enabled"]),
             overheat_alarm_enabled=bool(values["overheat_alarm_enabled"]),
-            protocol_version=(
-                self._device_params_snapshot.protocol_version
-                if self._device_params_snapshot is not None
-                else 6
-            ),
         )
 
     def _on_params_changed(self, _) -> None:

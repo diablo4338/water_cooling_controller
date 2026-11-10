@@ -92,79 +92,46 @@ static void test_v6_round_trip_and_ranges(void) {
     CHECK(runtime_config_reset_defaults() == ESP_OK);
 }
 
-static void test_v4_migration_and_write_compatibility(void) {
-    CHECK(runtime_config_reset_defaults() == ESP_OK);
-    uint8_t wire[RUNTIME_CONFIG_WIRE_SIZE];
-    runtime_config_encode(wire, 0);
-    wire[0] = 4;
-    write_u16(wire, 3, 75U);
-    wire[27] = 0;
-    nvs_handle_t handle;
-    CHECK(nvs_open("runtime_cfg", NVS_READWRITE, &handle) == ESP_OK);
-    CHECK(nvs_set_blob(handle, "values", wire, 28U) == ESP_OK);
-    CHECK(nvs_commit(handle) == ESP_OK);
-    nvs_close(handle);
-
-    runtime_config_init();
-    runtime_config_t config;
-    runtime_config_get(&config);
-    CHECK(config.idle_current_ma == 75U);
-    CHECK(config.buzzer_enabled == 0U);
-    CHECK(config.charging_blink_interval_ms == 1000U);
-    CHECK(config.wheel_min_speed_deci_kmh == 100U);
-    CHECK(config.wheel_circumference_mm == 2220U);
-
-    runtime_config_result_t result;
-    runtime_config_encode(wire, 9);
-    write_u16(wire, 28, 4000U);
-    write_u16(wire, 30, 100U);
-    write_u16(wire, 32, 1800U);
-    runtime_config_apply_wire(wire, sizeof(wire), &result);
-    CHECK(result.status == CONFIG_STATUS_OK);
-
-    runtime_config_encode(wire, 10);
-    wire[0] = 4;
-    write_u16(wire, 3, 80U);
-    runtime_config_apply_wire(wire, 28U, &result);
-    CHECK(result.status == CONFIG_STATUS_OK);
-    runtime_config_get(&config);
-    CHECK(config.idle_current_ma == 80U);
-    CHECK(config.charging_blink_interval_ms == 4000U);
-    CHECK(config.wheel_min_speed_deci_kmh == 100U);
-    CHECK(config.wheel_circumference_mm == 1800U);
-    CHECK(stored_length == RUNTIME_CONFIG_WIRE_SIZE);
-    CHECK(stored_blob[0] == RUNTIME_CONFIG_VERSION);
-    CHECK(runtime_config_reset_defaults() == ESP_OK);
-}
-
-static void test_v5_diameter_migration(void) {
-    const uint16_t diameters[] = {300, 707, 2100, 3000};
-    const uint16_t circumferences[] = {942, 2221, 6597, 9425};
-    for (size_t i = 0; i < sizeof(diameters) / sizeof(diameters[0]); ++i) {
+static void test_only_current_format_is_accepted(void) {
+    const size_t lengths[] = {19, 17, 27, 28, 34};
+    for (unsigned version = 1; version < RUNTIME_CONFIG_VERSION; ++version) {
         CHECK(runtime_config_reset_defaults() == ESP_OK);
         uint8_t wire[RUNTIME_CONFIG_WIRE_SIZE];
         runtime_config_encode(wire, 42);
-        wire[0] = 5;
+        wire[0] = version;
         write_u16(wire, 3, 77);
-        write_u16(wire, 32, diameters[i]);
-        memcpy(stored_blob, wire, sizeof(wire));
-        stored_length = sizeof(wire);
-        runtime_config_init();
+        runtime_config_result_t result;
+        runtime_config_apply_wire(wire, lengths[version - 1], &result);
+        CHECK(result.status == CONFIG_STATUS_FORMAT);
+        CHECK(result.request_id == 42);
         runtime_config_t config;
         runtime_config_get(&config);
-        CHECK(config.idle_current_ma == 77);
-        CHECK(config.wheel_circumference_mm == circumferences[i]);
-        runtime_config_result_t result;
-        runtime_config_apply_wire(wire, sizeof(wire), &result);
-        CHECK(result.status == CONFIG_STATUS_OK);
-        CHECK(result.request_id == 42);
-        CHECK(stored_blob[0] == 6);
-        CHECK(read_u16(stored_blob, 32) == circumferences[i]);
+        CHECK(config.idle_current_ma == 100);
+        CHECK(stored_blob[0] == RUNTIME_CONFIG_VERSION);
+        memcpy(stored_blob, wire, lengths[version - 1]);
+        stored_length = lengths[version - 1];
         runtime_config_init();
         runtime_config_get(&config);
-        CHECK(config.wheel_circumference_mm == circumferences[i]);
+        CHECK(config.idle_current_ma == 100);
+        CHECK(config.wheel_circumference_mm == 2220);
     }
     CHECK(runtime_config_reset_defaults() == ESP_OK);
+    uint8_t wire[RUNTIME_CONFIG_WIRE_SIZE];
+    runtime_config_encode(wire, 1);
+    write_u16(wire, 3, 77);
+    runtime_config_result_t result;
+    runtime_config_apply_wire(wire, sizeof(wire) - 1, &result);
+    CHECK(result.status == CONFIG_STATUS_FORMAT);
+    runtime_config_apply_wire(wire, sizeof(wire), &result);
+    CHECK(result.status == CONFIG_STATUS_OK);
+    runtime_config_init();
+    runtime_config_t config;
+    runtime_config_get(&config);
+    CHECK(config.idle_current_ma == 77);
+    CHECK(runtime_config_reset_defaults() == ESP_OK);
+}
+
+static void test_circumference_boundaries(void) {
     uint8_t wire[RUNTIME_CONFIG_WIRE_SIZE];
     runtime_config_encode(wire, 0);
     runtime_config_result_t result;
@@ -179,8 +146,8 @@ static void test_v5_diameter_migration(void) {
 
 int main(void) {
     test_v6_round_trip_and_ranges();
-    test_v5_diameter_migration();
-    test_v4_migration_and_write_compatibility();
+    test_only_current_format_is_accepted();
+    test_circumference_boundaries();
     if (failures != 0) {
         fprintf(stderr, "%d runtime config assertions failed\n", failures);
         return 1;

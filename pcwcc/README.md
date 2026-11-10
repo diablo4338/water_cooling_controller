@@ -157,3 +157,11 @@ filtered and cached WinRT GATT service discovery by default to avoid
 `ERROR_BAD_COMMAND (0x80070016)` with the controller. The behaviour can still
 be overridden with `BLE_USE_SERVICE_FILTER` and
 `BLE_WINRT_USE_CACHED_SERVICES`.
+
+## Protocol support
+
+The client and firmware are updated as a pair. Parameter reads, writes and
+status messages use only the current protocol version (6). Older parameter
+payloads are rejected; the client does not select an older codec or hide
+controls for older firmware. Local parameter records no longer store a
+per-device protocol version.

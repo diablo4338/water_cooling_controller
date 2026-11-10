@@ -59,12 +59,7 @@ class MainWindowListMixin:
             self.setup_fans_button.setEnabled(False)
             params_enabled = False
         for item in self.param_fields:
-            requires_v6 = (
-                item["spec"]["key"] == "overheat_alarm_enabled"
-                and self._device_params_snapshot is not None
-                and self._device_params_snapshot.protocol_version < 6
-            )
-            item["widget"].setEnabled(params_enabled and not requires_v6)
+            item["widget"].setEnabled(params_enabled)
         for idx, checkbox in enumerate(self.fan_monitor_checkboxes):
             checkbox.setEnabled(params_enabled and idx > 0)
 

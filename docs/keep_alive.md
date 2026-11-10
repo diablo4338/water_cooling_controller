@@ -104,7 +104,7 @@ The ESP-IDF throughput example also gates sending on available mbufs:
 [bleprph_throughput](https://github.com/espressif/esp-idf/blob/v5.4.4/examples/bluetooth/nimble/throughput_app/bleprph_throughput/main/main.c).
 The boot marker is now `Config diagnostics v3: telemetry reserve=4`.
 
-## Bound telemetry to the periodic cycle (diagnostics v4)
+## Bound telemetry to the periodic cycle
 
 The v3 hardware log confirmed a successful config commit while telemetry was
 being deferred dozens of times per second. The runtime called load_metrics_publish
@@ -115,4 +115,4 @@ event, and reads remain immediate. Notifications now follow only the existing
 one-second scheduler. Expected buffer-pressure deferral logs at debug level;
 allocation and transmission failures remain warnings. No new task or timer.
 Hardware validation remains necessary for sustained telemetry and config saves
-in WORKING. The BLE initialization marker is `Config diagnostics v4: telemetry 1Hz`.
+in WORKING. The BLE initialization marker is `Config diagnostics: telemetry 1Hz`.

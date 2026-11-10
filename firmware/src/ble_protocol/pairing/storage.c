@@ -9,10 +9,6 @@
 
 #define NVS_NS              "pair"
 #define NVS_KEY_STORE       "clients"
-#define NVS_KEY_OLD_VER     "ver"
-#define NVS_KEY_OLD_HOSTID  "hostid"
-#define NVS_KEY_OLD_K       "keyK"
-#define NVS_KEY_OLD_FORCE   "force_pair"
 #define NVS_VER_VALUE       2
 
 typedef struct {
@@ -46,41 +42,6 @@ static uint8_t trust_store_count_ram(void) {
     return count;
 }
 
-static bool trust_store_read_old_single(nvs_handle_t h) {
-    uint32_t ver = 0;
-    if (nvs_get_u32(h, NVS_KEY_OLD_VER, &ver) != ESP_OK || ver != 1) {
-        return false;
-    }
-
-    uint8_t host_id_hash[32];
-    uint8_t key[32];
-    size_t len = sizeof(host_id_hash);
-    esp_err_t err = nvs_get_blob(h, NVS_KEY_OLD_HOSTID, host_id_hash, &len);
-    if (err != ESP_OK || len != sizeof(host_id_hash)) {
-        return false;
-    }
-
-    len = sizeof(key);
-    err = nvs_get_blob(h, NVS_KEY_OLD_K, key, &len);
-    if (err != ESP_OK || len != sizeof(key)) {
-        return false;
-    }
-
-    trust_store_reset_ram();
-    g_store.slots[0].used = 1;
-    memcpy(g_store.slots[0].host_id_hash, host_id_hash, sizeof(host_id_hash));
-    memcpy(g_store.slots[0].key, key, sizeof(key));
-    g_store.next_slot = 1;
-    return true;
-}
-
-static void trust_store_cleanup_legacy_keys(nvs_handle_t h) {
-    nvs_erase_key(h, NVS_KEY_OLD_VER);
-    nvs_erase_key(h, NVS_KEY_OLD_HOSTID);
-    nvs_erase_key(h, NVS_KEY_OLD_K);
-    nvs_erase_key(h, NVS_KEY_OLD_FORCE);
-}
-
 static void trust_store_save_ram(void) {
     nvs_handle_t h;
     if (nvs_open(NVS_NS, NVS_READWRITE, &h) != ESP_OK) {
@@ -89,7 +50,6 @@ static void trust_store_save_ram(void) {
     }
 
     ESP_ERROR_CHECK(nvs_set_blob(h, NVS_KEY_STORE, &g_store, sizeof(g_store)));
-    trust_store_cleanup_legacy_keys(h);
     ESP_ERROR_CHECK(nvs_commit(h));
     nvs_close(h);
 }
@@ -115,14 +75,6 @@ void nvs_load_or_empty(void) {
             ESP_LOGI(TAG, "Loaded %u trusted client(s) from NVS",
                      (unsigned)trust_store_count_ram());
         }
-        return;
-    }
-
-    if (trust_store_read_old_single(h)) {
-        nvs_close(h);
-        trust_store_save_ram();
-        fsm_dispatch(FSM_EVT_TRUST_LOADED, BLE_HS_CONN_HANDLE_NONE);
-        ESP_LOGW(TAG, "Migrated legacy single-client trust store");
         return;
     }
 
@@ -216,7 +168,6 @@ void trust_reset(void) {
     nvs_handle_t h;
     if (nvs_open(NVS_NS, NVS_READWRITE, &h) == ESP_OK) {
         nvs_erase_key(h, NVS_KEY_STORE);
-        trust_store_cleanup_legacy_keys(h);
         nvs_commit(h);
         nvs_close(h);
     }

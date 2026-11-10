@@ -79,15 +79,8 @@ static void encode_config(const runtime_config_t *config, uint16_t request_id,
 static bool decode_config(const uint8_t *data, size_t length,
                           runtime_config_t *config, uint16_t *request_id) {
     if (!data || !config || length != RUNTIME_CONFIG_WIRE_SIZE ||
-        (data[0] != RUNTIME_CONFIG_VERSION && data[0] != 5)) {
+        data[0] != RUNTIME_CONFIG_VERSION) {
         return false;
-    }
-    /* v5 stored diameter; v6 stores circumference at the same offset. */
-    uint16_t circumference_mm = read_u16(data + 32);
-    if (data[0] == 5) {
-        if (circumference_mm < 300 || circumference_mm > 3000) return false;
-        circumference_mm = (uint16_t)(((uint64_t)circumference_mm *
-                                       3141593ULL + 500000ULL) / 1000000ULL);
     }
     if (request_id) *request_id = read_u16(data + 1);
     *config = (runtime_config_t) {
@@ -105,7 +98,7 @@ static bool decode_config(const uint8_t *data, size_t length,
         .buzzer_enabled = data[27],
         .charging_blink_interval_ms = read_u16(data + 28),
         .wheel_min_speed_deci_kmh = read_u16(data + 30),
-        .wheel_circumference_mm = circumference_mm,
+        .wheel_circumference_mm = read_u16(data + 32),
     };
     return true;
 }
@@ -153,39 +146,6 @@ void runtime_config_init(void) {
     runtime_config_t loaded;
     runtime_config_field_t field;
     bool decoded = err == ESP_OK && decode_config(wire, length, &loaded, NULL);
-    if (!decoded && err == ESP_OK &&
-        ((length == 19 && wire[0] == 1) || (length == 17 && wire[0] == 2) ||
-         (length == 27 && wire[0] == 3) ||
-         (length == 28 && wire[0] == 4))) {
-        /* Preserve existing settings and initialize only fields missing in older versions. */
-        loaded = default_config;
-        loaded.idle_current_ma = read_u16(wire + 3);
-        loaded.voltage_min_mv = read_u16(wire + 5);
-        loaded.voltage_max_mv = read_u16(wire + 7);
-        loaded.idle_timeout_s = read_u32(wire + 9);
-        if (wire[0] == 1) {
-            loaded.deep_sleep_ms = read_u16(wire + 17);
-        } else {
-            loaded.button_delta_deci_c = read_u16(wire + 13);
-            loaded.deep_sleep_ms = read_u16(wire + 15);
-        }
-        if (wire[0] == 3) {
-            loaded.buzzer_threshold_mv = read_u16(wire + 17);
-            loaded.buzzer_low_delay_s = read_u16(wire + 19);
-            loaded.buzzer_button_ms = read_u16(wire + 21);
-            loaded.buzzer_low_ms = read_u16(wire + 23);
-            loaded.buzzer_combined_ms = read_u16(wire + 25);
-        }
-        if (wire[0] == 4) {
-            loaded.buzzer_threshold_mv = read_u16(wire + 17);
-            loaded.buzzer_low_delay_s = read_u16(wire + 19);
-            loaded.buzzer_button_ms = read_u16(wire + 21);
-            loaded.buzzer_low_ms = read_u16(wire + 23);
-            loaded.buzzer_combined_ms = read_u16(wire + 25);
-            loaded.buzzer_enabled = wire[27];
-        }
-        decoded = true;
-    }
     if (!decoded || validate_config(&loaded, &field) != CONFIG_STATUS_OK) {
         ESP_LOGW(CONFIG_TAG, "Stored config missing or invalid; using defaults");
         return;
@@ -253,23 +213,6 @@ void runtime_config_apply_wire(const uint8_t *data, size_t length,
     };
     runtime_config_t candidate;
     bool decoded = decode_config(data, length, &candidate, &result->request_id);
-    if (!decoded && data && length == 28 && data[0] == 4) {
-        runtime_config_get(&candidate);
-        result->request_id = read_u16(data + 1);
-        candidate.idle_current_ma = read_u16(data + 3);
-        candidate.voltage_min_mv = read_u16(data + 5);
-        candidate.voltage_max_mv = read_u16(data + 7);
-        candidate.idle_timeout_s = read_u32(data + 9);
-        candidate.button_delta_deci_c = read_u16(data + 13);
-        candidate.deep_sleep_ms = read_u16(data + 15);
-        candidate.buzzer_threshold_mv = read_u16(data + 17);
-        candidate.buzzer_low_delay_s = read_u16(data + 19);
-        candidate.buzzer_button_ms = read_u16(data + 21);
-        candidate.buzzer_low_ms = read_u16(data + 23);
-        candidate.buzzer_combined_ms = read_u16(data + 25);
-        candidate.buzzer_enabled = data[27];
-        decoded = true;
-    }
     if (!decoded) return;
     result->status = validate_config(&candidate, &result->field);
     if (result->status != CONFIG_STATUS_OK) return;

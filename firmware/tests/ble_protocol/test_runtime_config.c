@@ -100,82 +100,21 @@ TEST_CASE("version two settings keep their values and gain buzzer defaults", "[c
     TEST_ASSERT_EQUAL(ESP_OK, runtime_config_reset_defaults());
 }
 
-TEST_CASE("version three buzzer settings survive migration", "[config]") {
+TEST_CASE("old runtime config formats are rejected", "[config]") {
     TEST_ASSERT_EQUAL(ESP_OK, runtime_config_reset_defaults());
     uint8_t wire[RUNTIME_CONFIG_WIRE_SIZE];
-    runtime_config_encode(wire, 0);
-    wire[0] = 3;
-    wire[17] = 0xf8; /* 11 V from the previous firmware */
-    wire[18] = 0x2a;
-    wire[21] = 0xe8; /* 1 second button signal */
-    wire[22] = 0x03;
-
-    nvs_handle_t handle;
-    TEST_ASSERT_EQUAL(ESP_OK, nvs_open("runtime_cfg", NVS_READWRITE, &handle));
-    TEST_ASSERT_EQUAL(ESP_OK, nvs_set_blob(handle, "values", wire, 27));
-    TEST_ASSERT_EQUAL(ESP_OK, nvs_commit(handle));
-    nvs_close(handle);
-
-    runtime_config_init();
-    runtime_config_t config;
-    runtime_config_get(&config);
-    TEST_ASSERT_EQUAL(11000, config.buzzer_threshold_mv);
-    TEST_ASSERT_EQUAL(1000, config.buzzer_button_ms);
-    TEST_ASSERT_EQUAL(1, config.buzzer_enabled);
-    TEST_ASSERT_EQUAL(ESP_OK, runtime_config_reset_defaults());
-}
-
-TEST_CASE("version four config migrates with reed and blink defaults", "[config]") {
-    TEST_ASSERT_EQUAL(ESP_OK, runtime_config_reset_defaults());
-    uint8_t wire[RUNTIME_CONFIG_WIRE_SIZE];
-    runtime_config_encode(wire, 0);
-    wire[0] = 4;
-    wire[3] = 75;
-    wire[27] = 0;
-
-    nvs_handle_t handle;
-    TEST_ASSERT_EQUAL(ESP_OK, nvs_open("runtime_cfg", NVS_READWRITE, &handle));
-    TEST_ASSERT_EQUAL(ESP_OK, nvs_set_blob(handle, "values", wire, 28));
-    TEST_ASSERT_EQUAL(ESP_OK, nvs_commit(handle));
-    nvs_close(handle);
-
-    runtime_config_init();
-    runtime_config_t config;
-    runtime_config_get(&config);
-    TEST_ASSERT_EQUAL(75, config.idle_current_ma);
-    TEST_ASSERT_EQUAL(0, config.buzzer_enabled);
-    TEST_ASSERT_EQUAL(1000, config.charging_blink_interval_ms);
-    TEST_ASSERT_EQUAL(100, config.wheel_min_speed_deci_kmh);
-    TEST_ASSERT_EQUAL(2220, config.wheel_circumference_mm);
-    TEST_ASSERT_EQUAL(ESP_OK, runtime_config_reset_defaults());
-}
-
-TEST_CASE("version four BLE writes preserve new settings", "[config]") {
-    TEST_ASSERT_EQUAL(ESP_OK, runtime_config_reset_defaults());
-    uint8_t wire[RUNTIME_CONFIG_WIRE_SIZE];
+    runtime_config_encode(wire, 42);
+    for (uint8_t version = 1; version < RUNTIME_CONFIG_VERSION; ++version) {
+        wire[0] = version;
+        runtime_config_result_t result;
+        runtime_config_apply_wire(wire, sizeof(wire), &result);
+        TEST_ASSERT_EQUAL(CONFIG_STATUS_FORMAT, result.status);
+        TEST_ASSERT_EQUAL(42, result.request_id);
+    }
+    wire[0] = RUNTIME_CONFIG_VERSION;
     runtime_config_result_t result;
-    runtime_config_encode(wire, 9);
-    wire[28] = 0x88;
-    wire[29] = 0x13; /* blink interval 5000 ms */
-    wire[30] = 0x64;
-    wire[31] = 0x00; /* minimum speed 10.0 km/h */
-    wire[32] = 0x34;
-    wire[33] = 0x08; /* wheel circumference 2100 mm */
-    runtime_config_apply_wire(wire, sizeof(wire), &result);
-    TEST_ASSERT_EQUAL(CONFIG_STATUS_OK, result.status);
-
-    runtime_config_encode(wire, 10);
-    wire[0] = 4;
-    wire[3] = 80;
-    runtime_config_apply_wire(wire, 28, &result);
-    TEST_ASSERT_EQUAL(CONFIG_STATUS_OK, result.status);
-    runtime_config_t config;
-    runtime_config_get(&config);
-    TEST_ASSERT_EQUAL(80, config.idle_current_ma);
-    TEST_ASSERT_EQUAL(5000, config.charging_blink_interval_ms);
-    TEST_ASSERT_EQUAL(100, config.wheel_min_speed_deci_kmh);
-    TEST_ASSERT_EQUAL(2100, config.wheel_circumference_mm);
-    TEST_ASSERT_EQUAL(ESP_OK, runtime_config_reset_defaults());
+    runtime_config_apply_wire(wire, sizeof(wire) - 1, &result);
+    TEST_ASSERT_EQUAL(CONFIG_STATUS_FORMAT, result.status);
 }
 
 TEST_CASE("new reed and charging parameters are range validated", "[config]") {

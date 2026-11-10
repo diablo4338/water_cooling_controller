@@ -20,7 +20,7 @@ after each write.
 
 ## Configuration version and wire layout
 
-Configuration v4 was 28 bytes. Configuration v5 and v6 are 34 bytes. v5 offset 32 stored diameter; v6 stores circumference. All multibyte
+Configuration v6 is 34 bytes and is the only supported format. All multibyte
 integers are unsigned and little-endian. Offsets are zero-based.
 
 | Offset | Size | Field / header | Type | v6 behavior |
@@ -39,9 +39,9 @@ integers are unsigned and little-endian. Offsets are zero-based.
 | 23 | 2 | `buzzer_low_ms` | `uint16` | Existing field |
 | 25 | 2 | `buzzer_combined_ms` | `uint16` | Existing field |
 | 27 | 1 | `buzzer_enabled` | `uint8` | Existing field; `0` or `1` |
-| 28 | 2 | `charging_blink_interval_ms` | `uint16` | New in v5; duration of each ON and OFF phase |
-| 30 | 2 | `wheel_min_speed_deci_kmh` | `uint16` | New in v5; speed stored in 0.1 km/h units |
-| 32 | 2 | `wheel_circumference_mm` | `uint16` | Circumference in mm since v6; v5 stored diameter |
+| 28 | 2 | `charging_blink_interval_ms` | `uint16` | Duration of each ON and OFF phase |
+| 30 | 2 | `wheel_min_speed_deci_kmh` | `uint16` | Speed stored in 0.1 km/h units |
+| 32 | 2 | `wheel_circumference_mm` | `uint16` | Circumference in mm |
 
 ### Configuration parameters
 
@@ -57,7 +57,7 @@ writable; restart = no, except `wheel_min_speed_deci_kmh` and
 `wheel_circumference_mm`, which are picked up by the detector on the next
 startup/wakeup cycle (not immediately in the current cycle).
 
-For legacy fields whose validation is type-only, the accepted minimum and
+For fields whose validation is type-only, the accepted minimum and
 maximum below are the full unsigned representation range. `voltage_max_mv` must
 also be greater than `voltage_min_mv`.
 
@@ -132,19 +132,14 @@ No notification payload size or layout changed. Existing clients must accept
 the new state value `2`; it denotes an FSM state, not merely the physical GPIO
 level (the load is kept ON during the NEED_CHARGING ON phase).
 
-## Compatibility, migration, and examples
+## Current format and examples
 
-NVS migration accepts stored v1-v5 configurations. v1-v4 retain existing
-settings and receive defaults for the missing fields: 1000 ms blink interval,
-100 deci-km/h minimum speed and 2220 mm circumference. v5 diameter is converted
-to circumference, rounded to the nearest mm (`round(diameter_mm * pi)`);
-other settings are preserved. The next successful write persists v6.
-
-BLE accepts v6 writes directly and v5 writes with the same diameter conversion
-(the legacy diameter range remains 300-3000 mm). A 28-byte v4 write preserves
-the current wheel and blink settings. Reads and result notifications always
-return v6. Clients must check the version: offset 32 is diameter in v5 and
-circumference in v6; do not reinterpret one as the other.
+Firmware and client are updated together. Only v6 configuration blobs of exactly
+34 bytes are accepted, both from BLE and from NVS. Other versions and lengths
+are rejected with CONFIG_STATUS_FORMAT over BLE without changing settings.
+Unsupported stored settings are ignored and factory defaults are used; no
+migration or diameter conversion is performed. The next successful save writes
+only the current format. Offset 32 always stores wheel circumference in mm.
 
 The detector assumes one pulse per wheel revolution and uses
 `max_interval_us = round(circumference_mm * 36000 / speed_deci_kmh)`.
@@ -175,8 +170,8 @@ Example successful result for request ID `0x1234`:
    little-endian and set byte 0 to `6`.
 2. Subscribe to the configuration-result characteristic and correlate results
    by the echoed request ID; handle all documented status and field codes.
-3. Keep the existing 28-byte v4 write path only if compatibility with older
-   firmware/clients is needed. Do not parse v6 reads as v4 or interpret circumference as v5 diameter.
+3. Reject unsupported versions and lengths. Do not select an older encoding
+   based on the connected device.
 4. Add UI controls for `charging_blink_interval_ms`,
    `wheel_min_speed_deci_kmh`, and `wheel_circumference_mm`, with the documented
    ranges and unit conversions.
