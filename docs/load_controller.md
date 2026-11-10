@@ -22,8 +22,11 @@ and RTC continuation are described in [Charging and sleep](../firmware/docs/arch
   press sounds a cue: 0.5 seconds above the buzzer voltage threshold, or 1.5
   seconds below it. The threshold check uses the latest valid INA voltage,
   retained across timer wakeups until a newer valid sample is available.
-- Absolute INA current below 100 mA continuously for 300 seconds: `idle`, load off.
-  A sample at/above the threshold or a failed INA read resets the timeout.
+- Absolute INA current below 100 mA continuously for 300 seconds permits
+  shutdown only after the reed detector confirms stopping. Unknown wheel state
+  does not permit shutdown. Confirmed motion resets the low-current timer;
+  riding with the light off keeps the output powered without startup beeps.
+  A sample at/above the threshold or a failed INA read also resets the timeout.
 - After timeout, the button must be released and pressed again to restart.
 - GPIO1 LED is on while the thermal button is pressed and off after release.
 - GPIO0 buzzer sounds for 0.5 seconds on a new thermal-button press. If the INA
@@ -31,7 +34,11 @@ and RTC continuation are described in [Charging and sleep](../firmware/docs/arch
   After more than 10 seconds of valid readings below the threshold, it sounds for
   1 second once per low-voltage episode. An invalid or recovered reading resets
   the low-voltage timer. A simultaneous press uses only the 1.5-second signal.
-  A global enable flag silences all signals when disabled.
+  The global `buzzer_enabled` flag disables every type of new sound. The
+  playback function checks the current parameter when executing a command;
+  a muted command completes silently. An already playing sound may finish.
+  The normal command queue, timers and sleep cycle are unchanged; there is no
+  separate mute event, queue cleanup or configuration generation counter.
 - Pressing the GPIO19 reset button clears all trusted clients, writes factory
   runtime parameters to NVS, disconnects the active client and opens pairing.
   The reset runs once while the button is held, including across deep sleep.

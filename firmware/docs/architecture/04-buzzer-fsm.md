@@ -35,3 +35,27 @@ Low-voltage classification **only** from finite valid voltage. Failed voltage me
 **Key distinction:** periodic sample failures cause no beep, even if repeated indefinitely. STARTUP-triggered measurement failure causes exactly three pulses once, even if same error event is delivered twice. A *new separate button startup* may cause another pattern if sensor still broken.
 
 **Boundary note:** existing implementation has *no distinct shutdown tone*. Do not create one without approval. 'Check buzzer before switching off' here means perform and complete the shutdown buzzer decision (including its voltage read and potential already-specified tone) with output still ON. Default approved behavior remains silent shutdown if there is no defined tone.
+
+## Общий выключатель бузера — принятый контракт
+
+`buzzer_enabled = 0` запрещает запуск **любого** звука: нажатия кнопки,
+запуска нагрузки, низкого напряжения, выключения и ошибки измерения.
+Это общий выключатель, а не маска отдельных типов сигналов.
+
+Проверка актуального параметра выполняется локально в `beep_start()` через
+`runtime_config_get()`, непосредственно перед запуском писка. При выключенном
+бузере функция выдаёт `BEEP_FINISHED` без включения GPIO и запуска звукового
+таймера. Машины завершают свои переходы обычным способом.
+
+Уже начавшийся писк может закончиться. Изменение настройки не прерывает его,
+не очищает очередь и не создаёт отдельного события отключения. Команды звука
+проходят через прежнюю очередь исполнителя; для каждой из них параметр
+проверяется при исполнении. Нет отдельной копии флага, счётчика отключений
+или специального механизма отмены по изменению параметра.
+
+Глубокий сон сбрасывает оперативные очереди. Активный BLE по-прежнему может
+блокировать сон; даже при непрерывном бодрствовании локальная проверка
+запрещает новые писки, пока параметр выключен. После повторного включения
+обычная обработка оставшихся команд разрешена: отдельной гарантии удаления
+старых команд при отключении нет. Политика сна и существующая защита
+таймерных обратных вызовов не меняются.

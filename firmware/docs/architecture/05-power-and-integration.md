@@ -16,7 +16,7 @@
 6. Do not sleep while action pending, even if BLE never came up.
 
 ## Low-current shutdown while load ON
-1. Only valid continuous low-current readings for configured timeout may trigger shutdown.
+1. Only valid continuous low-current readings for configured timeout together with a confirmed wheel stop may trigger shutdown. Confirmed motion resets that timer.
 2. Load enters STOPPING and keeps output ON.
 3. Buzzer requests fresh INA voltage before OFF; missing/failed sample does **not** play error pattern. Conclude cue (silently by default).
 4. Load receives matching `BUZZER_DONE(SHUTDOWN)` -> commands output OFF; verify hardware acknowledgement -> IDLE.

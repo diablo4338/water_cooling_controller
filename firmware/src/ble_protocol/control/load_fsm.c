@@ -373,6 +373,7 @@ void load_fsm_step(load_fsm_t *fsm, const runtime_event_t *event,
 
         case RTEVT_WHEEL_MOTION_CONFIRMED:
             fsm->wheel_stopped = false;
+            fsm->low_current_pending = false;
             fsm->low_voltage_current_pending = false;
             if (fsm->state == LOAD_FSM_NEED_CHARGING) {
                 if (fsm->output_on &&
@@ -612,7 +613,8 @@ void load_fsm_step(load_fsm_t *fsm, const runtime_event_t *event,
                     fsm->low_current_since_us = event->timestamp_us;
                 } else if (event->timestamp_us -
                                fsm->low_current_since_us >=
-                           config->low_current_timeout_us) {
+                           config->low_current_timeout_us &&
+                           fsm->wheel_stopped) {
                     begin_shutdown(fsm, commands);
                 }
             }

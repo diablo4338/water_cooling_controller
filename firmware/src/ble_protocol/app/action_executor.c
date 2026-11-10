@@ -16,6 +16,7 @@
 #include "load_output.h"
 #include "load_runtime.h"
 #include "power_manager.h"
+#include "runtime_config.h"
 
 #define ACTION_QUEUE_DEPTH 32U
 #define ACTION_SUBMIT_WAIT_MS 50U
@@ -192,6 +193,12 @@ static void beep_timer_cb(void *arg) {
 }
 
 static void beep_start(const runtime_command_t *command) {
+    runtime_config_t config;
+    runtime_config_get(&config);
+    if (!config.buzzer_enabled) {
+        beep_finish(command->operation_id);
+        return;
+    }
     esp_timer_stop(s_beep_timer);
 
     portENTER_CRITICAL(&s_beep_mux);

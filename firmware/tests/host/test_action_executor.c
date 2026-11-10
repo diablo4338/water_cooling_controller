@@ -38,6 +38,12 @@ static size_t event_count;
 static bool event_publish_result = true;
 static size_t sleep_attempt_finished_count;
 static int failures;
+static bool buzzer_enabled = true;
+
+void runtime_config_get(runtime_config_t *config) {
+    memset(config, 0, sizeof(*config));
+    config->buzzer_enabled = buzzer_enabled;
+}
 
 #define CHECK(condition)                                                       \
     do {                                                                       \
@@ -426,6 +432,21 @@ int main(void) {
     execute_command(&sleep);
     CHECK(sleep_attempt_finished_count == sleep_finished_before + 1U);
     event_publish_result = true;
+
+    reset_events();
+    play.operation_id = 20;
+    CHECK(action_executor_submit(&play));
+    buzzer_enabled = false; /* Apply after enqueue, before playback. */
+    execute_next();
+    CHECK(gpio_levels[GPIO_NUM_0] == 0);
+    CHECK(!s_beep.active);
+    CHECK(count_events(RTEVT_BEEP_FINISHED, 20) == 1);
+    buzzer_enabled = true;
+    play.operation_id = 21;
+    submit_and_execute(play);
+    CHECK(gpio_levels[GPIO_NUM_0] == 1);
+    cancel.operation_id = 21;
+    submit_and_execute(cancel);
 
     if (failures != 0) {
         fprintf(stderr, "%d action-executor assertions failed\n", failures);

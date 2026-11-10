@@ -233,6 +233,8 @@ static void init_core(runtime_core_t *core, bool restored_working,
     runtime_event_reset_ids(1);
     runtime_core_init(core, &k_load_config, &buzzer_config, &k_ble_config,
                       restored_working, false, 0, false, false, 0);
+    /* Existing GPIO/buzzer scenarios model a stationary wheel. */
+    core->load.wheel_stopped = true;
 }
 
 static void mock_record(mock_t *mock, const runtime_command_t *command) {
@@ -1949,6 +1951,64 @@ typedef struct {
     test_fn_t fn;
 } test_case_t;
 
+static void test_thirty_minute_ride_without_consumption_keeps_output_on(void) {
+    runtime_core_t core;
+    mock_t mock = {0};
+    runtime_core_init(&core, &k_load_config, &k_buzzer_config, &k_ble_config,
+                      true, false, 0, false, false, 0);
+    /* Unknown wheel state must not allow shutdown, even after five minutes. */
+    step(&core, &mock, ina_event(true, 1, 0, MEASURE_PERIODIC,
+                                12, 0, 1000000), 1000000);
+    step(&core, &mock, ina_event(true, 2, 0, MEASURE_PERIODIC,
+                                12, 0, 301000000), 301000000);
+    CHECK_INT(core.load.state, LOAD_FSM_WORKING);
+    CHECK_INT(mock.ina_count, 0); /* No shutdown measurement requested. */
+
+    int64_t now = 302000000;
+    for (int cycle = 0; cycle < 360; ++cycle, now += 5000000) {
+        step(&core, &mock, make_event(RTEVT_WHEEL_MOTION_CONFIRMED, now), now);
+        CHECK(!core.load.low_current_pending);
+        step(&core, &mock, ina_event(true, cycle + 10, 0, MEASURE_PERIODIC,
+                                    12, 0, now + 1), now + 1);
+        CHECK_INT(core.load.state, LOAD_FSM_WORKING);
+        CHECK(core.load.output_on);
+        CHECK(!core.load.wheel_stopped);
+    }
+    CHECK_INT(mock.load_on_count, 0);
+    CHECK_INT(mock.load_off_count, 0);
+    CHECK_INT(mock.beep_count, 0);
+    CHECK_INT(mock.settle_count, 0);
+
+    /* Stopping still allows the normal low-current shutdown after its delay. */
+    step(&core, &mock, make_event(RTEVT_WHEEL_STOP_CONFIRMED, now), now);
+    int64_t since = core.load.low_current_since_us;
+    int64_t due = since + k_load_config.low_current_timeout_us;
+    step(&core, &mock, ina_event(true, 500, 0, MEASURE_PERIODIC,
+                                12, 0, due - 1), due - 1);
+    CHECK_INT(core.load.state, LOAD_FSM_WORKING);
+    step(&core, &mock, ina_event(true, 501, 0, MEASURE_PERIODIC,
+                                12, 0, due), due);
+    CHECK_INT(core.load.state, LOAD_FSM_STOPPING);
+}
+
+static void test_sleep_does_not_restore_unconfirmed_stop(void) {
+    runtime_core_t core;
+    mock_t mock = {0};
+    runtime_core_init(&core, &k_load_config, &k_buzzer_config, &k_ble_config,
+                      true, true, 1000000, false, false, 0);
+    step(&core, &mock, ina_event(true, 1, 0, MEASURE_PERIODIC,
+                                12, 0, 400000000), 400000000);
+    CHECK_INT(core.load.state, LOAD_FSM_WORKING);
+    CHECK(core.load.low_current_pending);
+    CHECK(!core.load.wheel_stopped);
+    step(&core, &mock, make_event(RTEVT_WHEEL_MOTION_CONFIRMED, 400000001),
+         400000001);
+    CHECK(!core.load.low_current_pending);
+    CHECK_INT(mock.load_on_count, 0);
+    CHECK_INT(mock.load_off_count, 0);
+    CHECK_INT(mock.beep_count, 0);
+}
+
 static void test_need_charging_silences_buzzer_and_keeps_client(void) {
     runtime_core_t core;
     load_fsm_config_t load = {
@@ -2000,6 +2060,10 @@ static void test_need_charging_silences_buzzer_and_keeps_client(void) {
 }
 
 static const test_case_t k_tests[] = {
+    {"thirty_minute_ride_without_consumption_keeps_output_on",
+     test_thirty_minute_ride_without_consumption_keeps_output_on},
+    {"sleep_does_not_restore_unconfirmed_stop",
+     test_sleep_does_not_restore_unconfirmed_stop},
     {"need_charging_silences_buzzer_and_keeps_client",
      test_need_charging_silences_buzzer_and_keeps_client},
     {"load_startup_sequence", test_load_startup_sequence},

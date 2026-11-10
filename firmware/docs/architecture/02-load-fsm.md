@@ -14,9 +14,10 @@ States: `LOAD_IDLE` (output OFF); `LOAD_STARTING` (output ON, startup sequence i
 | WORKING | THERMAL_BUTTON_PRESSED | WORKING | No load change (BLE separately handles press) |
 | WORKING | valid `CURRENT_LOW` first sample | WORKING | Begin low-current interval |
 | WORKING | valid `CURRENT_LOW`, elapsed < configured limit | WORKING | Maintain low-current interval |
+| WORKING | WHEEL_MOTION_CONFIRMED | WORKING | Clear wheel-stop confirmation and reset pending low-current timer |
 | WORKING | valid `CURRENT_HIGH` | WORKING | Reset pending low-current timer |
 | WORKING | `INA_SAMPLE_FAILED` | WORKING | Reset low-current pending; **no tone** |
-| WORKING | valid low-current timeout | STOPPING | `REQUEST_BUZZER_SHUTDOWN`, keep output ON |
+| WORKING | valid low-current timeout and confirmed wheel stop | STOPPING | `REQUEST_BUZZER_SHUTDOWN`, keep output ON |
 | STOPPING | `BUZZER_DONE(SHUTDOWN)` matching id | STOPPING | `LOAD_OUTPUT_OFF` |
 | STOPPING | `LOAD_GPIO_APPLIED(OFF)` | IDLE | Persist state, permit sleep if otherwise safe |
 | STOPPING | button or periodic readings | STOPPING | No duplicate shutdown, don't reactivate |

@@ -79,6 +79,18 @@ also be greater than `voltage_min_mv`.
 | `wheel_min_speed_deci_kmh` | Minimum speed to confirm motion, in 0.1 km/h (100 means 10.0 km/h) | `uint16`, 2 bytes | 100 | 10–1200 (1.0–120.0 km/h) | “Minimum wheel speed”, decimal km/h input converted to tenths |
 | `wheel_circumference_mm` | Wheel circumference used for one-revolution timing, mm | `uint16`, 2 bytes | 2220 | 900-10000 | Wheel circumference, numeric mm input |
 
+### Global buzzer switch
+
+`buzzer_enabled = 0` suppresses every type of new sound, including button,
+startup, low-voltage, shutdown and measurement-error cues. The playback
+function reads the current parameter immediately before executing each beep
+and completes a muted command silently. An already playing sound may finish.
+Changing the flag does not flush queues, interrupt playback or change sleep
+policy. Deep sleep resets runtime queues; active BLE can keep the controller
+awake, in which case the same local check applies. Re-enabling permits normal
+execution of any remaining commands; there is no special stale-command filter.
+See the [buzzer contract](../firmware/docs/architecture/04-buzzer-fsm.md).
+
 The NEED_CHARGING entry thresholds are the existing `buzzer_threshold_mv`
 and `idle_current_ma` settings; there are no duplicate threshold fields.
 `voltage_min_mv` is the battery display lower bound, not the charging-state
