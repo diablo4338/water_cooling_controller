@@ -1,0 +1,15 @@
+{
+  "logical_blocks": [
+    "sense",
+    "power",
+    "controller"
+  ],
+  "physical_components": 57,
+  "footprint_links_updated": 57,
+  "copper_graphics_sha256": "d4bb7dce9c5375fd34406821fa0aec6e4ec4bfdc27f3177bbe642e9ecc139f23",
+  "pdf_pages": 4,
+  "all_physical_pins_match_spec": true,
+  "erc_violations": 0,
+  "drc_violations": 0,
+  "schematic_parity_issues": 0
+}

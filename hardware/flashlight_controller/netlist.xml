@@ -2,13 +2,13 @@
 <export version="E">
   <design>
     <source>C:\Users\Sergei\Projects\water_cooling_controller\hardware\flashlight_controller\flashlight.kicad_sch</source>
-    <date>2026-09-24T11:18:17</date>
+    <date>2026-11-16T11:49:02</date>
     <tool>Eeschema 10.0.5</tool>
     <sheet number="1" name="/" tstamps="/">
       <title_block>
-        <title>2S flashlight controller / bottom assembly</title>
+        <title>2S flashlight - functional circuit blocks</title>
         <company/>
-        <rev>0.2</rev>
+        <rev>1.1</rev>
         <date/>
         <source>flashlight.kicad_sch</source>
         <comment number="1" value=""/>
@@ -22,14 +22,14 @@
         <comment number="9" value=""/>
       </title_block>
     </sheet>
-    <sheet number="2" name="/Pack current, voltage and load switch/" tstamps="/cb8e0e8a-1113-53ee-bd49-812003262a2e/">
+    <sheet number="2" name="/Battery and lamp - INA226/" tstamps="/cb8e0e8a-1113-53ee-bd49-812003262a2e/">
       <title_block>
-        <title>Pack measurement and lamp switch</title>
+        <title>Battery, lamp switch and current measurement</title>
         <company/>
-        <rev>0.2</rev>
+        <rev>1.1</rev>
         <date/>
         <source>sense.kicad_sch</source>
-        <comment number="1" value="2S 6.0-8.4V; bottom assembly; verify sensor and mechanical dimensions"/>
+        <comment number="1" value="Complete wired logical block. Only named rails/control nets cross sheets."/>
         <comment number="2" value=""/>
         <comment number="3" value=""/>
         <comment number="4" value=""/>
@@ -40,14 +40,14 @@
         <comment number="9" value=""/>
       </title_block>
     </sheet>
-    <sheet number="3" name="/MCP16331 5V / LDO 3.3V/" tstamps="/9ad4352c-e7e2-5437-936a-3ac2fd87f25c/">
+    <sheet number="3" name="/Power supply - 5V and 3V3/" tstamps="/9ad4352c-e7e2-5437-936a-3ac2fd87f25c/">
       <title_block>
-        <title>5V buck and 3.3V regulator</title>
+        <title>On-board power: battery -&gt; 5 V -&gt; 3.3 V</title>
         <company/>
-        <rev>0.2</rev>
+        <rev>1.1</rev>
         <date/>
         <source>power.kicad_sch</source>
-        <comment number="1" value="2S 6.0-8.4V; bottom assembly; verify sensor and mechanical dimensions"/>
+        <comment number="1" value="Complete wired logical block. Only named rails/control nets cross sheets."/>
         <comment number="2" value=""/>
         <comment number="3" value=""/>
         <comment number="4" value=""/>
@@ -58,14 +58,14 @@
         <comment number="9" value=""/>
       </title_block>
     </sheet>
-    <sheet number="4" name="/ESP32-C3 and user interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/">
+    <sheet number="4" name="/ESP32 and interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/">
       <title_block>
-        <title>ESP32-C3, buttons, LED and temperature</title>
+        <title>ESP32-C3, reset/BOOT/USER, UART, NTC and buzzer</title>
         <company/>
-        <rev>0.2</rev>
+        <rev>1.1</rev>
         <date/>
         <source>controller.kicad_sch</source>
-        <comment number="1" value="2S 6.0-8.4V; bottom assembly; verify sensor and mechanical dimensions"/>
+        <comment number="1" value="Complete wired logical block. Only named rails/control nets cross sheets."/>
         <comment number="2" value=""/>
         <comment number="3" value=""/>
         <comment number="4" value=""/>
@@ -87,11 +87,11 @@
         <field name="Description"/>
       </fields>
       <libsource lib="Device" part="C_Polarized" description="Polarized capacitor"/>
-      <property name="Sheetname" value="Pack current, voltage and load switch"/>
+      <property name="Sheetname" value="Battery and lamp - INA226"/>
       <property name="Sheetfile" value="sense.kicad_sch"/>
       <property name="ki_keywords" value="cap capacitor"/>
       <property name="ki_fp_filters" value="CP_*"/>
-      <sheetpath names="/Pack current, voltage and load switch/" tstamps="/cb8e0e8a-1113-53ee-bd49-812003262a2e/"/>
+      <sheetpath names="/Battery and lamp - INA226/" tstamps="/cb8e0e8a-1113-53ee-bd49-812003262a2e/"/>
       <tstamps>f572370f-da2b-5fdf-a969-d54c577d1650</tstamps>
       <units>
         <unit name="A">
@@ -111,11 +111,11 @@
         <field name="Description"/>
       </fields>
       <libsource lib="Device" part="C" description="Unpolarized capacitor"/>
-      <property name="Sheetname" value="Pack current, voltage and load switch"/>
+      <property name="Sheetname" value="Battery and lamp - INA226"/>
       <property name="Sheetfile" value="sense.kicad_sch"/>
       <property name="ki_keywords" value="cap capacitor"/>
       <property name="ki_fp_filters" value="C_*"/>
-      <sheetpath names="/Pack current, voltage and load switch/" tstamps="/cb8e0e8a-1113-53ee-bd49-812003262a2e/"/>
+      <sheetpath names="/Battery and lamp - INA226/" tstamps="/cb8e0e8a-1113-53ee-bd49-812003262a2e/"/>
       <tstamps>6fc9d9f9-f92a-5bd7-a0ce-4911246dec4d</tstamps>
       <units>
         <unit name="A">
@@ -135,11 +135,11 @@
         <field name="Description"/>
       </fields>
       <libsource lib="Device" part="C" description="Unpolarized capacitor"/>
-      <property name="Sheetname" value="Pack current, voltage and load switch"/>
+      <property name="Sheetname" value="Battery and lamp - INA226"/>
       <property name="Sheetfile" value="sense.kicad_sch"/>
       <property name="ki_keywords" value="cap capacitor"/>
       <property name="ki_fp_filters" value="C_*"/>
-      <sheetpath names="/Pack current, voltage and load switch/" tstamps="/cb8e0e8a-1113-53ee-bd49-812003262a2e/"/>
+      <sheetpath names="/Battery and lamp - INA226/" tstamps="/cb8e0e8a-1113-53ee-bd49-812003262a2e/"/>
       <tstamps>dc086e4a-5cb5-5952-b359-41005fea714e</tstamps>
       <units>
         <unit name="A">
@@ -159,11 +159,11 @@
         <field name="Description"/>
       </fields>
       <libsource lib="Connector_Generic" part="Conn_01x02" description="Generic connector, single row, 01x02, script generated (kicad-library-utils/schlib/autogen/connector/)"/>
-      <property name="Sheetname" value="Pack current, voltage and load switch"/>
+      <property name="Sheetname" value="Battery and lamp - INA226"/>
       <property name="Sheetfile" value="sense.kicad_sch"/>
       <property name="ki_keywords" value="connector"/>
       <property name="ki_fp_filters" value="Connector*:*_1x??_*"/>
-      <sheetpath names="/Pack current, voltage and load switch/" tstamps="/cb8e0e8a-1113-53ee-bd49-812003262a2e/"/>
+      <sheetpath names="/Battery and lamp - INA226/" tstamps="/cb8e0e8a-1113-53ee-bd49-812003262a2e/"/>
       <tstamps>f9cc8318-c11a-59a7-8685-37ac271933fa</tstamps>
       <units>
         <unit name="A">
@@ -183,11 +183,11 @@
         <field name="Description"/>
       </fields>
       <libsource lib="Connector_Generic" part="Conn_01x02" description="Generic connector, single row, 01x02, script generated (kicad-library-utils/schlib/autogen/connector/)"/>
-      <property name="Sheetname" value="Pack current, voltage and load switch"/>
+      <property name="Sheetname" value="Battery and lamp - INA226"/>
       <property name="Sheetfile" value="sense.kicad_sch"/>
       <property name="ki_keywords" value="connector"/>
       <property name="ki_fp_filters" value="Connector*:*_1x??_*"/>
-      <sheetpath names="/Pack current, voltage and load switch/" tstamps="/cb8e0e8a-1113-53ee-bd49-812003262a2e/"/>
+      <sheetpath names="/Battery and lamp - INA226/" tstamps="/cb8e0e8a-1113-53ee-bd49-812003262a2e/"/>
       <tstamps>916b902b-d4d4-57c7-b156-5241712eca58</tstamps>
       <units>
         <unit name="A">
@@ -208,11 +208,11 @@
         <field name="Description"/>
       </fields>
       <libsource lib="Transistor_FET" part="AO3401A" description="-4.0A Id, -30V Vds, P-Channel MOSFET, SOT-23"/>
-      <property name="Sheetname" value="Pack current, voltage and load switch"/>
+      <property name="Sheetname" value="Battery and lamp - INA226"/>
       <property name="Sheetfile" value="sense.kicad_sch"/>
       <property name="ki_keywords" value="P-Channel MOSFET"/>
       <property name="ki_fp_filters" value="SOT?23*"/>
-      <sheetpath names="/Pack current, voltage and load switch/" tstamps="/cb8e0e8a-1113-53ee-bd49-812003262a2e/"/>
+      <sheetpath names="/Battery and lamp - INA226/" tstamps="/cb8e0e8a-1113-53ee-bd49-812003262a2e/"/>
       <tstamps>ec0f4f77-0acd-5872-97c0-ec0fbe5b3e30</tstamps>
       <units>
         <unit name="A">
@@ -234,11 +234,11 @@
         <field name="Description"/>
       </fields>
       <libsource lib="Transistor_FET" part="2N7002" description="0.115A Id, 60V Vds, N-Channel MOSFET, SOT-23"/>
-      <property name="Sheetname" value="Pack current, voltage and load switch"/>
+      <property name="Sheetname" value="Battery and lamp - INA226"/>
       <property name="Sheetfile" value="sense.kicad_sch"/>
       <property name="ki_keywords" value="N-Channel Switching MOSFET"/>
       <property name="ki_fp_filters" value="SOT?23*"/>
-      <sheetpath names="/Pack current, voltage and load switch/" tstamps="/cb8e0e8a-1113-53ee-bd49-812003262a2e/"/>
+      <sheetpath names="/Battery and lamp - INA226/" tstamps="/cb8e0e8a-1113-53ee-bd49-812003262a2e/"/>
       <tstamps>609ceeca-af91-5d8f-a781-b18925942254</tstamps>
       <units>
         <unit name="A">
@@ -259,11 +259,11 @@
         <field name="Description"/>
       </fields>
       <libsource lib="Device" part="R" description="Resistor"/>
-      <property name="Sheetname" value="Pack current, voltage and load switch"/>
+      <property name="Sheetname" value="Battery and lamp - INA226"/>
       <property name="Sheetfile" value="sense.kicad_sch"/>
       <property name="ki_keywords" value="R res resistor"/>
       <property name="ki_fp_filters" value="R_*"/>
-      <sheetpath names="/Pack current, voltage and load switch/" tstamps="/cb8e0e8a-1113-53ee-bd49-812003262a2e/"/>
+      <sheetpath names="/Battery and lamp - INA226/" tstamps="/cb8e0e8a-1113-53ee-bd49-812003262a2e/"/>
       <tstamps>82bb0cef-a3dd-53ef-bf68-df2f73a32122</tstamps>
       <units>
         <unit name="A">
@@ -283,11 +283,11 @@
         <field name="Description"/>
       </fields>
       <libsource lib="Device" part="R" description="Resistor"/>
-      <property name="Sheetname" value="Pack current, voltage and load switch"/>
+      <property name="Sheetname" value="Battery and lamp - INA226"/>
       <property name="Sheetfile" value="sense.kicad_sch"/>
       <property name="ki_keywords" value="R res resistor"/>
       <property name="ki_fp_filters" value="R_*"/>
-      <sheetpath names="/Pack current, voltage and load switch/" tstamps="/cb8e0e8a-1113-53ee-bd49-812003262a2e/"/>
+      <sheetpath names="/Battery and lamp - INA226/" tstamps="/cb8e0e8a-1113-53ee-bd49-812003262a2e/"/>
       <tstamps>223fd324-1a94-5cc3-bea3-fd2874cfccfa</tstamps>
       <units>
         <unit name="A">
@@ -307,11 +307,11 @@
         <field name="Description"/>
       </fields>
       <libsource lib="Device" part="R" description="Resistor"/>
-      <property name="Sheetname" value="Pack current, voltage and load switch"/>
+      <property name="Sheetname" value="Battery and lamp - INA226"/>
       <property name="Sheetfile" value="sense.kicad_sch"/>
       <property name="ki_keywords" value="R res resistor"/>
       <property name="ki_fp_filters" value="R_*"/>
-      <sheetpath names="/Pack current, voltage and load switch/" tstamps="/cb8e0e8a-1113-53ee-bd49-812003262a2e/"/>
+      <sheetpath names="/Battery and lamp - INA226/" tstamps="/cb8e0e8a-1113-53ee-bd49-812003262a2e/"/>
       <tstamps>c7fc0ed3-56a7-5153-bfae-5135c741f038</tstamps>
       <units>
         <unit name="A">
@@ -331,11 +331,11 @@
         <field name="Description"/>
       </fields>
       <libsource lib="Device" part="R" description="Resistor"/>
-      <property name="Sheetname" value="Pack current, voltage and load switch"/>
+      <property name="Sheetname" value="Battery and lamp - INA226"/>
       <property name="Sheetfile" value="sense.kicad_sch"/>
       <property name="ki_keywords" value="R res resistor"/>
       <property name="ki_fp_filters" value="R_*"/>
-      <sheetpath names="/Pack current, voltage and load switch/" tstamps="/cb8e0e8a-1113-53ee-bd49-812003262a2e/"/>
+      <sheetpath names="/Battery and lamp - INA226/" tstamps="/cb8e0e8a-1113-53ee-bd49-812003262a2e/"/>
       <tstamps>b08f414c-c03b-5730-aac4-7d3a67edd271</tstamps>
       <units>
         <unit name="A">
@@ -355,11 +355,11 @@
         <field name="Description"/>
       </fields>
       <libsource lib="Device" part="R" description="Resistor"/>
-      <property name="Sheetname" value="Pack current, voltage and load switch"/>
+      <property name="Sheetname" value="Battery and lamp - INA226"/>
       <property name="Sheetfile" value="sense.kicad_sch"/>
       <property name="ki_keywords" value="R res resistor"/>
       <property name="ki_fp_filters" value="R_*"/>
-      <sheetpath names="/Pack current, voltage and load switch/" tstamps="/cb8e0e8a-1113-53ee-bd49-812003262a2e/"/>
+      <sheetpath names="/Battery and lamp - INA226/" tstamps="/cb8e0e8a-1113-53ee-bd49-812003262a2e/"/>
       <tstamps>fc11b081-3536-5888-b4e1-c3d2b12b139f</tstamps>
       <units>
         <unit name="A">
@@ -379,11 +379,11 @@
         <field name="Description"/>
       </fields>
       <libsource lib="Device" part="R" description="Resistor"/>
-      <property name="Sheetname" value="Pack current, voltage and load switch"/>
+      <property name="Sheetname" value="Battery and lamp - INA226"/>
       <property name="Sheetfile" value="sense.kicad_sch"/>
       <property name="ki_keywords" value="R res resistor"/>
       <property name="ki_fp_filters" value="R_*"/>
-      <sheetpath names="/Pack current, voltage and load switch/" tstamps="/cb8e0e8a-1113-53ee-bd49-812003262a2e/"/>
+      <sheetpath names="/Battery and lamp - INA226/" tstamps="/cb8e0e8a-1113-53ee-bd49-812003262a2e/"/>
       <tstamps>a7540784-653f-501b-956f-f3b7f512a7cc</tstamps>
       <units>
         <unit name="A">
@@ -404,11 +404,11 @@
         <field name="Description"/>
       </fields>
       <libsource lib="Sensor_Energy" part="INA226" description="High-Side or Low-Side Measurement, Bi-Directional Current and Power Monitor (0-36V) with I2C Compatible Interface, TSSOP-10 (Texas DGS0010A / VSSOP)"/>
-      <property name="Sheetname" value="Pack current, voltage and load switch"/>
+      <property name="Sheetname" value="Battery and lamp - INA226"/>
       <property name="Sheetfile" value="sense.kicad_sch"/>
       <property name="ki_keywords" value="ADC I2C 16-Bit Oversampling Current Shunt"/>
       <property name="ki_fp_filters" value="*TSSOP*3x3mm?P0.5mm*"/>
-      <sheetpath names="/Pack current, voltage and load switch/" tstamps="/cb8e0e8a-1113-53ee-bd49-812003262a2e/"/>
+      <sheetpath names="/Battery and lamp - INA226/" tstamps="/cb8e0e8a-1113-53ee-bd49-812003262a2e/"/>
       <tstamps>6e1d1329-a91e-5643-9f25-de824f40cf24</tstamps>
       <units>
         <unit name="A">
@@ -436,11 +436,11 @@
         <field name="Description"/>
       </fields>
       <libsource lib="Device" part="C" description="Unpolarized capacitor"/>
-      <property name="Sheetname" value="MCP16331 5V / LDO 3.3V"/>
+      <property name="Sheetname" value="Power supply - 5V and 3V3"/>
       <property name="Sheetfile" value="power.kicad_sch"/>
       <property name="ki_keywords" value="cap capacitor"/>
       <property name="ki_fp_filters" value="C_*"/>
-      <sheetpath names="/MCP16331 5V / LDO 3.3V/" tstamps="/9ad4352c-e7e2-5437-936a-3ac2fd87f25c/"/>
+      <sheetpath names="/Power supply - 5V and 3V3/" tstamps="/9ad4352c-e7e2-5437-936a-3ac2fd87f25c/"/>
       <tstamps>ca6341a8-148d-553c-bb55-8c752768c762</tstamps>
       <units>
         <unit name="A">
@@ -460,11 +460,11 @@
         <field name="Description"/>
       </fields>
       <libsource lib="Device" part="C" description="Unpolarized capacitor"/>
-      <property name="Sheetname" value="MCP16331 5V / LDO 3.3V"/>
+      <property name="Sheetname" value="Power supply - 5V and 3V3"/>
       <property name="Sheetfile" value="power.kicad_sch"/>
       <property name="ki_keywords" value="cap capacitor"/>
       <property name="ki_fp_filters" value="C_*"/>
-      <sheetpath names="/MCP16331 5V / LDO 3.3V/" tstamps="/9ad4352c-e7e2-5437-936a-3ac2fd87f25c/"/>
+      <sheetpath names="/Power supply - 5V and 3V3/" tstamps="/9ad4352c-e7e2-5437-936a-3ac2fd87f25c/"/>
       <tstamps>ef863a3f-a9b2-59bd-81af-171b9ed133da</tstamps>
       <units>
         <unit name="A">
@@ -484,11 +484,11 @@
         <field name="Description"/>
       </fields>
       <libsource lib="Device" part="C" description="Unpolarized capacitor"/>
-      <property name="Sheetname" value="MCP16331 5V / LDO 3.3V"/>
+      <property name="Sheetname" value="Power supply - 5V and 3V3"/>
       <property name="Sheetfile" value="power.kicad_sch"/>
       <property name="ki_keywords" value="cap capacitor"/>
       <property name="ki_fp_filters" value="C_*"/>
-      <sheetpath names="/MCP16331 5V / LDO 3.3V/" tstamps="/9ad4352c-e7e2-5437-936a-3ac2fd87f25c/"/>
+      <sheetpath names="/Power supply - 5V and 3V3/" tstamps="/9ad4352c-e7e2-5437-936a-3ac2fd87f25c/"/>
       <tstamps>c346d8e1-d436-5581-b842-e765d077313e</tstamps>
       <units>
         <unit name="A">
@@ -508,11 +508,11 @@
         <field name="Description"/>
       </fields>
       <libsource lib="Device" part="C" description="Unpolarized capacitor"/>
-      <property name="Sheetname" value="MCP16331 5V / LDO 3.3V"/>
+      <property name="Sheetname" value="Power supply - 5V and 3V3"/>
       <property name="Sheetfile" value="power.kicad_sch"/>
       <property name="ki_keywords" value="cap capacitor"/>
       <property name="ki_fp_filters" value="C_*"/>
-      <sheetpath names="/MCP16331 5V / LDO 3.3V/" tstamps="/9ad4352c-e7e2-5437-936a-3ac2fd87f25c/"/>
+      <sheetpath names="/Power supply - 5V and 3V3/" tstamps="/9ad4352c-e7e2-5437-936a-3ac2fd87f25c/"/>
       <tstamps>1c9d444e-4c1e-5380-bb07-84c00c512062</tstamps>
       <units>
         <unit name="A">
@@ -532,11 +532,11 @@
         <field name="Description"/>
       </fields>
       <libsource lib="Device" part="C" description="Unpolarized capacitor"/>
-      <property name="Sheetname" value="MCP16331 5V / LDO 3.3V"/>
+      <property name="Sheetname" value="Power supply - 5V and 3V3"/>
       <property name="Sheetfile" value="power.kicad_sch"/>
       <property name="ki_keywords" value="cap capacitor"/>
       <property name="ki_fp_filters" value="C_*"/>
-      <sheetpath names="/MCP16331 5V / LDO 3.3V/" tstamps="/9ad4352c-e7e2-5437-936a-3ac2fd87f25c/"/>
+      <sheetpath names="/Power supply - 5V and 3V3/" tstamps="/9ad4352c-e7e2-5437-936a-3ac2fd87f25c/"/>
       <tstamps>fda48ffa-2374-5daa-9a36-752ba2717804</tstamps>
       <units>
         <unit name="A">
@@ -556,11 +556,11 @@
         <field name="Description"/>
       </fields>
       <libsource lib="Device" part="C" description="Unpolarized capacitor"/>
-      <property name="Sheetname" value="MCP16331 5V / LDO 3.3V"/>
+      <property name="Sheetname" value="Power supply - 5V and 3V3"/>
       <property name="Sheetfile" value="power.kicad_sch"/>
       <property name="ki_keywords" value="cap capacitor"/>
       <property name="ki_fp_filters" value="C_*"/>
-      <sheetpath names="/MCP16331 5V / LDO 3.3V/" tstamps="/9ad4352c-e7e2-5437-936a-3ac2fd87f25c/"/>
+      <sheetpath names="/Power supply - 5V and 3V3/" tstamps="/9ad4352c-e7e2-5437-936a-3ac2fd87f25c/"/>
       <tstamps>6b08ee01-e2b0-58d7-aa62-d19d5fbaa708</tstamps>
       <units>
         <unit name="A">
@@ -580,11 +580,11 @@
         <field name="Description"/>
       </fields>
       <libsource lib="Device" part="C" description="Unpolarized capacitor"/>
-      <property name="Sheetname" value="MCP16331 5V / LDO 3.3V"/>
+      <property name="Sheetname" value="Power supply - 5V and 3V3"/>
       <property name="Sheetfile" value="power.kicad_sch"/>
       <property name="ki_keywords" value="cap capacitor"/>
       <property name="ki_fp_filters" value="C_*"/>
-      <sheetpath names="/MCP16331 5V / LDO 3.3V/" tstamps="/9ad4352c-e7e2-5437-936a-3ac2fd87f25c/"/>
+      <sheetpath names="/Power supply - 5V and 3V3/" tstamps="/9ad4352c-e7e2-5437-936a-3ac2fd87f25c/"/>
       <tstamps>dc159e73-6865-5203-b44a-1b163ea32bc6</tstamps>
       <units>
         <unit name="A">
@@ -604,11 +604,11 @@
         <field name="Description"/>
       </fields>
       <libsource lib="Device" part="C" description="Unpolarized capacitor"/>
-      <property name="Sheetname" value="MCP16331 5V / LDO 3.3V"/>
+      <property name="Sheetname" value="Power supply - 5V and 3V3"/>
       <property name="Sheetfile" value="power.kicad_sch"/>
       <property name="ki_keywords" value="cap capacitor"/>
       <property name="ki_fp_filters" value="C_*"/>
-      <sheetpath names="/MCP16331 5V / LDO 3.3V/" tstamps="/9ad4352c-e7e2-5437-936a-3ac2fd87f25c/"/>
+      <sheetpath names="/Power supply - 5V and 3V3/" tstamps="/9ad4352c-e7e2-5437-936a-3ac2fd87f25c/"/>
       <tstamps>50b3c421-aff3-59d9-b40c-d417ab4c4847</tstamps>
       <units>
         <unit name="A">
@@ -629,11 +629,11 @@
         <field name="Description"/>
       </fields>
       <libsource lib="Device" part="D_Schottky" description="Schottky diode"/>
-      <property name="Sheetname" value="MCP16331 5V / LDO 3.3V"/>
+      <property name="Sheetname" value="Power supply - 5V and 3V3"/>
       <property name="Sheetfile" value="power.kicad_sch"/>
       <property name="ki_keywords" value="diode Schottky"/>
       <property name="ki_fp_filters" value="TO-???* *_Diode_* *SingleDiode* D_*"/>
-      <sheetpath names="/MCP16331 5V / LDO 3.3V/" tstamps="/9ad4352c-e7e2-5437-936a-3ac2fd87f25c/"/>
+      <sheetpath names="/Power supply - 5V and 3V3/" tstamps="/9ad4352c-e7e2-5437-936a-3ac2fd87f25c/"/>
       <tstamps>a1004ddc-7853-5a39-a4ec-7577e9d034b6</tstamps>
       <units>
         <unit name="A">
@@ -653,11 +653,11 @@
         <field name="Description"/>
       </fields>
       <libsource lib="Device" part="D" description="Diode"/>
-      <property name="Sheetname" value="MCP16331 5V / LDO 3.3V"/>
+      <property name="Sheetname" value="Power supply - 5V and 3V3"/>
       <property name="Sheetfile" value="power.kicad_sch"/>
       <property name="ki_keywords" value="diode"/>
       <property name="ki_fp_filters" value="TO-???* *_Diode_* *SingleDiode* D_*"/>
-      <sheetpath names="/MCP16331 5V / LDO 3.3V/" tstamps="/9ad4352c-e7e2-5437-936a-3ac2fd87f25c/"/>
+      <sheetpath names="/Power supply - 5V and 3V3/" tstamps="/9ad4352c-e7e2-5437-936a-3ac2fd87f25c/"/>
       <tstamps>80aa7716-5e91-5315-8d27-3c2604bf1a54</tstamps>
       <units>
         <unit name="A">
@@ -677,11 +677,11 @@
         <field name="Description"/>
       </fields>
       <libsource lib="Device" part="L" description="Inductor"/>
-      <property name="Sheetname" value="MCP16331 5V / LDO 3.3V"/>
+      <property name="Sheetname" value="Power supply - 5V and 3V3"/>
       <property name="Sheetfile" value="power.kicad_sch"/>
       <property name="ki_keywords" value="inductor choke coil reactor magnetic"/>
       <property name="ki_fp_filters" value="Choke_* *Coil* Inductor_* L_*"/>
-      <sheetpath names="/MCP16331 5V / LDO 3.3V/" tstamps="/9ad4352c-e7e2-5437-936a-3ac2fd87f25c/"/>
+      <sheetpath names="/Power supply - 5V and 3V3/" tstamps="/9ad4352c-e7e2-5437-936a-3ac2fd87f25c/"/>
       <tstamps>e21433d2-b14b-51c6-8ba9-56f32ca830f9</tstamps>
       <units>
         <unit name="A">
@@ -701,11 +701,11 @@
         <field name="Description"/>
       </fields>
       <libsource lib="Device" part="R" description="Resistor"/>
-      <property name="Sheetname" value="MCP16331 5V / LDO 3.3V"/>
+      <property name="Sheetname" value="Power supply - 5V and 3V3"/>
       <property name="Sheetfile" value="power.kicad_sch"/>
       <property name="ki_keywords" value="R res resistor"/>
       <property name="ki_fp_filters" value="R_*"/>
-      <sheetpath names="/MCP16331 5V / LDO 3.3V/" tstamps="/9ad4352c-e7e2-5437-936a-3ac2fd87f25c/"/>
+      <sheetpath names="/Power supply - 5V and 3V3/" tstamps="/9ad4352c-e7e2-5437-936a-3ac2fd87f25c/"/>
       <tstamps>bd464167-249c-5195-a9d4-4687e4ea32f3</tstamps>
       <units>
         <unit name="A">
@@ -725,11 +725,11 @@
         <field name="Description"/>
       </fields>
       <libsource lib="Device" part="R" description="Resistor"/>
-      <property name="Sheetname" value="MCP16331 5V / LDO 3.3V"/>
+      <property name="Sheetname" value="Power supply - 5V and 3V3"/>
       <property name="Sheetfile" value="power.kicad_sch"/>
       <property name="ki_keywords" value="R res resistor"/>
       <property name="ki_fp_filters" value="R_*"/>
-      <sheetpath names="/MCP16331 5V / LDO 3.3V/" tstamps="/9ad4352c-e7e2-5437-936a-3ac2fd87f25c/"/>
+      <sheetpath names="/Power supply - 5V and 3V3/" tstamps="/9ad4352c-e7e2-5437-936a-3ac2fd87f25c/"/>
       <tstamps>46f00986-8742-5bc5-8777-b4e50fd363a3</tstamps>
       <units>
         <unit name="A">
@@ -750,11 +750,11 @@
         <field name="Description"/>
       </fields>
       <libsource lib="Regulator_Switching" part="MCP16331x-xCH" description="High-Voltage Input Integrated Switch Step-Down Regulator, VDD +4.4V to 50V, Out +2.0V to +24V, SOT-23"/>
-      <property name="Sheetname" value="MCP16331 5V / LDO 3.3V"/>
+      <property name="Sheetname" value="Power supply - 5V and 3V3"/>
       <property name="Sheetfile" value="power.kicad_sch"/>
       <property name="ki_keywords" value="High-Voltage Input Integrated Switch Step-Down Regulator"/>
       <property name="ki_fp_filters" value="SOT?23*"/>
-      <sheetpath names="/MCP16331 5V / LDO 3.3V/" tstamps="/9ad4352c-e7e2-5437-936a-3ac2fd87f25c/"/>
+      <sheetpath names="/Power supply - 5V and 3V3/" tstamps="/9ad4352c-e7e2-5437-936a-3ac2fd87f25c/"/>
       <tstamps>80990e9c-b177-534a-981f-ee62e8902573</tstamps>
       <units>
         <unit name="A">
@@ -779,11 +779,11 @@
         <field name="Description"/>
       </fields>
       <libsource lib="Regulator_Linear" part="TPS7A0508PDBV" description="200-mA Ultra-Low-Iq LDO, 0.8V, SOT-23-5"/>
-      <property name="Sheetname" value="MCP16331 5V / LDO 3.3V"/>
+      <property name="Sheetname" value="Power supply - 5V and 3V3"/>
       <property name="Sheetfile" value="power.kicad_sch"/>
       <property name="ki_keywords" value="Single Output LDO Low-Iq"/>
       <property name="ki_fp_filters" value="SOT?23*"/>
-      <sheetpath names="/MCP16331 5V / LDO 3.3V/" tstamps="/9ad4352c-e7e2-5437-936a-3ac2fd87f25c/"/>
+      <sheetpath names="/Power supply - 5V and 3V3/" tstamps="/9ad4352c-e7e2-5437-936a-3ac2fd87f25c/"/>
       <tstamps>94721690-4e96-5fb6-a09a-7d84e4e4be89</tstamps>
       <units>
         <unit name="A">
@@ -797,6 +797,31 @@
         </unit>
       </units>
     </comp>
+    <comp ref="BZ1">
+      <value>AI-1223-TWT-3V-2-R</value>
+      <footprint>Flashlight:Buzzer_12x9.5RM7.6</footprint>
+      <datasheet>https://puiaudio.com/file/specs-AI-1223-TWT-3V-2-R.pdf</datasheet>
+      <fields>
+        <field name="Footprint">Flashlight:Buzzer_12x9.5RM7.6</field>
+        <field name="Datasheet">https://puiaudio.com/file/specs-AI-1223-TWT-3V-2-R.pdf</field>
+        <field name="Description"/>
+      </fields>
+      <libsource lib="Device" part="Buzzer" description="Buzzer, polarized"/>
+      <property name="Sheetname" value="ESP32 and interfaces"/>
+      <property name="Sheetfile" value="controller.kicad_sch"/>
+      <property name="ki_keywords" value="quartz resonator ceramic"/>
+      <property name="ki_fp_filters" value="*Buzzer*"/>
+      <sheetpath names="/ESP32 and interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
+      <tstamps>15d152fe-fb0b-57a3-b89e-28a98114678e</tstamps>
+      <units>
+        <unit name="A">
+          <pins>
+            <pin num="1"/>
+            <pin num="2"/>
+          </pins>
+        </unit>
+      </units>
+    </comp>
     <comp ref="C12">
       <value>10u 10V X7R</value>
       <footprint>Flashlight:C_0805_2012Metric</footprint>
@@ -806,11 +831,11 @@
         <field name="Description"/>
       </fields>
       <libsource lib="Device" part="C" description="Unpolarized capacitor"/>
-      <property name="Sheetname" value="ESP32-C3 and user interfaces"/>
+      <property name="Sheetname" value="ESP32 and interfaces"/>
       <property name="Sheetfile" value="controller.kicad_sch"/>
       <property name="ki_keywords" value="cap capacitor"/>
       <property name="ki_fp_filters" value="C_*"/>
-      <sheetpath names="/ESP32-C3 and user interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
+      <sheetpath names="/ESP32 and interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
       <tstamps>d99ce85a-99cb-56ae-aa84-b7782de40e12</tstamps>
       <units>
         <unit name="A">
@@ -830,11 +855,11 @@
         <field name="Description"/>
       </fields>
       <libsource lib="Device" part="C" description="Unpolarized capacitor"/>
-      <property name="Sheetname" value="ESP32-C3 and user interfaces"/>
+      <property name="Sheetname" value="ESP32 and interfaces"/>
       <property name="Sheetfile" value="controller.kicad_sch"/>
       <property name="ki_keywords" value="cap capacitor"/>
       <property name="ki_fp_filters" value="C_*"/>
-      <sheetpath names="/ESP32-C3 and user interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
+      <sheetpath names="/ESP32 and interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
       <tstamps>acc2d668-6092-518e-a230-ac655300f8a2</tstamps>
       <units>
         <unit name="A">
@@ -854,11 +879,11 @@
         <field name="Description"/>
       </fields>
       <libsource lib="Device" part="C" description="Unpolarized capacitor"/>
-      <property name="Sheetname" value="ESP32-C3 and user interfaces"/>
+      <property name="Sheetname" value="ESP32 and interfaces"/>
       <property name="Sheetfile" value="controller.kicad_sch"/>
       <property name="ki_keywords" value="cap capacitor"/>
       <property name="ki_fp_filters" value="C_*"/>
-      <sheetpath names="/ESP32-C3 and user interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
+      <sheetpath names="/ESP32 and interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
       <tstamps>375e7eba-296c-5f6a-a49f-83f378024a68</tstamps>
       <units>
         <unit name="A">
@@ -878,11 +903,11 @@
         <field name="Description"/>
       </fields>
       <libsource lib="Device" part="C" description="Unpolarized capacitor"/>
-      <property name="Sheetname" value="ESP32-C3 and user interfaces"/>
+      <property name="Sheetname" value="ESP32 and interfaces"/>
       <property name="Sheetfile" value="controller.kicad_sch"/>
       <property name="ki_keywords" value="cap capacitor"/>
       <property name="ki_fp_filters" value="C_*"/>
-      <sheetpath names="/ESP32-C3 and user interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
+      <sheetpath names="/ESP32 and interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
       <tstamps>5bc8c689-9bc7-5c28-98be-68fbdb8ec6b9</tstamps>
       <units>
         <unit name="A">
@@ -902,11 +927,11 @@
         <field name="Description"/>
       </fields>
       <libsource lib="Device" part="C" description="Unpolarized capacitor"/>
-      <property name="Sheetname" value="ESP32-C3 and user interfaces"/>
+      <property name="Sheetname" value="ESP32 and interfaces"/>
       <property name="Sheetfile" value="controller.kicad_sch"/>
       <property name="ki_keywords" value="cap capacitor"/>
       <property name="ki_fp_filters" value="C_*"/>
-      <sheetpath names="/ESP32-C3 and user interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
+      <sheetpath names="/ESP32 and interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
       <tstamps>01dce86b-c0e4-59c9-9ad9-01b3fab308b4</tstamps>
       <units>
         <unit name="A">
@@ -926,12 +951,36 @@
         <field name="Description"/>
       </fields>
       <libsource lib="Device" part="LED" description="Light emitting diode"/>
-      <property name="Sheetname" value="ESP32-C3 and user interfaces"/>
+      <property name="Sheetname" value="ESP32 and interfaces"/>
       <property name="Sheetfile" value="controller.kicad_sch"/>
       <property name="ki_keywords" value="LED diode"/>
       <property name="ki_fp_filters" value="LED* LED_SMD:* LED_THT:*"/>
-      <sheetpath names="/ESP32-C3 and user interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
+      <sheetpath names="/ESP32 and interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
       <tstamps>e98d1537-0621-5d16-aba4-15426a6979f4</tstamps>
+      <units>
+        <unit name="A">
+          <pins>
+            <pin num="1"/>
+            <pin num="2"/>
+          </pins>
+        </unit>
+      </units>
+    </comp>
+    <comp ref="D4">
+      <value>1N4148WS-HG3_A-08</value>
+      <footprint>Flashlight:D_SOD-323</footprint>
+      <fields>
+        <field name="Footprint">Flashlight:D_SOD-323</field>
+        <field name="Datasheet"/>
+        <field name="Description"/>
+      </fields>
+      <libsource lib="Device" part="D" description="Diode"/>
+      <property name="Sheetname" value="ESP32 and interfaces"/>
+      <property name="Sheetfile" value="controller.kicad_sch"/>
+      <property name="ki_keywords" value="diode"/>
+      <property name="ki_fp_filters" value="TO-???* *_Diode_* *SingleDiode* D_*"/>
+      <sheetpath names="/ESP32 and interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
+      <tstamps>31770223-4a6b-555c-a90e-6248f167af95</tstamps>
       <units>
         <unit name="A">
           <pins>
@@ -950,11 +999,11 @@
         <field name="Description"/>
       </fields>
       <libsource lib="Connector_Generic" part="Conn_01x02" description="Generic connector, single row, 01x02, script generated (kicad-library-utils/schlib/autogen/connector/)"/>
-      <property name="Sheetname" value="ESP32-C3 and user interfaces"/>
+      <property name="Sheetname" value="ESP32 and interfaces"/>
       <property name="Sheetfile" value="controller.kicad_sch"/>
       <property name="ki_keywords" value="connector"/>
       <property name="ki_fp_filters" value="Connector*:*_1x??_*"/>
-      <sheetpath names="/ESP32-C3 and user interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
+      <sheetpath names="/ESP32 and interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
       <tstamps>8551dc4e-c957-573a-bebf-9d31acb79883</tstamps>
       <units>
         <unit name="A">
@@ -967,18 +1016,18 @@
     </comp>
     <comp ref="J4">
       <value>UART 3V3 LOGIC</value>
-      <footprint>Flashlight:UART_Pads_6</footprint>
+      <footprint>Flashlight:UART_Pads_3</footprint>
       <fields>
-        <field name="Footprint">Flashlight:UART_Pads_6</field>
+        <field name="Footprint">Flashlight:UART_Pads_3</field>
         <field name="Datasheet"/>
         <field name="Description"/>
       </fields>
-      <libsource lib="Connector_Generic" part="Conn_01x06" description="Generic connector, single row, 01x06, script generated (kicad-library-utils/schlib/autogen/connector/)"/>
-      <property name="Sheetname" value="ESP32-C3 and user interfaces"/>
+      <libsource lib="Connector_Generic" part="Conn_01x03" description="Generic connector, single row, 01x03, script generated (kicad-library-utils/schlib/autogen/connector/)"/>
+      <property name="Sheetname" value="ESP32 and interfaces"/>
       <property name="Sheetfile" value="controller.kicad_sch"/>
       <property name="ki_keywords" value="connector"/>
       <property name="ki_fp_filters" value="Connector*:*_1x??_*"/>
-      <sheetpath names="/ESP32-C3 and user interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
+      <sheetpath names="/ESP32 and interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
       <tstamps>8d0546c1-3759-5f1a-870f-5deee8238529</tstamps>
       <units>
         <unit name="A">
@@ -986,9 +1035,56 @@
             <pin num="1"/>
             <pin num="2"/>
             <pin num="3"/>
-            <pin num="4"/>
-            <pin num="5"/>
-            <pin num="6"/>
+          </pins>
+        </unit>
+      </units>
+    </comp>
+    <comp ref="J5">
+      <value>GYRO SIGNAL / GND</value>
+      <footprint>Flashlight:GyroPads_2</footprint>
+      <fields>
+        <field name="Footprint">Flashlight:GyroPads_2</field>
+        <field name="Datasheet"/>
+        <field name="Description"/>
+      </fields>
+      <libsource lib="Connector_Generic" part="Conn_01x02" description="Generic connector, single row, 01x02, script generated (kicad-library-utils/schlib/autogen/connector/)"/>
+      <property name="Sheetname" value="ESP32 and interfaces"/>
+      <property name="Sheetfile" value="controller.kicad_sch"/>
+      <property name="ki_keywords" value="connector"/>
+      <property name="ki_fp_filters" value="Connector*:*_1x??_*"/>
+      <sheetpath names="/ESP32 and interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
+      <tstamps>26d6c90e-6aa4-5798-b9be-9e324522a350</tstamps>
+      <units>
+        <unit name="A">
+          <pins>
+            <pin num="1"/>
+            <pin num="2"/>
+          </pins>
+        </unit>
+      </units>
+    </comp>
+    <comp ref="Q3">
+      <value>NXV40UNR</value>
+      <footprint>Flashlight:SOT-23</footprint>
+      <datasheet>https://assets.nexperia.com/documents/data-sheet/NXV40UN.pdf</datasheet>
+      <fields>
+        <field name="Footprint">Flashlight:SOT-23</field>
+        <field name="Datasheet">https://assets.nexperia.com/documents/data-sheet/NXV40UN.pdf</field>
+        <field name="Description"/>
+      </fields>
+      <libsource lib="Transistor_FET" part="2N7002" description="0.115A Id, 60V Vds, N-Channel MOSFET, SOT-23"/>
+      <property name="Sheetname" value="ESP32 and interfaces"/>
+      <property name="Sheetfile" value="controller.kicad_sch"/>
+      <property name="ki_keywords" value="N-Channel Switching MOSFET"/>
+      <property name="ki_fp_filters" value="SOT?23*"/>
+      <sheetpath names="/ESP32 and interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
+      <tstamps>cf836c14-ce94-5d24-8749-8c8f29daa443</tstamps>
+      <units>
+        <unit name="A">
+          <pins>
+            <pin num="1"/>
+            <pin num="3"/>
+            <pin num="2"/>
           </pins>
         </unit>
       </units>
@@ -1002,11 +1098,11 @@
         <field name="Description"/>
       </fields>
       <libsource lib="Device" part="R" description="Resistor"/>
-      <property name="Sheetname" value="ESP32-C3 and user interfaces"/>
+      <property name="Sheetname" value="ESP32 and interfaces"/>
       <property name="Sheetfile" value="controller.kicad_sch"/>
       <property name="ki_keywords" value="R res resistor"/>
       <property name="ki_fp_filters" value="R_*"/>
-      <sheetpath names="/ESP32-C3 and user interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
+      <sheetpath names="/ESP32 and interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
       <tstamps>f99f1110-fe17-5c29-967f-f25468fa4650</tstamps>
       <units>
         <unit name="A">
@@ -1026,11 +1122,11 @@
         <field name="Description"/>
       </fields>
       <libsource lib="Device" part="R" description="Resistor"/>
-      <property name="Sheetname" value="ESP32-C3 and user interfaces"/>
+      <property name="Sheetname" value="ESP32 and interfaces"/>
       <property name="Sheetfile" value="controller.kicad_sch"/>
       <property name="ki_keywords" value="R res resistor"/>
       <property name="ki_fp_filters" value="R_*"/>
-      <sheetpath names="/ESP32-C3 and user interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
+      <sheetpath names="/ESP32 and interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
       <tstamps>93af734a-5f77-5903-9e9d-5cc720072aec</tstamps>
       <units>
         <unit name="A">
@@ -1050,11 +1146,11 @@
         <field name="Description"/>
       </fields>
       <libsource lib="Device" part="R" description="Resistor"/>
-      <property name="Sheetname" value="ESP32-C3 and user interfaces"/>
+      <property name="Sheetname" value="ESP32 and interfaces"/>
       <property name="Sheetfile" value="controller.kicad_sch"/>
       <property name="ki_keywords" value="R res resistor"/>
       <property name="ki_fp_filters" value="R_*"/>
-      <sheetpath names="/ESP32-C3 and user interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
+      <sheetpath names="/ESP32 and interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
       <tstamps>e520ae8f-3a90-5dc5-a6b9-670a3025732b</tstamps>
       <units>
         <unit name="A">
@@ -1074,11 +1170,11 @@
         <field name="Description"/>
       </fields>
       <libsource lib="Device" part="R" description="Resistor"/>
-      <property name="Sheetname" value="ESP32-C3 and user interfaces"/>
+      <property name="Sheetname" value="ESP32 and interfaces"/>
       <property name="Sheetfile" value="controller.kicad_sch"/>
       <property name="ki_keywords" value="R res resistor"/>
       <property name="ki_fp_filters" value="R_*"/>
-      <sheetpath names="/ESP32-C3 and user interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
+      <sheetpath names="/ESP32 and interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
       <tstamps>4d4a0afe-d1c6-5f6e-a2b4-4e71c99b667c</tstamps>
       <units>
         <unit name="A">
@@ -1098,11 +1194,11 @@
         <field name="Description"/>
       </fields>
       <libsource lib="Device" part="R" description="Resistor"/>
-      <property name="Sheetname" value="ESP32-C3 and user interfaces"/>
+      <property name="Sheetname" value="ESP32 and interfaces"/>
       <property name="Sheetfile" value="controller.kicad_sch"/>
       <property name="ki_keywords" value="R res resistor"/>
       <property name="ki_fp_filters" value="R_*"/>
-      <sheetpath names="/ESP32-C3 and user interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
+      <sheetpath names="/ESP32 and interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
       <tstamps>2ac97129-f439-5cde-ab0c-4939be0d6060</tstamps>
       <units>
         <unit name="A">
@@ -1122,11 +1218,11 @@
         <field name="Description"/>
       </fields>
       <libsource lib="Device" part="R" description="Resistor"/>
-      <property name="Sheetname" value="ESP32-C3 and user interfaces"/>
+      <property name="Sheetname" value="ESP32 and interfaces"/>
       <property name="Sheetfile" value="controller.kicad_sch"/>
       <property name="ki_keywords" value="R res resistor"/>
       <property name="ki_fp_filters" value="R_*"/>
-      <sheetpath names="/ESP32-C3 and user interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
+      <sheetpath names="/ESP32 and interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
       <tstamps>9c257d1b-feaa-5964-910d-b4d8a52f6cfe</tstamps>
       <units>
         <unit name="A">
@@ -1146,11 +1242,11 @@
         <field name="Description"/>
       </fields>
       <libsource lib="Device" part="R" description="Resistor"/>
-      <property name="Sheetname" value="ESP32-C3 and user interfaces"/>
+      <property name="Sheetname" value="ESP32 and interfaces"/>
       <property name="Sheetfile" value="controller.kicad_sch"/>
       <property name="ki_keywords" value="R res resistor"/>
       <property name="ki_fp_filters" value="R_*"/>
-      <sheetpath names="/ESP32-C3 and user interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
+      <sheetpath names="/ESP32 and interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
       <tstamps>cfa189b3-1fe2-5297-b81c-067393e2a1cb</tstamps>
       <units>
         <unit name="A">
@@ -1170,11 +1266,11 @@
         <field name="Description"/>
       </fields>
       <libsource lib="Device" part="R" description="Resistor"/>
-      <property name="Sheetname" value="ESP32-C3 and user interfaces"/>
+      <property name="Sheetname" value="ESP32 and interfaces"/>
       <property name="Sheetfile" value="controller.kicad_sch"/>
       <property name="ki_keywords" value="R res resistor"/>
       <property name="ki_fp_filters" value="R_*"/>
-      <sheetpath names="/ESP32-C3 and user interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
+      <sheetpath names="/ESP32 and interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
       <tstamps>9063b47f-88d2-5d7d-804d-04c48907f786</tstamps>
       <units>
         <unit name="A">
@@ -1194,11 +1290,11 @@
         <field name="Description"/>
       </fields>
       <libsource lib="Device" part="R" description="Resistor"/>
-      <property name="Sheetname" value="ESP32-C3 and user interfaces"/>
+      <property name="Sheetname" value="ESP32 and interfaces"/>
       <property name="Sheetfile" value="controller.kicad_sch"/>
       <property name="ki_keywords" value="R res resistor"/>
       <property name="ki_fp_filters" value="R_*"/>
-      <sheetpath names="/ESP32-C3 and user interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
+      <sheetpath names="/ESP32 and interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
       <tstamps>5c7934b7-9fd7-5045-99e7-c00c499a4355</tstamps>
       <units>
         <unit name="A">
@@ -1218,12 +1314,60 @@
         <field name="Description"/>
       </fields>
       <libsource lib="Device" part="R" description="Resistor"/>
-      <property name="Sheetname" value="ESP32-C3 and user interfaces"/>
+      <property name="Sheetname" value="ESP32 and interfaces"/>
       <property name="Sheetfile" value="controller.kicad_sch"/>
       <property name="ki_keywords" value="R res resistor"/>
       <property name="ki_fp_filters" value="R_*"/>
-      <sheetpath names="/ESP32-C3 and user interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
+      <sheetpath names="/ESP32 and interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
       <tstamps>00139b83-5f96-5ac0-9bc4-e76f4386f2e1</tstamps>
+      <units>
+        <unit name="A">
+          <pins>
+            <pin num="1"/>
+            <pin num="2"/>
+          </pins>
+        </unit>
+      </units>
+    </comp>
+    <comp ref="R19">
+      <value>100R</value>
+      <footprint>Flashlight:R_0805_2012Metric</footprint>
+      <fields>
+        <field name="Footprint">Flashlight:R_0805_2012Metric</field>
+        <field name="Datasheet"/>
+        <field name="Description"/>
+      </fields>
+      <libsource lib="Device" part="R" description="Resistor"/>
+      <property name="Sheetname" value="ESP32 and interfaces"/>
+      <property name="Sheetfile" value="controller.kicad_sch"/>
+      <property name="ki_keywords" value="R res resistor"/>
+      <property name="ki_fp_filters" value="R_*"/>
+      <sheetpath names="/ESP32 and interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
+      <tstamps>0bc8b837-4152-5620-8b83-07516acf6c98</tstamps>
+      <units>
+        <unit name="A">
+          <pins>
+            <pin num="1"/>
+            <pin num="2"/>
+          </pins>
+        </unit>
+      </units>
+    </comp>
+    <comp ref="R20">
+      <value>100k</value>
+      <footprint>Flashlight:R_0805_2012Metric</footprint>
+      <fields>
+        <field name="Footprint">Flashlight:R_0805_2012Metric</field>
+        <field name="Datasheet"/>
+        <field name="Description"/>
+      </fields>
+      <libsource lib="Device" part="R" description="Resistor"/>
+      <property name="Sheetname" value="ESP32 and interfaces"/>
+      <property name="Sheetfile" value="controller.kicad_sch"/>
+      <property name="ki_keywords" value="R res resistor"/>
+      <property name="ki_fp_filters" value="R_*"/>
+      <sheetpath names="/ESP32 and interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
+      <tstamps>a6b52dae-02f7-5901-90e5-68118c3144cd</tstamps>
       <units>
         <unit name="A">
           <pins>
@@ -1242,10 +1386,10 @@
         <field name="Description"/>
       </fields>
       <libsource lib="Switch" part="SW_Push" description="Push button switch, generic, two pins"/>
-      <property name="Sheetname" value="ESP32-C3 and user interfaces"/>
+      <property name="Sheetname" value="ESP32 and interfaces"/>
       <property name="Sheetfile" value="controller.kicad_sch"/>
       <property name="ki_keywords" value="switch normally-open pushbutton push-button"/>
-      <sheetpath names="/ESP32-C3 and user interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
+      <sheetpath names="/ESP32 and interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
       <tstamps>bc984d5a-547f-50d4-9ddc-1b90329bd3e3</tstamps>
       <units>
         <unit name="A">
@@ -1265,11 +1409,34 @@
         <field name="Description"/>
       </fields>
       <libsource lib="Switch" part="SW_Push" description="Push button switch, generic, two pins"/>
-      <property name="Sheetname" value="ESP32-C3 and user interfaces"/>
+      <property name="Sheetname" value="ESP32 and interfaces"/>
       <property name="Sheetfile" value="controller.kicad_sch"/>
       <property name="ki_keywords" value="switch normally-open pushbutton push-button"/>
-      <sheetpath names="/ESP32-C3 and user interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
+      <sheetpath names="/ESP32 and interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
       <tstamps>c8de8542-29ea-5bff-8ae6-352b9f4f4e3f</tstamps>
+      <units>
+        <unit name="A">
+          <pins>
+            <pin num="1"/>
+            <pin num="2"/>
+          </pins>
+        </unit>
+      </units>
+    </comp>
+    <comp ref="SW3">
+      <value>RESET</value>
+      <footprint>Flashlight:Reference_Button</footprint>
+      <fields>
+        <field name="Footprint">Flashlight:Reference_Button</field>
+        <field name="Datasheet"/>
+        <field name="Description"/>
+      </fields>
+      <libsource lib="Switch" part="SW_Push" description="Push button switch, generic, two pins"/>
+      <property name="Sheetname" value="ESP32 and interfaces"/>
+      <property name="Sheetfile" value="controller.kicad_sch"/>
+      <property name="ki_keywords" value="switch normally-open pushbutton push-button"/>
+      <sheetpath names="/ESP32 and interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
+      <tstamps>55e23ccf-6ec4-5d2f-a41a-350ab209bc07</tstamps>
       <units>
         <unit name="A">
           <pins>
@@ -1289,11 +1456,11 @@
         <field name="Description"/>
       </fields>
       <libsource lib="RF_Module" part="ESP32-C3-WROOM-02" description="802.11 b/g/n Wi­Fi and Bluetooth 5 module, ESP32­C3 SoC, RISC­V microprocessor, On-board antenna"/>
-      <property name="Sheetname" value="ESP32-C3 and user interfaces"/>
+      <property name="Sheetname" value="ESP32 and interfaces"/>
       <property name="Sheetfile" value="controller.kicad_sch"/>
       <property name="ki_keywords" value="esp32 espressif WiFi Bluetooth LE"/>
       <property name="ki_fp_filters" value="ESP32?C3*WROOM?02*"/>
-      <sheetpath names="/ESP32-C3 and user interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
+      <sheetpath names="/ESP32 and interfaces/" tstamps="/b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59/"/>
       <tstamps>5a026e43-9cea-5131-8dfd-813ab9a2ff7d</tstamps>
       <units>
         <unit name="A">
@@ -1340,25 +1507,39 @@
         <pin num="2" name="Pin_2" type="passive"/>
       </pins>
     </libpart>
-    <libpart lib="Connector_Generic" part="Conn_01x06">
-      <description>Generic connector, single row, 01x06, script generated (kicad-library-utils/schlib/autogen/connector/)</description>
+    <libpart lib="Connector_Generic" part="Conn_01x03">
+      <description>Generic connector, single row, 01x03, script generated (kicad-library-utils/schlib/autogen/connector/)</description>
       <footprints>
         <fp>Connector*:*_1x??_*</fp>
       </footprints>
       <fields>
         <field name="Reference">J</field>
-        <field name="Value">Conn_01x06</field>
+        <field name="Value">Conn_01x03</field>
         <field name="Footprint"/>
         <field name="Datasheet"/>
-        <field name="Description">Generic connector, single row, 01x06, script generated (kicad-library-utils/schlib/autogen/connector/)</field>
+        <field name="Description">Generic connector, single row, 01x03, script generated (kicad-library-utils/schlib/autogen/connector/)</field>
       </fields>
       <pins>
         <pin num="1" name="Pin_1" type="passive"/>
         <pin num="2" name="Pin_2" type="passive"/>
         <pin num="3" name="Pin_3" type="passive"/>
-        <pin num="4" name="Pin_4" type="passive"/>
-        <pin num="5" name="Pin_5" type="passive"/>
-        <pin num="6" name="Pin_6" type="passive"/>
+      </pins>
+    </libpart>
+    <libpart lib="Device" part="Buzzer">
+      <description>Buzzer, polarized</description>
+      <footprints>
+        <fp>*Buzzer*</fp>
+      </footprints>
+      <fields>
+        <field name="Reference">BZ</field>
+        <field name="Value">Buzzer</field>
+        <field name="Footprint"/>
+        <field name="Datasheet"/>
+        <field name="Description">Buzzer, polarized</field>
+      </fields>
+      <pins>
+        <pin num="1" name="+" type="passive"/>
+        <pin num="2" name="-" type="passive"/>
       </pins>
     </libpart>
     <libpart lib="Device" part="C">
@@ -1679,11 +1860,12 @@
   </libraries>
   <nets>
     <net code="1" name="3V3" class="Default">
+      <node ref="BZ1" pin="1" pinfunction="+_1" pintype="passive"/>
       <node ref="C11" pin="1" pintype="passive"/>
       <node ref="C12" pin="1" pintype="passive"/>
       <node ref="C13" pin="1" pintype="passive"/>
       <node ref="C3" pin="1" pintype="passive"/>
-      <node ref="J4" pin="6" pinfunction="Pin_6_6" pintype="passive"/>
+      <node ref="D4" pin="1" pinfunction="K_1" pintype="passive"/>
       <node ref="R10" pin="1" pintype="passive"/>
       <node ref="R11" pin="1" pintype="passive"/>
       <node ref="R12" pin="1" pintype="passive"/>
@@ -1711,27 +1893,40 @@
       <node ref="U2" pin="1" pinfunction="BOOST_1" pintype="input"/>
     </net>
     <net code="4" name="BOOT" class="Default">
-      <node ref="J4" pin="5" pinfunction="Pin_5_5" pintype="passive"/>
       <node ref="R10" pin="2" pintype="passive"/>
       <node ref="SW1" pin="1" pinfunction="1_1" pintype="passive"/>
       <node ref="U1" pin="8" pinfunction="IO9_8" pintype="bidirectional"/>
     </net>
-    <net code="5" name="ESP_EN" class="Default">
+    <net code="5" name="BUZZER_EN" class="Default">
+      <node ref="R19" pin="1" pintype="passive"/>
+      <node ref="U1" pin="13" pinfunction="IO18_13" pintype="bidirectional"/>
+    </net>
+    <net code="6" name="BUZZER_GATE" class="Default">
+      <node ref="Q3" pin="1" pinfunction="G_1" pintype="input"/>
+      <node ref="R19" pin="2" pintype="passive"/>
+      <node ref="R20" pin="1" pintype="passive"/>
+    </net>
+    <net code="7" name="BUZZER_MINUS" class="Default">
+      <node ref="BZ1" pin="2" pinfunction="-_2" pintype="passive"/>
+      <node ref="D4" pin="2" pinfunction="A_2" pintype="passive"/>
+      <node ref="Q3" pin="3" pinfunction="D_3" pintype="passive"/>
+    </net>
+    <net code="8" name="ESP_EN" class="Default">
       <node ref="C14" pin="1" pintype="passive"/>
-      <node ref="J4" pin="4" pinfunction="Pin_4_4" pintype="passive"/>
       <node ref="R9" pin="2" pintype="passive"/>
+      <node ref="SW3" pin="1" pinfunction="1_1" pintype="passive"/>
       <node ref="U1" pin="2" pinfunction="EN_2" pintype="input"/>
     </net>
-    <net code="6" name="FB" class="Default">
+    <net code="9" name="FB" class="Default">
       <node ref="R7" pin="2" pintype="passive"/>
       <node ref="R8" pin="1" pintype="passive"/>
       <node ref="U2" pin="3" pinfunction="V_{FB}_3" pintype="input"/>
     </net>
-    <net code="7" name="GATE_SINK" class="Default">
+    <net code="10" name="GATE_SINK" class="Default">
       <node ref="Q2" pin="3" pinfunction="D_3" pintype="passive"/>
       <node ref="R3" pin="2" pintype="passive"/>
     </net>
-    <net code="8" name="GND" class="Default">
+    <net code="11" name="GND" class="Default">
       <node ref="C1" pin="2" pintype="passive"/>
       <node ref="C10" pin="2" pintype="passive"/>
       <node ref="C11" pin="2" pintype="passive"/>
@@ -1752,11 +1947,15 @@
       <node ref="J2" pin="2" pinfunction="Pin_2_2" pintype="passive"/>
       <node ref="J3" pin="2" pinfunction="Pin_2_2" pintype="passive"/>
       <node ref="J4" pin="1" pinfunction="Pin_1_1" pintype="passive"/>
+      <node ref="J5" pin="2" pinfunction="Pin_2_2" pintype="passive"/>
       <node ref="Q2" pin="2" pinfunction="S_2" pintype="passive"/>
+      <node ref="Q3" pin="2" pinfunction="S_2" pintype="passive"/>
+      <node ref="R20" pin="2" pintype="passive"/>
       <node ref="R4" pin="2" pintype="passive"/>
       <node ref="R8" pin="2" pintype="passive"/>
       <node ref="SW1" pin="2" pinfunction="2_2" pintype="passive"/>
       <node ref="SW2" pin="2" pinfunction="2_2" pintype="passive"/>
+      <node ref="SW3" pin="2" pinfunction="2_2" pintype="passive"/>
       <node ref="U1" pin="19" pinfunction="GND_19" pintype="passive"/>
       <node ref="U1" pin="9" pinfunction="GND_9" pintype="power_in"/>
       <node ref="U2" pin="2" pinfunction="GND_2" pintype="power_in"/>
@@ -1765,69 +1964,73 @@
       <node ref="U4" pin="2" pinfunction="A0_2" pintype="input"/>
       <node ref="U4" pin="7" pinfunction="GND_7" pintype="power_in"/>
     </net>
-    <net code="9" name="LAMP_PLUS" class="Default">
+    <net code="12" name="GYRO_SIGNAL" class="Default">
+      <node ref="J5" pin="1" pinfunction="Pin_1_1" pintype="passive"/>
+      <node ref="U1" pin="6" pinfunction="IO7_6" pintype="bidirectional"/>
+    </net>
+    <net code="13" name="LAMP_PLUS" class="Default">
       <node ref="J2" pin="1" pinfunction="Pin_1_1" pintype="passive"/>
       <node ref="Q1" pin="3" pinfunction="D_3" pintype="passive"/>
     </net>
-    <net code="10" name="LED_A" class="Default">
+    <net code="14" name="LED_A" class="Default">
       <node ref="D3" pin="2" pinfunction="A_2" pintype="passive"/>
       <node ref="R16" pin="2" pintype="passive"/>
     </net>
-    <net code="11" name="LED_GPIO" class="Default">
+    <net code="15" name="LED_GPIO" class="Default">
       <node ref="R16" pin="1" pintype="passive"/>
       <node ref="U1" pin="5" pinfunction="IO6_5" pintype="bidirectional"/>
     </net>
-    <net code="12" name="LOAD_EN" class="Default">
+    <net code="16" name="LOAD_EN" class="Default">
       <node ref="Q2" pin="1" pinfunction="G_1" pintype="input"/>
       <node ref="R4" pin="1" pintype="passive"/>
       <node ref="U1" pin="10" pinfunction="IO10_10" pintype="bidirectional"/>
     </net>
-    <net code="13" name="LOAD_GATE" class="Default">
+    <net code="17" name="LOAD_GATE" class="Default">
       <node ref="Q1" pin="1" pinfunction="G_1" pintype="input"/>
       <node ref="R2" pin="2" pintype="passive"/>
       <node ref="R3" pin="1" pintype="passive"/>
     </net>
-    <net code="14" name="PACK_PLUS" class="Default">
+    <net code="18" name="PACK_PLUS" class="Default">
       <node ref="J1" pin="1" pinfunction="Pin_1_1" pintype="passive"/>
       <node ref="R1" pin="1" pintype="passive"/>
       <node ref="R5" pin="1" pintype="passive"/>
       <node ref="U4" pin="8" pinfunction="Vbus_8" pintype="input"/>
     </net>
-    <net code="15" name="SCL" class="Default">
+    <net code="19" name="SCL" class="Default">
       <node ref="R14" pin="2" pintype="passive"/>
       <node ref="U1" pin="4" pinfunction="IO5_4" pintype="bidirectional"/>
       <node ref="U4" pin="5" pinfunction="SCL_5" pintype="input"/>
     </net>
-    <net code="16" name="SDA" class="Default">
+    <net code="20" name="SDA" class="Default">
       <node ref="R13" pin="2" pintype="passive"/>
       <node ref="U1" pin="3" pinfunction="IO4_3" pintype="bidirectional"/>
       <node ref="U4" pin="4" pinfunction="SDA_4" pintype="bidirectional"/>
     </net>
-    <net code="17" name="SENSE_MINUS" class="Default">
+    <net code="21" name="SENSE_MINUS" class="Default">
       <node ref="C2" pin="2" pintype="passive"/>
       <node ref="R6" pin="2" pintype="passive"/>
       <node ref="U4" pin="9" pinfunction="Vin-_9" pintype="input"/>
     </net>
-    <net code="18" name="SENSE_PLUS" class="Default">
+    <net code="22" name="SENSE_PLUS" class="Default">
       <node ref="C2" pin="1" pintype="passive"/>
       <node ref="R5" pin="2" pintype="passive"/>
       <node ref="U4" pin="10" pinfunction="Vin+_10" pintype="input"/>
     </net>
-    <net code="19" name="STRAP2" class="Default">
+    <net code="23" name="STRAP2" class="Default">
       <node ref="R12" pin="2" pintype="passive"/>
       <node ref="U1" pin="16" pinfunction="IO2_16" pintype="bidirectional"/>
     </net>
-    <net code="20" name="STRAP8" class="Default">
+    <net code="24" name="STRAP8" class="Default">
       <node ref="R11" pin="2" pintype="passive"/>
       <node ref="U1" pin="7" pinfunction="IO8_7" pintype="bidirectional"/>
     </net>
-    <net code="21" name="SW" class="Default">
+    <net code="25" name="SW" class="Default">
       <node ref="C7" pin="2" pintype="passive"/>
       <node ref="D1" pin="1" pinfunction="K_1" pintype="passive"/>
       <node ref="L1" pin="1" pinfunction="1_1" pintype="passive"/>
       <node ref="U2" pin="6" pinfunction="SW_6" pintype="output"/>
     </net>
-    <net code="22" name="SYS_PLUS" class="Default">
+    <net code="26" name="SYS_PLUS" class="Default">
       <node ref="C1" pin="1" pintype="passive"/>
       <node ref="C4" pin="1" pintype="passive"/>
       <node ref="C5" pin="1" pintype="passive"/>
@@ -1839,47 +2042,41 @@
       <node ref="U2" pin="4" pinfunction="EN_4" pintype="input"/>
       <node ref="U2" pin="5" pinfunction="V_{IN}_5" pintype="power_in"/>
     </net>
-    <net code="23" name="TEMP_ADC" class="Default">
+    <net code="27" name="TEMP_ADC" class="Default">
       <node ref="C16" pin="1" pintype="passive"/>
       <node ref="R18" pin="2" pintype="passive"/>
       <node ref="U1" pin="18" pinfunction="IO0_18" pintype="bidirectional"/>
     </net>
-    <net code="24" name="TEMP_EXCITE" class="Default">
+    <net code="28" name="TEMP_EXCITE" class="Default">
       <node ref="R17" pin="1" pintype="passive"/>
       <node ref="U1" pin="17" pinfunction="IO1_17" pintype="bidirectional"/>
     </net>
-    <net code="25" name="TEMP_RAW" class="Default">
+    <net code="29" name="TEMP_RAW" class="Default">
       <node ref="J3" pin="1" pinfunction="Pin_1_1" pintype="passive"/>
       <node ref="R17" pin="2" pintype="passive"/>
       <node ref="R18" pin="1" pintype="passive"/>
     </net>
-    <net code="26" name="UART_RX" class="Default">
+    <net code="30" name="UART_RX" class="Default">
       <node ref="J4" pin="3" pinfunction="Pin_3_3" pintype="passive"/>
       <node ref="U1" pin="11" pinfunction="IO20/RXD_11" pintype="bidirectional"/>
     </net>
-    <net code="27" name="UART_TX" class="Default">
+    <net code="31" name="UART_TX" class="Default">
       <node ref="J4" pin="2" pinfunction="Pin_2_2" pintype="passive"/>
       <node ref="U1" pin="12" pinfunction="IO21/TXD_12" pintype="bidirectional"/>
     </net>
-    <net code="28" name="USER_KEY" class="Default">
+    <net code="32" name="USER_KEY" class="Default">
       <node ref="C15" pin="1" pintype="passive"/>
       <node ref="R15" pin="2" pintype="passive"/>
       <node ref="SW2" pin="1" pinfunction="1_1" pintype="passive"/>
       <node ref="U1" pin="15" pinfunction="IO3_15" pintype="bidirectional"/>
     </net>
-    <net code="29" name="unconnected-(U1-IO7-Pad6)" class="Default">
-      <node ref="U1" pin="6" pinfunction="IO7_6" pintype="bidirectional+no_connect"/>
-    </net>
-    <net code="30" name="unconnected-(U1-IO18-Pad13)" class="Default">
-      <node ref="U1" pin="13" pinfunction="IO18_13" pintype="bidirectional+no_connect"/>
-    </net>
-    <net code="31" name="unconnected-(U1-IO19-Pad14)" class="Default">
+    <net code="33" name="unconnected-(U1-IO19-Pad14)" class="Default">
       <node ref="U1" pin="14" pinfunction="IO19_14" pintype="bidirectional+no_connect"/>
     </net>
-    <net code="32" name="unconnected-(U3-NC-Pad4)" class="Default">
+    <net code="34" name="unconnected-(U3-NC-Pad4)" class="Default">
       <node ref="U3" pin="4" pinfunction="NC_4" pintype="no_connect"/>
     </net>
-    <net code="33" name="unconnected-(U4-~{Alert}-Pad3)" class="Default">
+    <net code="35" name="unconnected-(U4-~{Alert}-Pad3)" class="Default">
       <node ref="U4" pin="3" pinfunction="~{Alert}_3" pintype="open_collector+no_connect"/>
     </net>
   </nets>

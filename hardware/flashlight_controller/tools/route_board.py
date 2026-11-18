@@ -9,11 +9,11 @@ import time
 from collections import defaultdict
 
 STEP=.1
-NX=751
-NY=651
+NX=421
+NY=481
 SIZE=NX*NY
-ROUTE_W=.2
-CLEAR=.165
+ROUTE_W=.15
+CLEAR=.15
 
 class Router:
     def __init__(self):
@@ -31,12 +31,13 @@ class Router:
             self.padmap.setdefault((p['ref'],p['pin']),p)
             net=self.ids.get(p['net'],-1)
             for layer in p['layers']:
-                self.rect(self.grid[layer],p['x'],p['y'],p['w'],p['h'],CLEAR+ROUTE_W/2+.02,net)
+                self.rect(self.grid[layer],p['x'],p['y'],p['w'],p['h'],CLEAR+ROUTE_W/2+(.12 if p['ref'].startswith('H') else .005),net)
                 # Forbid vias even on same-net pads: annulus + 0.15mm gap.
-                self.rect(self.vgrid[layer],p['x'],p['y'],p['w'],p['h'],.3+.15,-1)
+            for via_layer in [0,1]:
+                self.rect(self.vgrid[via_layer],p['x'],p['y'],p['w'],p['h'],.3+.15,-1)
         # Board edges and antenna clearance. Module antenna is beyond y=0.15.
         for layer in range(2):
-            for x,y,w,h in [(37.5,0,75,.7),(37.5,65,75,.7),(0,32.5,.7,65),(75,32.5,.7,65),(21,-8,29,16.3)]:
+            for x,y,w,h in [(21,0,42,.7),(21,48,42,.7),(0,24,.7,48),(42,24,.7,48),(13.5,-8,29,16.3)]:
                 self.rect(self.grid[layer],x,y,w,h,0,-1)
                 self.rect(self.vgrid[layer],x,y,w,h,.2,-1)
         for p in self.pads:
@@ -78,7 +79,7 @@ class Router:
         ni=self.ids[net]
         self.segments.append(dict(net=net,p=p,q=q,width=width,layer=layer))
         for x,y in self.raster(p,q):
-            self.disk(self.grid[layer],x,y,width/2+CLEAR+ROUTE_W/2+.015,ni)
+            self.disk(self.grid[layer],x,y,width/2+CLEAR+ROUTE_W/2+.005,ni)
             self.disk(self.vgrid[layer],x,y,width/2+CLEAR+.3+.02,ni)
             self.connected[net].add(self.idx(x,y,layer))
         self.board.append(n('segment',n('start',*[a(v) for v in p]),n('end',*[a(v) for v in q]),n('width',a(width)),n('layer','B.Cu' if layer else 'F.Cu'),n('net',a(ni)),n('uuid',uid('track'+str(len(self.segments))))))
@@ -91,7 +92,7 @@ class Router:
         self.vias.append(dict(net=net,x=x,y=y))
         ni=self.ids[net]
         for layer in [0,1]:
-            self.disk(self.grid[layer],x,y,.3+CLEAR+ROUTE_W/2+.015,ni)
+            self.disk(self.grid[layer],x,y,.3+CLEAR+ROUTE_W/2+.005,ni)
             self.disk(self.vgrid[layer],x,y,.3+CLEAR+.3+.02,ni)
             self.connected[net].add(self.idx(x,y,layer))
             self.disk(self.vgrid[layer],x,y,.56,-1)
@@ -105,28 +106,45 @@ class Router:
         for p,q in zip(points,points[1:]):self.segment(net,p,q,width,layer)
 
     def power(self):
-        # Reserve a return for the ground pin between the two analogue inputs.
-        self.wire('GND',[self.pad('U4',7),(40.5,51.5)],.2)
-        self.via('GND',40.5,51.5)
-        # Short, wide lamp path. Narrow necks only at SOT-23 pads.
-        self.wire('PACK_PLUS',[self.pad('J1',1),(62,52),self.pad('R1',1)],2)
-        self.wire('SYS_PLUS',[self.pad('R1',2),(52.0375,50),(54,48),(60,48),(60,42),(58.5,40.5)],2)
-        self.wire('SYS_PLUS',[(58.5,40.5),self.pad('Q1',2)],.5)
-        self.wire('SYS_PLUS',[(60,45.5),self.pad('C1',1)],1.5)
-        self.wire('LAMP_PLUS',[self.pad('Q1',3),(53.5,39)],.5)
-        self.wire('LAMP_PLUS',[(53.5,39),(52.5,38),(52.5,35),(60,35),(62,37),self.pad('J2',1)],2)
+        self.wire('GND',[(13,23.5),(13,25.8)],.3,0)
+        self.via('GND',13,25.8)
+        self.wire('GND',[(13,25.8),self.pad('D1',2)],.3,1)
+        self.wire('GND',[(p['x'],p['y']) for p in self.pads if p['ref']=='SW3' and p['pin']=='2'],.18,0)
+        self.wire('GND',[self.pad('C9',2),(6.9,24)],.3,1)
+        self.via('GND',6.9,24)
+        self.wire('5V',[self.pad('U3',3),(10,20.05),(10,21.95),self.pad('U3',1)],.3,0)
+        self.wire('3V3',[self.pad('R13',1),(26.5,7.2),(30.9125,7.2),self.pad('R15',1)],.3,0)
+        self.wire('GND',[self.pad('U3',2),(12.5,21)],.18,0)
+        self.via('GND',12.5,21)
+        self.wire('GND',[self.pad('C10',2),(13,22.95),(13,23.5)],.18,0)
+        self.via('GND',13,23.5)
+        self.wire('GND',[(12.5,21),(12.5,22.95),(13,23.5)],.18,0)
+        self.wire('GND',[self.pad('C13',2),(24,4.25),(24,2.5)],.18)
+        self.via('GND',24,2.5)
+        self.wire('LED_GPIO',[self.pad('U1',5),(24,6.7)],.18)
+        self.via('LED_GPIO',24,6.7)
+        self.wire('GYRO_SIGNAL',[self.pad('U1',6),(24,9.5)],.18)
+        self.via('GYRO_SIGNAL',24,9.5)
+        self.wire('GND',[(19.7,8.2),(19.7,6.8)],.18,0)
+        self.via('GND',19.7,6.8)
+        # 2 mm lamp trunk; sense pickoffs are routed independently.
+        self.wire('PACK_PLUS',[self.pad('J1',1),self.pad('R1',1)],2)
+        self.wire('SYS_PLUS',[self.pad('R1',2),(16,41.5),(16,38.5),(26,38.5),(26,25)],2)
+        self.wire('SYS_PLUS',[(26,25),self.pad('Q1',2)],.5)
+        self.wire('SYS_PLUS',[(26,30),self.pad('C1',1)],1.5)
+        self.wire('LAMP_PLUS',[self.pad('Q1',3),(24,22),(24,17)],.5)
+        self.wire('LAMP_PLUS',[(24,17),self.pad('J2',1)],2)
         # High-frequency buck loop, kept entirely on B.Cu.
-        self.wire('SW',[self.pad('U2',6),(26,44),(24,42),self.pad('D1',1)],.5)
-        self.wire('SW',[self.pad('D1',1),(24,38),self.pad('L1',1)],.9)
-        self.wire('SW',[self.pad('C7',2),(26,42),(24,42)],.3)
+        self.wire('SW',[self.pad('U2',6),(17.100000,30.400000),(15.400000,28.700000),self.pad('D1',1)],.5)
+        self.wire('SW',[self.pad('D1',1),(15.400000,25.300000),self.pad('L1',1)],.9)
+        self.wire('SW',[self.pad('C7',2),(17.100000,28.700000),(15.400000,28.700000)],.3)
         self.wire('BOOST',[self.pad('U2',1),self.pad('C7',1)],.25)
-        self.wire('BOOST',[self.pad('C7',1),(31,42),self.pad('D2',1)],.2)
+        self.wire('BOOST',[self.pad('C7',1),(21.350000,28.700000),self.pad('D2',1)],.2)
         # The diode / input-cap ground loop is explicit, with plane vias.
-        self.wire('GND',[self.pad('D1',2),(19,42),(19,47.05),self.pad('C5',2),self.pad('C4',2)],.8)
-        self.wire('SYS_PLUS',[self.pad('U2',5),self.pad('U2',4),(26.8625,48.95),self.pad('C4',1),self.pad('C5',1)],.5)
-        self.wire('5V',[self.pad('L1',2),(18.925,29),self.pad('C8',1)],.8)
+        self.wire('GND',[self.pad('D1',2),(11.150000,28.700000),(11.150000,32.992500),self.pad('C5',2),self.pad('C4',2)],.8)
+        self.wire('SYS_PLUS',[self.pad('U2',5),self.pad('U2',4),(17.833125,34.607500),self.pad('C4',1),self.pad('C5',1)],.5)
+        self.wire('5V',[self.pad('L1',2),(8.5,21.9),(8.5,18),(3.45,18),self.pad('C8',1)],.8)
         self.wire('5V',[self.pad('C8',1),self.pad('C9',1)],.8)
-        # All current entering the buck is measured; no wire bypasses R1.
 
     def valid(self,k,net):
         z,j=divmod(k,SIZE)
@@ -202,14 +220,14 @@ class Router:
             if p['net'] and p['net']!='GND' and not p['net'].startswith('unconnected-'):
                 if not any(math.dist((p['x'],p['y']),(q['x'],q['y']))<.8 and p['ref']==q['ref'] and p['pin']==q['pin'] for q in bynet[p['net']]):
                     bynet[p['net']].append(p)
-        priority=['TEMP_EXCITE','TEMP_ADC','SCL','SDA','SENSE_PLUS','SENSE_MINUS','FB','BOOST','SW','LOAD_GATE','GATE_SINK','TEMP_RAW','SYS_PLUS','PACK_PLUS','LAMP_PLUS','5V','3V3']
+        priority=['USER_KEY','ESP_EN','BOOT','UART_TX','STRAP2','BUZZER_EN','LED_GPIO','STRAP8','FB','PACK_PLUS','GYRO_SIGNAL','SENSE_PLUS','SENSE_MINUS','SCL','SDA','3V3','USER_KEY','UART_RX','UART_TX','LOAD_EN','TEMP_EXCITE','TEMP_ADC','SCL','SDA','SENSE_PLUS','SENSE_MINUS','FB','BOOST','SW','LOAD_GATE','GATE_SINK','TEMP_RAW','SYS_PLUS','PACK_PLUS','LAMP_PLUS','5V','3V3']
         order=priority+sorted(set(bynet)-set(priority),key=lambda k:(len(bynet[k]),k))
         failures=[]
         trees={}
-        for net in order:
+        for net in dict.fromkeys(order):
             pads=bynet.get(net,[])
             if not pads:continue
-            tree=set()
+            tree=set(self.connected[net]) if net in ['LED_GPIO','GYRO_SIGNAL'] else set()
             if not tree:
                 p=pads.pop(0)
                 for layer in p['layers']:tree.add(self.idx(p['x'],p['y'],layer))
@@ -235,7 +253,7 @@ class Router:
         remaining=[]
         for net,ref,pin in failures:
             p=self.padmap[(ref,pin)]
-            start=self.idx(p['x'],p['y'],1)
+            start=self.idx(p['x'],p['y'],p['layers'][0])
             path=self.route(net,start,trees[net],limit=1000000)
             if path:
                 self.emit(net,path);trees[net].update(path)
@@ -248,10 +266,11 @@ class Router:
         # GND via next to each ground pad, connected with a short stub if needed.
         seen=set()
         for p in self.pads:
-            if p['net']!='GND' or 0 in p['layers']:continue
+            if p['net']!='GND' or len(p['layers'])==2:continue
             if (p['ref'],p['pin']) in seen:continue
             seen.add((p['ref'],p['pin']))
-            start=self.idx(p['x'],p['y'],1)
+            pad_layer=p['layers'][0]
+            start=self.idx(p['x'],p['y'],pad_layer)
             choices=[]
             for dx in range(-45,46):
                 for dy in range(-45,46):
@@ -263,16 +282,17 @@ class Router:
                         if dist>=49: choices.append((dist,j))
             choices.sort()
             if choices:
-                targets={j+SIZE for _,j in choices[:60]}
+                targets={j+pad_layer*SIZE for _,j in choices[:60]}
                 path=self.route('GND',start,targets,limit=5000)
                 if path:
                     self.emit('GND',path);x,y,_=self.xyz(path[-1]);self.via('GND',x,y)
         # Stitch the broad return plane, especially beside pack and lamp pads.
-        for x,y in [(69,40),(71,41),(69,50),(71,50),(73,45),(67,57),(71,57),(60,58),(54,57),(45,59),(35,57),(25,57),(15,57),(6,50),(6,40),(40,32),(50,30),(62,25),(70,20),(68,8),(38,4),(17,14),(23,14),(26,15)]:
-            j=round(y/STEP)*NX+round(x/STEP)
-            if self.vgrid[0][j] in (0,ni) and self.vgrid[1][j] in (0,ni):self.via('GND',x,y)
+        for x in range(3,39,4):
+            for y in range(3,43,4):
+                j=round(y/STEP)*NX+round(x/STEP)
+                if self.vgrid[0][j] in (0,ni) and self.vgrid[1][j] in (0,ni):self.via('GND',x,y)
         for layer in ['F.Cu','B.Cu']:
-            self.board.append(n('zone',n('net',a(ni)),n('net_name','GND'),n('layer',layer),n('uuid',uid('ground'+layer)),n('hatch',a('edge'),a(.5)),n('connect_pads',n('clearance',a(.2))),n('min_thickness',a(.2)),n('fill',a('yes'),n('thermal_gap',a(.25)),n('thermal_bridge_width',a(.35))),n('polygon',n('pts',n('xy',a(.3),a(.3)),n('xy',a(74.7),a(.3)),n('xy',a(74.7),a(64.7)),n('xy',a(.3),a(64.7))))))
+            self.board.append(n('zone',n('net',a(ni)),n('net_name','GND'),n('layer',layer),n('uuid',uid('ground'+layer)),n('hatch',a('edge'),a(.5)),n('connect_pads',n('clearance',a(.2))),n('min_thickness',a(.2)),n('fill',a('yes'),n('thermal_gap',a(.25)),n('thermal_bridge_width',a(.35))),n('polygon',n('pts',n('xy',a(.3),a(.3)),n('xy',a(41.7),a(.3)),n('xy',a(41.7),a(47.7)),n('xy',a(.3),a(47.7))))))
 
     def save(self,failures):
         (ROOT/'flashlight.kicad_pcb').write_text(dump(self.board)+'\n',encoding='utf-8')

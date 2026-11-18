@@ -1,8 +1,8 @@
 """Generate the flashlight KiCad design from an explicit pin/net specification.
 
 Only the Python standard library is required. KiCad CLI performs ERC/DRC and
-zone filling. Coordinates in the specification are a TOP view; all populated
-components are on B.Cu. Regenerate only inside this project directory.
+zone filling. Coordinates in the specification are a TOP view; components use both
+faces in revision 0.4. Regenerate only inside this project directory.
 """
 from inspect_sources import *
 import copy
@@ -94,7 +94,7 @@ def design():
     c('C10','1u 10V X7R','5V','GND',(17.5,21),'power',rot=90,note='Reference power C6; local LDO input bypass')
     c('C11','4.7u 10V X7R','3V3','GND',(10.5,21),'power',rot=90,note='Reference power C5; local LDO output bypass')
     # MCU and UI; no GPIO on the boot straps is assigned a load control role.
-    comp('U1','ESP32-C3-WROOM-02-N4','RF_Module:ESP32-C3-WROOM-02','RF_Module:ESP32-C3-WROOM-02',{1:'3V3',2:'ESP_EN',3:'SDA',4:'SCL',5:'LED_GPIO',6:None,7:'STRAP8',8:'BOOT',9:'GND',10:'LOAD_EN',11:'UART_RX',12:'UART_TX',13:None,14:None,15:'USER_KEY',16:'STRAP2',17:None,18:'TEMP_ADC',19:'GND'},(21,7.25),'controller',note='PCB antenna overhangs upper board edge by approximately 6.5mm')
+    comp('U1','ESP32-C3-WROOM-02-N4','RF_Module:ESP32-C3-WROOM-02','RF_Module:ESP32-C3-WROOM-02',{1:'3V3',2:'ESP_EN',3:'SDA',4:'SCL',5:'LED_GPIO',6:None,7:'STRAP8',8:'BOOT',9:'GND',10:'LOAD_EN',11:'UART_RX',12:'UART_TX',13:None,14:None,15:'USER_KEY',16:'STRAP2',17:None,18:'TEMP_ADC',19:'GND'},(21,7.25),'controller',note='PCB antenna fully above base-board FR4; all-layer copper keepout')
     c('C12','10u 10V X7R','3V3','GND',(33,2),'controller')
     c('C13','100n','3V3','GND',(33,5),'controller')
     r('R9','10k','3V3','ESP_EN',(34,9),'controller')
@@ -114,7 +114,7 @@ def design():
     r('R17','10k 1%','3V3','TEMP_RAW',(7,25),'controller',note='Match actual NTC nominal; ADC attenuation and calibration required')
     r('R18','1k','TEMP_RAW','TEMP_ADC',(5,22),'controller')
     c('C16','100n','TEMP_ADC','GND',(7,11),'controller',rot=90)
-    comp('J4','UART 3V3 LOGIC','Connector_Generic:Conn_01x06','custom:UART_Pads_6',{1:'GND',2:'UART_TX',3:'UART_RX',4:'ESP_EN',5:'BOOT',6:'3V3'},(39,25),'controller',note='Pin 6 voltage reference only; power board from pack; boot hold + EN low pulse')
+    comp('J4','UART 3V3 LOGIC','Connector_Generic:Conn_01x03','custom:UART_Pads_3',{1:'GND',2:'UART_TX',3:'UART_RX'},(39,25),'controller',note='Only GND, MCU TX and MCU RX; 3.3V logic; power board from pack; use BOOT and RESET buttons for download mode')
 
     # Revision 0.2: reuse the supplied speed_and_temp_v8 parts where suitable.
     updates={
@@ -134,7 +134,62 @@ def design():
         co.update(updates.get(co['ref'],{}))
         if co['ref']=='U1':
             co['pins']['17']='TEMP_EXCITE'
-            co['note']='GPIO0 ADC1_CH0, GPIO1 switched NTC excitation; antenna overhang ~6.5mm'
+            co['note']='GPIO0 ADC1_CH0, GPIO1 switched NTC excitation; antenna above FR4; all-layer copper keepout'
+
+    # Compact revision: preserve package geometry, compress component spacing.
+    for co in COMP:
+        x,y=co['xy']; co['xy']=(round(x*.85,4),round(y*.85,4))
+    next(co for co in COMP if co['ref']=='U1')['xy']=(17.85,7.25)
+    next(co for co in COMP if co['ref']=='U1')['pins']['6']='GYRO_SIGNAL'
+    offsets={'C12':(2.5,0),'C13':(2.5,0),'R9':(2.5,0),'R10':(2.5,0),'R11':(2.5,0),'C14':(3.2,0),
+             'R13':(2.5,0),'R14':(3.15,1.75),'R16':(0,.8),'R15':(0,1.5),'C15':(0,1.5),
+             'R4':(0,-1),'R3':(1,1),'C8':(0,-1.5),'C9':(0,-1.5),
+             'R5':(0,-2),'R6':(-.5,3),'C11':(-.7,0),'C10':(.7,0),'R7':(1,0),
+             'U4':(0,.05),'J1':(0,2.1),'J2':(0,-1.65)}
+    for co in COMP:
+        dx,dy=offsets.get(co['ref'],(0,0));x,y=co['xy'];co['xy']=(round(x+dx,4),round(y+dy,4))
+
+    comp('J5','GYRO SIGNAL / GND','Connector_Generic:Conn_01x02','custom:GyroPads_2',
+         {1:'GYRO_SIGNAL',2:'GND'},(47,20),'controller',note='GPIO7 input (module pad6), 3.3V logic; contact to GND requires firmware pull-up')
+
+    # Revision 0.4: stacked blocks, analogue circuitry on the opposite face.
+    buck={'U2','C4','C5','C6','D1','L1','C7','D2','C8','C9','R7','R8'}
+    mcu={'U1','C12','C13','R9','C14','R10','R11','R12','C16'}
+    positions={'J1':(30,40),'J2':(28,17),'R1':(21,41.5),'C1':(32,30),
+       'Q1':(26,22),'Q2':(32,23),'R2':(29,26),'R3':(36,24),'R4':(32,20),
+       'U4':(21,36),'R5':(27,32),'R6':(27,36),'C2':(20,32),'C3':(17.5,39),
+       'U3':(10,21),'C10':(14,21),'C11':(6,21),
+       'SW1':(8,12),'SW2':(34,6),'R15':(30,9),'C15':(34,9),
+       'R13':(26.5,10),'R14':(25,13.8),'R10':(24,5),'R16':(36,34),'D3':(39.5,31),
+       'J3':(3,28),'R17':(4,24),'R18':(3,20),'C8':(3.45,21),'C9':(6.85,21),'C6':(14,35),'J4':(18,17),'J5':(5,34)}
+    front={'U4','R5','R6','C2','C3','U3','C10','C11','SW1','SW2','R15','C15',
+           'C6','R13','R14','R10','J4','Q2','R2','R3','R4','R16','D3','R17','R18','J5'}
+    for co in COMP:
+        ref=co['ref'];x,y=co['xy']
+        if ref in buck:co['xy']=(round(x-5,4),round(y-7,4))
+        if ref in mcu:co['xy']=(round(x-4.35,4),y)
+        if ref in positions:co['xy']=positions[ref]
+        co['side']='F' if ref in front else 'B'
+
+    # Active 3 V buzzer, low-side NMOS switch, OFF while the GPIO floats.
+    next(co for co in COMP if co['ref']=='U1')['pins']['13']='BUZZER_EN'
+    comp('BZ1','AI-1223-TWT-3V-2-R','Device:Buzzer','Buzzer_Beeper:Buzzer_12x9.5RM7.6',
+         {1:'3V3',2:'BUZZER_MINUS'},(13.3,41.5),'controller',note='Active magnetic 3V indicator; 2..4V; <=30mA at 3V; diameter12, pitch7.6; GPIO18 high=ON')
+    comp('Q3','NXV40UNR','Transistor_FET:2N7002','Package_TO_SOT_SMD:SOT-23',
+         {1:'BUZZER_GATE',2:'GND',3:'BUZZER_MINUS'},(10,44),'controller',note='NXV40UNR G1 S2 D3; low-side buzzer driver')
+    r('R19','100R','BUZZER_EN','BUZZER_GATE',(10,39),'controller',note='Series gate resistor; not a pull resistor')
+    r('R20','100k','BUZZER_GATE','GND',(6,38.5),'controller',note='Gate-source pull-down; default OFF')
+    comp('D4','1N4148WS-HG3_A-08','Device:D','Diode_SMD:D_SOD-323',
+         {1:'3V3',2:'BUZZER_MINUS'},(15,45),'controller',note='Clamp diode, cathode to 3V3, anode to buzzer minus')
+    for co in COMP:
+        if co['ref'] in ['Q3','R19','R20','D4']:co['side']='F'
+        if co['ref']=='BZ1':co['side']='B'
+
+    comp('SW3','RESET','Switch:SW_Push','custom:Reference_Button',
+         {1:'ESP_EN',2:'GND'},(21,12),'controller',
+         note='Momentary reset: EN to GND; R9=10k pull-up to3V3 and C14=1u RC retained')
+    COMP[-1]['side']='F'
+    next(co for co in COMP if co['ref']=='R14')['rot']=0
 
 def custom_footprints():
     out={}
@@ -155,10 +210,11 @@ def custom_footprints():
         ('WirePads_2x_5mm', [pad(1,0,0,5,5,1.6),pad(2,-7,0,5,5,1.6)],(-10,-3,3,3)),
         ('SensorPads_2',[pad(1,0,0,2.4,2.4,1),pad(2,-3.5,0,2.4,2.4,1)],(-5,-1.5,1.5,1.5)),
         ('Electrolytic_D10_P5',[pad(1,2.5,0,2.2,2.2,.8),pad(2,-2.5,0,2.2,2.2,.8)],(-5.3,-5.3,5.3,5.3)),
-        ('UART_Pads_6',[pad(i+1,i*2.54,0,1.6,2) for i in range(6)],(-1,-1.5,13.7,1.5))]:
+        ('GyroPads_2',[pad(1,0,0,2,2),pad(2,-3,0,2,2)],(-4.3,-1.3,1.3,1.3)),
+        ('UART_Pads_3',[pad(i+1,i*2.54,0,1.6,2) for i in range(3)],(-1,-1.5,6.08,1.5))]:
         f=base(name)
         f+=pads
-        f.append(n('attr',a('through_hole' if name!='UART_Pads_6' else 'smd')))
+        f.append(n('attr',a('through_hole' if name not in ['UART_Pads_3','GyroPads_2'] else 'smd')))
         x1,y1,x2,y2=box
         for layer,width in [('F.CrtYd',.05),('F.Fab',.1)]:
             f.append(n('fp_rect',n('start',a(x1),a(y1)),n('end',a(x2),a(y2)),n('stroke',n('width',a(width)),n('type',a('default'))),n('fill',a('none')),n('layer',layer)))
@@ -194,67 +250,16 @@ def datasheet_for(co,default=''):
     return {
         'Q1':'https://diotec.com/files/diotec/productfiles/datasheet/mmftp3334k.pdf',
         'Q2':'https://assets.nexperia.com/documents/data-sheet/NXV40UN.pdf',
+        'Q3':'https://assets.nexperia.com/documents/data-sheet/NXV40UN.pdf',
+        'BZ1':'https://puiaudio.com/file/specs-AI-1223-TWT-3V-2-R.pdf',
         'D1':'https://www.diodes.com/datasheet/download/PD3S120LQ.pdf',
         'U3':'https://www.ti.com/lit/ds/symlink/tps7a02.pdf',
     }.get(co['ref'],default)
 
 def schematic():
-    syms={co['lib']:symbol(co['lib']) for co in COMP}
-    # Correct visible LDO value; inherited symbol is only its verified 1/2/3 pin map.
-    for group,title in [('power','5V buck and 3.3V regulator'),('sense','Pack measurement and lamp switch'),('controller','ESP32-C3, buttons, LED and temperature')]:
-        members=[co for co in COMP if co['group']==group]
-        doc=[a('kicad_sch'),n('version',a(20250114)),n('generator',a('eeschema')),n('uuid',uid(group)),n('paper','A3'),n('title_block',n('title',title),n('rev','0.2'),n('comment',a(1),'2S 6.0-8.4V; bottom assembly; verify sensor and mechanical dimensions')),
-            n('lib_symbols',*[copy.deepcopy(syms[k]) for k in dict.fromkeys(co['lib'] for co in members)])]
-        for i,co in enumerate(members):
-            x=round((40+(i%6)*65)/1.27)*1.27; y=round((57+(i//6)*58)/1.27)*1.27
-            s=syms[co['lib']]
-            inst=n('symbol',n('lib_id',co['lib']),n('at',a(x),a(y),a(0)),n('unit',a(1)),n('in_bom',a('yes')),n('on_board',a('yes')),n('dnp',a('no')),n('uuid',co['uuid']))
-            for j,(key,val) in enumerate([('Reference',co['ref']),('Value',co['value']),('Footprint',co['footprint']),('Datasheet',next((p[2] for p in children(s,'property') if p[1]=='Datasheet'),''))]):
-                if key=='Datasheet': val=datasheet_for(co,val)
-                prop=n('property',key,val,n('at',a(x+3),a(y-5+j*2),a(0)),effects(.95))
-                if j>=2: child(prop,'effects').append(n('hide',a('yes')))
-                inst.append(prop)
-            inst.append(n('instances',n('project','flashlight',n('path','/'+uid('root')+'/'+uid('sheet-'+group),n('reference',co['ref']),n('unit',a(1))))))
-            doc.append(inst)
-            connected=set()
-            for pin in walk(s,'pin'):
-                pno=child(pin,'number')[1]
-                if pno not in co['pins']:
-                    raise ValueError((co['ref'],'missing pin',pno))
-                net=co['pins'][pno]
-                px,py,ang=map(float,child(pin,'at')[1:4])
-                pos=(round(x+px,5),round(y-py,5))
-                if pos in connected: continue
-                connected.add(pos)
-                if net is None:
-                    doc.append(n('no_connect',n('at',*[a(v) for v in pos]),n('uuid',uid(co['ref']+'nc'+pno))))
-                    continue
-                # Extend each pin outward; global labels connect functional sheets.
-                dx=-math.cos(math.radians(ang)); dy=math.sin(math.radians(ang))
-                end=(round(pos[0]+dx*5.08,5),round(pos[1]+dy*5.08,5))
-                doc.append(n('wire',n('pts',n('xy',*[a(v) for v in pos]),n('xy',*[a(v) for v in end])),n('stroke',n('width',a(0)),n('type',a('default'))),n('uuid',uid(co['ref']+'wire'+pno))))
-                # Labels face away from symbols and are readable at all orientations.
-                labang=(ang+180)%360
-                doc.append(n('global_label',net,n('shape',a('bidirectional')),n('at',a(end[0]),a(end[1]),a(labang)),effects(.85,'left' if labang in (0,90) else 'right'),n('uuid',uid(co['ref']+'label'+pno))))
-        notes={
-            'controller':'PROVISIONAL: NTC 10k/B3950, 0..100 C. GPIO1 excitation; wait 15 ms, sample ADC1_CH0, drive GPIO1 low.\nADC ATTEN3 / 12 dB: calibrated range 0..2.5 V; 100 nF at GPIO0. Confirm actual sensor before assembly.',
-            'power':'R7/R8 = 523k/100k: 4.984 V nominal, 8 uA divider. Verify ripple/start-up/load steps on prototype.\nMCP16331 has no specified maximum feedback resistance or guaranteed maximum FB bias current.',
-            'sense':'R1 = 47 mOhm (reference WSL2512R0470FEA); INA226 shunt range +/-1.743 A. Update firmware calibration.\nMMFTP3334K + NXV40UNR: slow lamp switching. Not validated for high-frequency PWM.',
-        }
-        doc.append(n('text',notes[group],n('at',a(25.4),a(266.7),a(0)),effects(1.27,'left'),n('uuid',uid(group+'-revision-notes'))))
-        (ROOT/f'{group}.kicad_sch').write_text(dump(doc)+'\n',encoding='utf-8')
-    top=[a('kicad_sch'),n('version',a(20250114)),n('generator',a('eeschema')),n('uuid',uid('root')),n('paper','A4'),n('lib_symbols'),n('title_block',n('title','2S flashlight controller / bottom assembly'),n('rev','0.2'))]
-    for i,(group,title) in enumerate([('sense','Pack current, voltage and load switch'),('power','MCP16331 5V / LDO 3.3V'),('controller','ESP32-C3 and user interfaces')]):
-        y=35+i*48
-        top.append(n('sheet',n('at',a(45),a(y)),n('size',a(180),a(30)),n('stroke',n('width',a(.1524)),n('type',a('default'))),n('fill',n('color',a(0),a(0),a(0),a(0))),n('uuid',uid('sheet-'+group)),n('property','Sheetname',title,n('at',a(45),a(y-1),a(0)),effects(1.27,'left')),n('property','Sheetfile',group+'.kicad_sch',n('at',a(45),a(y+31),a(0)),effects(1.27,'left')),n('instances',n('project','flashlight',n('path','/'+uid('root'),n('page',str(i+2)))))))
-    child(top,'lib_symbols').append(symbol('power:PWR_FLAG'))
-    for i,net in enumerate(['GND','SYS_PLUS','5V']):
-        x=50.8+i*50.8; y=187.96
-        ref=f'#FLG0{i+1}'
-        top.append(n('symbol',n('lib_id','power:PWR_FLAG'),n('at',a(x),a(y),a(0)),n('unit',a(1)),n('in_bom',a('no')),n('on_board',a('yes')),n('uuid',uid(ref)),n('property','Reference',ref,n('at',a(x),a(y),a(0)),n('effects',n('font',n('size',a(1.27),a(1.27))),n('hide',a('yes')))),n('property','Value','PWR_FLAG',n('at',a(x),a(y-4),a(0)),effects(1)),n('instances',n('project','flashlight',n('path','/'+uid('root'),n('reference',ref),n('unit',a(1)))))))
-        top.append(n('global_label',net,n('shape',a('bidirectional')),n('at',a(x),a(y),a(0)),effects(1,'left'),n('uuid',uid('flaglabel'+net))))
-    top.append(n('sheet_instances',n('path','/',n('page','1'))))
-    (ROOT/'flashlight.kicad_sch').write_text(dump(top)+'\n',encoding='utf-8')
+    from logical_schematic import generate
+    generate(COMP)
+
 
 def transform_footprint(source,co,netids):
     f=copy.deepcopy(source)
@@ -263,7 +268,7 @@ def transform_footprint(source,co,netids):
     angle_global=180+co['rot']
     theta=math.radians(angle_global)
     def point(x,y):
-        return x,-y
+        return (x,y) if co.get('side')=='F' else (x,-y)
     def rec(obj):
         for v in obj:
             if not isinstance(v,list): continue
@@ -272,9 +277,9 @@ def transform_footprint(source,co,netids):
                 x,y=point(float(v[1]),float(v[2])); v[1:3]=[a(x),a(y)]
                 if key=='at':
                     angle=float(v[3]) if len(v)>3 else 0
-                    if len(v)>3: v[3]=a(-angle)
+                    if len(v)>3: v[3]=a(angle if co.get('side')=='F' else -angle)
                     else: v.append(a(-angle))
-            elif key in ['layer','layers']:
+            elif key in ['layer','layers'] and co.get('side')!='F':
                 for j in range(1,len(v)):
                     if v[j].startswith('F.'): v[j]='B.'+v[j][2:]
                     elif v[j].startswith('B.'): v[j]='F.'+v[j][2:]
@@ -282,7 +287,7 @@ def transform_footprint(source,co,netids):
                 v[1]=uid(co['ref']+v[1])
             rec(v)
     rec(f)
-    setnode(f,'layer','B.Cu')
+    setnode(f,'layer',co.get('side','B')+'.Cu')
     setnode(f,'at',*[a(v) for v in co['xy']],a(angle_global))
     setnode(f,'uuid',co['uuid'])
     setnode(f,'path','/'+uid('root')+'/'+uid('sheet-'+co['group'])+'/'+co['uuid'])
@@ -297,11 +302,11 @@ def transform_footprint(source,co,netids):
         elif prop[1]=='Description': prop[2]=''
         eff=child(prop,'effects')
         if eff:
-            setnode(eff,'justify',a('mirror'))
+            setnode(eff,'justify',*([a('mirror')] if co.get('side')!='F' else []))
         setnode(prop,'hide',a('yes'))
     for txt in children(f,'fp_text'):
         eff=child(txt,'effects')
-        if eff:setnode(eff,'justify',a('mirror'))
+        if eff:setnode(eff,'justify',*([a('mirror')] if co.get('side')!='F' else []))
     pads=[]
     for p in children(f,'pad'):
         number=p[1]
@@ -313,7 +318,7 @@ def transform_footprint(source,co,netids):
             net=f'unconnected-({co["ref"]}-{pinname}-Pad{number})'
         if net:
             setnode(p,'net',a(netids[net]),net)
-            if net=='GND' and co['ref'] in ['U1','U4']:
+            if net=='GND':
                 setnode(p,'zone_connect',a(2))
         pos=child(p,'at')
         layers=child(p,'layers')[1:]
@@ -322,7 +327,7 @@ def transform_footprint(source,co,netids):
         sx,sy=map(float,child(p,'size')[1:3]); angle=angle_global+(float(pos[3]) if len(pos)>3 else 0)
         if round(angle)%180: sx,sy=sy,sx
         lx,ly=map(float,pos[1:3]);wx=lx*math.cos(theta)+ly*math.sin(theta);wy=-lx*math.sin(theta)+ly*math.cos(theta)
-        pads.append(dict(ref=co['ref'],pin=number,net=net,x=round(co['xy'][0]+wx,6),y=round(co['xy'][1]+wy,6),w=sx,h=sy,layers=[0,1] if '*.Cu' in layers else [1],shape=p[3],drill=float(child(p,'drill',[None,0])[1])))
+        pads.append(dict(ref=co['ref'],pin=number,net=net,x=round(co['xy'][0]+wx,6),y=round(co['xy'][1]+wy,6),w=sx,h=sy,layers=[0,1] if '*.Cu' in layers else [0 if co.get('side')=='F' else 1],shape=p[3],drill=float(child(p,'drill',[None,0])[1])))
     return f,pads
 
 def board(fps):
@@ -338,15 +343,13 @@ def board(fps):
     for co in COMP:
         f,pads=transform_footprint(fps[co['fp'].split(':')[1]],co,ids)
         b.append(f); allpads+=pads
-    for start,end in [((0,0),(75,0)),((75,0),(75,65)),((75,65),(0,65)),((0,65),(0,0))]:
+    for start,end in [((0,-8),(42,-8)),((42,-8),(42,48)),((42,48),(0,48)),((0,48),(0,-8))]:
         b.append(n('gr_line',n('start',*[a(v) for v in start]),n('end',*[a(v) for v in end]),n('stroke',n('width',a(.05)),n('type',a('default'))),n('layer','Edge.Cuts'),n('uuid',uid(str(start)))))
-    for ref,xy in [('H1',(3,3)),('H2',(72,3)),('H3',(3,62)),('H4',(72,62))]:
+    for ref,xy in [('H1',(2,14)),('H2',(40,14)),('H3',(2,45)),('H4',(40,45))]:
         f=n('footprint','MountingHole_3.2mm',n('layer','B.Cu'),n('at',*[a(v) for v in xy]),n('uuid',uid(ref)),n('property','Reference',ref,n('at',a(0),a(0),a(0)),n('layer','B.Fab'),n('hide',a('yes')),n('effects',n('font',n('size',a(1),a(1))),n('justify',a('mirror')))),n('attr',a('board_only'),a('exclude_from_pos_files'),a('exclude_from_bom')),n('pad','',a('np_thru_hole'),a('circle'),n('at',a(0),a(0)),n('size',a(3.2),a(3.2)),n('drill',a(3.2)),n('layers','*.Cu','*.Mask')))
         b.append(f)
         allpads.append(dict(ref=ref,pin='',net=None,x=xy[0],y=xy[1],w=3.2,h=3.2,layers=[0,1],shape='circle',drill=3.2))
     # Labels are mirrored for reading from the populated bottom.
-    for txt,x,y in [('2S FLASHLIGHT / REV 0.2',36,60),('PACK +',63,58),('PACK -',70,58),('LAMP +',63,33),('LAMP -',70,33),('BOOT',46,3),('USER',60,3),('NTC',7,35),('UART: G TX RX EN BOOT 3V3',29,29),('ANTENNA: KEEP METAL AWAY',21,16)]:
-        b.append(n('gr_text',txt,n('at',a(x),a(y),a(0)),n('layer','B.SilkS'),n('uuid',uid('text'+txt)),n('effects',n('font',n('size',a(.85),a(.85)),n('thickness',a(.13))),n('justify',a('mirror')))))
     (ROOT/'unrouted.kicad_pcb').write_text(dump(b)+'\n',encoding='utf-8')
     (ROOT/'tools'/'layout.json').write_text(json.dumps(dict(pads=allpads,nets=ids,components=COMP),indent=2),encoding='utf-8')
 

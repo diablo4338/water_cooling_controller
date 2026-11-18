@@ -1,4 +1,4 @@
-(footprint "UART_Pads_6"
+(footprint "UART_Pads_3"
   (version 20260206)
   (generator pcbnew)
   (layer "F.Cu")
@@ -9,7 +9,7 @@
       (font
         (size 1 1)
         (thickness 0.15))))
-  (property "Value" "UART_Pads_6"
+  (property "Value" "UART_Pads_3"
     (at 0 3 0)
     (layer "F.Fab")
     (effects
@@ -31,25 +31,10 @@
     (size 1.6 2)
     (layers "F.Cu" "F.Mask")
     (roundrect_rratio 0.15))
-  (pad "4" smd roundrect
-    (at 7.62 0)
-    (size 1.6 2)
-    (layers "F.Cu" "F.Mask")
-    (roundrect_rratio 0.15))
-  (pad "5" smd roundrect
-    (at 10.16 0)
-    (size 1.6 2)
-    (layers "F.Cu" "F.Mask")
-    (roundrect_rratio 0.15))
-  (pad "6" smd roundrect
-    (at 12.7 0)
-    (size 1.6 2)
-    (layers "F.Cu" "F.Mask")
-    (roundrect_rratio 0.15))
   (attr smd)
   (fp_rect
     (start -1 -1.5)
-    (end 13.7 1.5)
+    (end 6.08 1.5)
     (stroke
       (width 0.05)
       (type default))
@@ -57,7 +42,7 @@
     (layer "F.CrtYd"))
   (fp_rect
     (start -1 -1.5)
-    (end 13.7 1.5)
+    (end 6.08 1.5)
     (stroke
       (width 0.1)
       (type default))

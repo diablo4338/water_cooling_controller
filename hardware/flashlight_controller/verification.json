@@ -1,6 +1,34 @@
 {
-  "vias": 88,
-  "copper_pads": 146,
+  "boot_reset_pitch_mm": 13.0,
+  "vias": 110,
+  "copper_pads": 160,
   "minimum_via_pad_gap_mm": 0.15,
+  "mounting_holes_mm": {
+    "H1": [
+      2.0,
+      14.0
+    ],
+    "H2": [
+      40.0,
+      14.0
+    ],
+    "H3": [
+      2.0,
+      45.0
+    ],
+    "H4": [
+      40.0,
+      45.0
+    ]
+  },
+  "mounting_pitch_mm": [
+    38.0,
+    31.0
+  ],
+  "board_size_mm": [
+    42.0,
+    56.0
+  ],
+  "module_fully_supported_by_board": true,
   "failures": []
 }

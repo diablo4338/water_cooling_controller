@@ -1,13 +1,13 @@
-ERC report (2026-09-24T11:18:17, Encoding UTF8)
+ERC report (2026-11-16T11:49:24, Encoding UTF8)
 Report includes: Errors, Warnings
 
 ***** Sheet /
 
-***** Sheet /Pack current, voltage and load switch/
+***** Sheet /Battery and lamp - INA226/
 
-***** Sheet /MCP16331 5V / LDO 3.3V/
+***** Sheet /Power supply - 5V and 3V3/
 
-***** Sheet /ESP32-C3 and user interfaces/
+***** Sheet /ESP32 and interfaces/
 
  ** ERC messages: 0  Errors 0  Warnings 0
 

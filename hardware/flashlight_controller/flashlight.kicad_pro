@@ -252,7 +252,7 @@
       "internal_id": "",
       "mfg": "",
       "mpn": "",
-      "sch_revision": ""
+      "sch_revision": "1.1"
     },
     "layer_pairs": [],
     "layer_presets": [],
@@ -667,13 +667,30 @@
       {
         "filename": "flashlight.kicad_sch",
         "name": "flashlight",
-        "uuid": "00000000-0000-0000-0000-000000000000"
+        "uuid": "a654af7a-4ed0-5e65-a4cd-0e8aec7ef590"
       }
     ],
     "used_designators": "",
     "variants": []
   },
-  "sheets": [],
+  "sheets": [
+    [
+      "a654af7a-4ed0-5e65-a4cd-0e8aec7ef590",
+      "flashlight"
+    ],
+    [
+      "cb8e0e8a-1113-53ee-bd49-812003262a2e",
+      "Battery and lamp - INA226"
+    ],
+    [
+      "9ad4352c-e7e2-5437-936a-3ac2fd87f25c",
+      "Power supply - 5V and 3V3"
+    ],
+    [
+      "b6ce18d1-d1a0-5763-b3cb-c98d6ff60b59",
+      "ESP32 and interfaces"
+    ]
+  ],
   "text_variables": {},
   "tuning_profiles": {
     "meta": {

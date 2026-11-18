@@ -28,7 +28,7 @@ R8,100k 1%,Flashlight:R_0805_2012Metric,"Reference 100k; practical design ceilin
 U3,TPS7A02-3.3,Flashlight:SOT-23-5,Reference power U2; TPS7A0233PDBVR; IN1 GND2 EN3 NC4 OUT5; rated 200mA
 C10,1u 10V X7R,Flashlight:C_0805_2012Metric,Reference power C6; local LDO input bypass
 C11,4.7u 10V X7R,Flashlight:C_0805_2012Metric,Reference power C5; local LDO output bypass
-U1,ESP32-C3-WROOM-02-N4,Flashlight:ESP32-C3-WROOM-02,"GPIO0 ADC1_CH0, GPIO1 switched NTC excitation; antenna overhang ~6.5mm"
+U1,ESP32-C3-WROOM-02-N4,Flashlight:ESP32-C3-WROOM-02,"GPIO0 ADC1_CH0, GPIO1 switched NTC excitation; antenna above FR4; all-layer copper keepout"
 C12,10u 10V X7R,Flashlight:C_0805_2012Metric,
 C13,100n,Flashlight:C_0805_2012Metric,
 R9,10k,Flashlight:R_0805_2012Metric,
@@ -48,4 +48,11 @@ J3,NTC SENSOR,Flashlight:SensorPads_2,"External NTC to ground; provisional 10k/B
 R17,12.4k 1%,Flashlight:R_0805_2012Metric,Provisional NTC10k B3950 0..100C; GPIO1 high during sampling only; settle 15ms
 R18,1k,Flashlight:R_0805_2012Metric,
 C16,100n,Flashlight:C_0805_2012Metric,
-J4,UART 3V3 LOGIC,Flashlight:UART_Pads_6,Pin 6 voltage reference only; power board from pack; boot hold + EN low pulse
+J4,UART 3V3 LOGIC,Flashlight:UART_Pads_3,"Only GND, MCU TX and MCU RX; 3.3V logic; power board from pack; use BOOT and RESET buttons for download mode"
+J5,GYRO SIGNAL / GND,Flashlight:GyroPads_2,"GPIO7 input (module pad6), 3.3V logic; contact to GND requires firmware pull-up"
+BZ1,AI-1223-TWT-3V-2-R,Flashlight:Buzzer_12x9.5RM7.6,"Active magnetic 3V indicator; 2..4V; <=30mA at 3V; diameter12, pitch7.6; GPIO18 high=ON"
+Q3,NXV40UNR,Flashlight:SOT-23,NXV40UNR G1 S2 D3; low-side buzzer driver
+R19,100R,Flashlight:R_0805_2012Metric,Series gate resistor; not a pull resistor
+R20,100k,Flashlight:R_0805_2012Metric,Gate-source pull-down; default OFF
+D4,1N4148WS-HG3_A-08,Flashlight:D_SOD-323,"Clamp diode, cathode to 3V3, anode to buzzer minus"
+SW3,RESET,Flashlight:Reference_Button,Momentary reset: EN to GND; R9=10k pull-up to3V3 and C14=1u RC retained
