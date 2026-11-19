@@ -9,11 +9,11 @@
 #include "host/ble_hs.h"
 
 #include "access.h"
-#include "conn_guard.h"
 #include "state.h"
 
 #include "device_status.h"
 #include "fan_control.h"
+#include "ina226.h"
 #include "metrics.h"
 
 static const char *METRICS_TAG = "metrics";
@@ -94,8 +94,7 @@ void metrics_reset_notify(void) {
 
 static bool metrics_can_notify(uint16_t conn_handle) {
     if (conn_handle == BLE_HS_CONN_HANDLE_NONE) return false;
-    if (!auth_conn_check(conn_handle)) return false;
-    if (!can_access_data()) return false;
+    if (!can_access_data(conn_handle)) return false;
     return true;
 }
 
@@ -144,20 +143,28 @@ static void metrics_notify_float(uint16_t conn_handle, uint16_t attr_handle, boo
 
 void metrics_task(void *param) {
     (void)param;
+    float last_voltage = NAN;
+    float last_current = NAN;
+    bool last_power_valid = false;
 
     while (1) {
         TickType_t start = xTaskGetTickCount();
 
         uint16_t changed = metrics_sample_all();
+        ina226_snapshot_t power = ina226_get_snapshot();
+        bool voltage_changed = power.sample_valid != last_power_valid ||
+                               (power.sample_valid && fabsf(last_voltage - power.voltage_v) >= 0.01f);
+        bool current_changed = power.sample_valid != last_power_valid ||
+                               (power.sample_valid && fabsf(last_current - power.current_ma) >= 0.1f);
+        last_power_valid = power.sample_valid;
         float fan_percent = fan_control_get_output_percent();
         bool fan_percent_changed = !isfinite(g_last_fan_percent) || fabsf(g_last_fan_percent - fan_percent) >= 0.5f;
         if (fan_percent_changed) {
             g_last_fan_percent = fan_percent;
         }
-        device_status_set_error_flag(DEVICE_ERROR_ADC_OFFLINE, metrics_has_ads_error());
-        device_status_set_error_flag(DEVICE_ERROR_INA_OFFLINE, metrics_has_ina_error());
-        if (changed != 0 || fan_percent_changed) {
-            uint16_t conn = fsm_get_conn_handle();
+        device_status_set_error_flag(DEVICE_ERROR_INA_OFFLINE, power.state == INA226_OFFLINE);
+        if (changed != 0 || fan_percent_changed || voltage_changed || current_changed) {
+            uint16_t conn = fsm_get_auth_conn_handle();
             for (uint8_t ch = 0; ch < METRICS_TEMP_CHANNELS; ch++) {
                 if (changed & (uint16_t)(1U << ch)) {
                     metrics_notify_channel(conn, ch);
@@ -168,11 +175,13 @@ void metrics_task(void *param) {
                     metrics_notify_fan(conn, ch);
                 }
             }
-            if (changed & METRICS_VOLTAGE_CHANGED_BIT) {
-                metrics_notify_float(conn, g_voltage_attr_handle, g_voltage_notify_enabled, metrics_get_voltage_v(), "voltage");
+            if (voltage_changed) {
+                last_voltage = power.sample_valid ? power.voltage_v : NAN;
+                metrics_notify_float(conn, g_voltage_attr_handle, g_voltage_notify_enabled, last_voltage, "voltage");
             }
-            if (changed & METRICS_CURRENT_CHANGED_BIT) {
-                metrics_notify_float(conn, g_current_attr_handle, g_current_notify_enabled, metrics_get_current_ma(), "current");
+            if (current_changed) {
+                last_current = power.sample_valid ? power.current_ma : NAN;
+                metrics_notify_float(conn, g_current_attr_handle, g_current_notify_enabled, last_current, "current");
             }
             if (fan_percent_changed) {
                 metrics_notify_float(conn, g_fan_percent_attr_handle, g_fan_percent_notify_enabled, fan_percent, "fan_percent");

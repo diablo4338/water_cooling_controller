@@ -82,9 +82,17 @@ bool profiles_save_current(uint8_t slot) {
     return true;
 }
 
-bool profiles_apply(uint8_t slot, uint8_t *status, uint8_t *field_id) {
+static uint8_t g_apply_result[PROFILE_RESULT_PAYLOAD_LEN] = {PROFILE_RESULT_VERSION};
+
+void profiles_get_result_payload(uint8_t out[PROFILE_RESULT_PAYLOAD_LEN]) {
+    state_lock();
+    memcpy(out, g_apply_result, sizeof(g_apply_result));
+    state_unlock();
+}
+
+bool profiles_apply(uint8_t slot) {
     char key[PROFILES_KEY_LEN];
-    if (!profile_key(slot, key) || status == NULL) {
+    if (!profile_key(slot, key)) {
         return false;
     }
     nvs_handle_t handle;
@@ -96,11 +104,17 @@ bool profiles_apply(uint8_t slot, uint8_t *status, uint8_t *field_id) {
     size_t len = sizeof(payload);
     err = nvs_get_blob(handle, key, payload, &len);
     nvs_close(handle);
+    params_profile_result_t result;
     if (err != ESP_OK || len != sizeof(payload) ||
-        !params_set_pending_payload(payload, sizeof(payload))) {
-        return false;
-    }
-    *status = params_apply(field_id);
+        !params_apply_profile_payload(payload, len, &result)) return false;
+
+    state_lock();
+    g_apply_result[1] = slot;
+    g_apply_result[2] = result.status;
+    g_apply_result[3] = (uint8_t)result.applied_mask;
+    g_apply_result[4] = (uint8_t)(result.applied_mask >> 8);
+    memcpy(g_apply_result + 5, result.skipped, sizeof(result.skipped));
+    state_unlock();
     return true;
 }
 

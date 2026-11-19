@@ -16,12 +16,12 @@
 static const char *METRICS_TAG = "metrics";
 
 static float g_temp_values[METRICS_TEMP_CHANNELS] = {NAN, NAN, NAN, NAN};
+static float g_temp_latest[METRICS_TEMP_CHANNELS];
+static int64_t g_temp_sample_us[METRICS_TEMP_CHANNELS];
 static bool g_temp_valid[METRICS_TEMP_CHANNELS] = {false};
 static uint8_t g_temp_failures[METRICS_TEMP_CHANNELS] = {0};
-static bool g_ads_error = false;
-static float g_voltage_v = NAN;
-static float g_current_ma = NAN;
-static bool g_power_valid = false;
+static metrics_adc_state_t g_adc_state;
+static unsigned g_adc_good_batches;
 
 volatile uint32_t dbg_fall = 0;
 volatile uint32_t dbg_rise = 0;
@@ -38,7 +38,7 @@ volatile uint32_t dbg_period_max_us = 0;
 #define FAN_TACH_SEL_GPIO1 7
 #define FAN_TACH_PULSES_PER_REV 2
 #define FAN_TACH_MIN_VALID_DT_US 10000U
-#define FAN_TACH_MAX_VALID_DT_US 150000U
+#define FAN_TACH_MAX_VALID_DT_US 250000U
 #define FAN_TACH_DT_BUF_SIZE 16
 #define FAN_TACH_MIN_CALC_SAMPLES 2
 #define FAN_TACH_TRIM_SAMPLES 0
@@ -46,13 +46,17 @@ volatile uint32_t dbg_period_max_us = 0;
 #define FAN_TACH_SWITCH_DELAY_US 1000u
 #define FAN_TACH_MIN_LOW_WIDTH_US 50u
 #define METRICS_POLL_TASK_PERIOD_MS 250
-#define METRICS_TACH_CHANNEL_SETTLE_MS 400
 #define METRICS_TASK_STACK_SIZE 4096
 #define METRICS_TASK_PRIORITY 5
 #define FAN_RPM_NOTIFY_EPS 1.0f
 #define FAN_RPM_EMA_OLD 0.2f
 #define FAN_RPM_EMA_NEW 0.8f
 #define TEMP_NOTIFY_EPS 0.01f
+
+// Allow two complete low pulses at the slowest accepted period, even after settling.
+_Static_assert(METRICS_TACH_CHANNEL_WINDOW_MS * 1000U >
+               3U * FAN_TACH_MAX_VALID_DT_US + FAN_TACH_SWITCH_DELAY_US,
+               "tachometer window must cover the slowest pulse train");
 
 typedef struct {
     volatile uint32_t dt_buf[FAN_TACH_DT_BUF_SIZE];
@@ -61,7 +65,9 @@ typedef struct {
     volatile int64_t last_falling_us;
     volatile int64_t last_valid_edge_us;
     volatile int64_t low_start_us;
-    volatile uint8_t skip_edges;
+    volatile uint32_t window_period_sum_us;
+    volatile uint32_t window_period_count;
+    metrics_fan_observation_t observation;
     float rpm;
     bool valid;
     float filtered_rpm;
@@ -85,13 +91,13 @@ static void fan_tach_select_channel(uint8_t channel);
 static void fan_tach_isr(void *arg);
 static void metrics_snapshot_write_from_state(void);
 static bool metrics_snapshot_read(metrics_snapshot_t *out);
-static uint16_t metrics_update_power_sample(void);
 static float metrics_round_temp_for_buffer(float temp_c);
 static void metrics_publish_changes(uint16_t changed_mask);
 static void metrics_poll_task(void *arg);
 static void metrics_tach_task(void *arg);
 
 #define METRICS_FAIL_THRESHOLD 3
+#define ADC_RECOVERY_BATCHES 3
 #define METRICS_RAW_NO_SENSOR_THRESHOLD 500
 
 void metrics_init(void) {
@@ -108,7 +114,7 @@ void metrics_init(void) {
         g_fan_channels[ch].last_falling_us = 0;
         g_fan_channels[ch].last_valid_edge_us = 0;
         g_fan_channels[ch].low_start_us = 0;
-        g_fan_channels[ch].skip_edges = 0;
+        g_fan_channels[ch].observation = (metrics_fan_observation_t){0};
         g_fan_channels[ch].dt_count = 0;
         g_fan_channels[ch].dt_idx = 0;
         for (int i = 0; i < FAN_TACH_DT_BUF_SIZE; i++) {
@@ -117,15 +123,12 @@ void metrics_init(void) {
     }
     g_fan_active_channel = 0;
     g_fan_ignore_edges_until_us = 0;
-    g_voltage_v = NAN;
-    g_current_ma = NAN;
-    g_power_valid = false;
     bool ads_ok = ads1115_init();
-    bool ina_ok = ina226_init();
-    g_ads_error = !ads_ok;
-    (void)ina_ok;
+    g_adc_state = ads_ok ? METRICS_ADC_UNKNOWN : METRICS_ADC_OFFLINE;
+    g_adc_good_batches = 0;
     fan_pcnt_init();
     metrics_snapshot_write_from_state();
+    ina226_monitor_start();
     xTaskCreate(metrics_poll_task, "metrics_poll", METRICS_TASK_STACK_SIZE, NULL, METRICS_TASK_PRIORITY, NULL);
     xTaskCreate(metrics_tach_task, "metrics_tach", METRICS_TASK_STACK_SIZE, NULL, METRICS_TASK_PRIORITY, NULL);
 }
@@ -133,7 +136,7 @@ void metrics_init(void) {
 float metrics_get_temp(uint8_t channel) {
     if (channel >= METRICS_TEMP_CHANNELS) return NAN;
     metrics_snapshot_t snap;
-    metrics_get_snapshot(&snap);
+    metrics_snapshot_read(&snap);
     if (!snap.temp_valid[channel]) return NAN;
     return snap.temp_c[channel];
 }
@@ -141,23 +144,27 @@ float metrics_get_temp(uint8_t channel) {
 float metrics_get_fan_speed_rpm_channel(uint8_t channel) {
     if (channel >= METRICS_FAN_CHANNELS) return NAN;
     metrics_snapshot_t snap;
-    metrics_get_snapshot(&snap);
+    metrics_snapshot_read(&snap);
     if (!snap.fan_valid[channel]) return NAN;
     return snap.fan_rpm[channel];
 }
 
+bool metrics_get_fan_observation(uint8_t channel, metrics_fan_observation_t *out) {
+    if (channel >= METRICS_FAN_CHANNELS || !out) return false;
+    portENTER_CRITICAL(&g_metrics_mux);
+    *out = g_fan_channels[channel].observation;
+    portEXIT_CRITICAL(&g_metrics_mux);
+    return out->completed_us != 0;
+}
+
 float metrics_get_voltage_v(void) {
-    metrics_snapshot_t snap;
-    metrics_get_snapshot(&snap);
-    if (!snap.power_valid) return NAN;
-    return snap.voltage_v;
+    ina226_snapshot_t power = ina226_get_snapshot();
+    return power.sample_valid ? power.voltage_v : NAN;
 }
 
 float metrics_get_current_ma(void) {
-    metrics_snapshot_t snap;
-    metrics_get_snapshot(&snap);
-    if (!snap.power_valid) return NAN;
-    return snap.current_ma;
+    ina226_snapshot_t power = ina226_get_snapshot();
+    return power.sample_valid ? power.current_ma : NAN;
 }
 
 static void fan_pcnt_init(void) {
@@ -193,16 +200,16 @@ static void fan_tach_select_channel(uint8_t channel) {
     if (channel >= METRICS_FAN_CHANNELS) return;
 
     uint8_t select = g_tach_select_by_fan_channel[channel];
+    portENTER_CRITICAL(&g_fan_mux);
     gpio_set_level(FAN_TACH_SEL_GPIO0, select & 0x01U);
     gpio_set_level(FAN_TACH_SEL_GPIO1, (select >> 1) & 0x01U);
 
-    int64_t ignore_until = esp_timer_get_time() + FAN_TACH_SWITCH_DELAY_US;
-    portENTER_CRITICAL(&g_fan_mux);
     g_fan_active_channel = channel;
-    g_fan_ignore_edges_until_us = ignore_until;
+    g_fan_ignore_edges_until_us = esp_timer_get_time() + FAN_TACH_SWITCH_DELAY_US;
     g_fan_channels[channel].last_falling_us = 0;
     g_fan_channels[channel].low_start_us = 0;
-    g_fan_channels[channel].skip_edges = 2;
+    g_fan_channels[channel].window_period_sum_us = 0;
+    g_fan_channels[channel].window_period_count = 0;
     portEXIT_CRITICAL(&g_fan_mux);
 }
 
@@ -210,12 +217,15 @@ static bool metrics_update_value(uint8_t channel, float temp_c) {
     if (channel >= METRICS_TEMP_CHANNELS) return false;
     if (!isfinite(temp_c)) return false;
 
-    temp_c = metrics_round_temp_for_buffer(temp_c);
+    float rounded = metrics_round_temp_for_buffer(temp_c);
+    int64_t sampled = esp_timer_get_time();
 
     bool changed = false;
     portENTER_CRITICAL(&g_metrics_mux);
-    if (!g_temp_valid[channel] || fabsf(g_temp_values[channel] - temp_c) >= TEMP_NOTIFY_EPS) {
-        g_temp_values[channel] = temp_c;
+    g_temp_latest[channel] = temp_c;
+    g_temp_sample_us[channel] = sampled;
+    if (!g_temp_valid[channel] || fabsf(g_temp_values[channel] - rounded) >= TEMP_NOTIFY_EPS) {
+        g_temp_values[channel] = rounded;
         g_temp_valid[channel] = true;
         changed = true;
     }
@@ -240,9 +250,11 @@ static bool metrics_mark_invalid(uint8_t channel) {
     return true;
 }
 
-static bool metrics_calc_fan_rpm(uint8_t channel, float *out_rpm) {
-    if (channel >= METRICS_FAN_CHANNELS) return false;
-    int64_t now = esp_timer_get_time();
+static float fan_rpm_from_period_us(float period_us) {
+    return (60.0f * 1000000.0f) / (period_us * (float)FAN_TACH_PULSES_PER_REV);
+}
+
+static bool metrics_calc_fan_rpm(uint8_t channel, float *out_rpm, metrics_fan_observation_t *observation) {
     uint32_t count = 0;
     int64_t last_valid_edge = 0;
     uint32_t buf[FAN_TACH_DT_BUF_SIZE] = {0};
@@ -250,6 +262,14 @@ static bool metrics_calc_fan_rpm(uint8_t channel, float *out_rpm) {
 
     portENTER_CRITICAL(&g_fan_mux);
     fan_tach_channel_t *fan = &g_fan_channels[channel];
+    int64_t now = esp_timer_get_time();
+    *observation = (metrics_fan_observation_t){
+        .started_us = g_fan_ignore_edges_until_us,
+        .completed_us = now,
+        .rpm = NAN,
+    };
+    uint32_t window_sum_us = fan->window_period_sum_us;
+    uint32_t window_count = fan->window_period_count;
     last_valid_edge = fan->last_valid_edge_us;
     if (last_valid_edge != 0 && (now - last_valid_edge) > FAN_TACH_STOP_TIMEOUT_US) {
         stopped = true;
@@ -268,6 +288,9 @@ static bool metrics_calc_fan_rpm(uint8_t channel, float *out_rpm) {
     }
     portEXIT_CRITICAL(&g_fan_mux);
 
+    if (window_count != 0) {
+        observation->rpm = fan_rpm_from_period_us((float)window_sum_us / (float)window_count);
+    }
     if (last_valid_edge == 0) {
         return false;
     }
@@ -317,7 +340,7 @@ static bool metrics_calc_fan_rpm(uint8_t channel, float *out_rpm) {
         return false;
     }
 
-    float raw_rpm = (60.0f * 1000000.0f) / (stable_dt_us * (float)FAN_TACH_PULSES_PER_REV);
+    float raw_rpm = fan_rpm_from_period_us(stable_dt_us);
     if (!isfinite(raw_rpm) || raw_rpm < 0.0f) {
         return false;
     }
@@ -348,19 +371,6 @@ static void IRAM_ATTR fan_tach_isr(void *arg) {
     }
 
     fan_tach_channel_t *fan = &g_fan_channels[channel];
-    if (fan->skip_edges > 0) {
-        if (level == 0) {
-            dbg_fall++;
-            fan->skip_edges--;
-        } else {
-            dbg_rise++;
-        }
-        fan->last_falling_us = 0;
-        fan->low_start_us = 0;
-        portEXIT_CRITICAL_ISR(&g_fan_mux);
-        return;
-    }
-
     if (level == 0) {
         dbg_fall++;
         fan->low_start_us = now;
@@ -411,6 +421,8 @@ static void IRAM_ATTR fan_tach_isr(void *arg) {
         dbg_period_max_us = dt_us;
     }
     fan->last_valid_edge_us = now;
+    fan->window_period_sum_us += dt_us;
+    fan->window_period_count++;
     uint32_t idx = fan->dt_idx;
     fan->dt_buf[idx] = dt_us;
     fan->dt_idx = (idx + 1) % FAN_TACH_DT_BUF_SIZE;
@@ -459,6 +471,10 @@ static bool metrics_mark_fan_invalid(uint8_t channel) {
 void metrics_get_snapshot(metrics_snapshot_t *out) {
     if (!out) return;
     metrics_snapshot_read(out);
+    ina226_snapshot_t power = ina226_get_snapshot();
+    out->voltage_v = power.sample_valid ? power.voltage_v : NAN;
+    out->current_ma = power.sample_valid ? power.current_ma : NAN;
+    out->power_valid = power.sample_valid;
 }
 
 uint16_t metrics_sample_all(void) {
@@ -474,16 +490,39 @@ bool metrics_has_error(void) {
     return metrics_has_ads_error() || metrics_has_ina_error();
 }
 
+metrics_adc_state_t metrics_get_adc_state(void) {
+    portENTER_CRITICAL(&g_metrics_mux);
+    metrics_adc_state_t state = g_adc_state;
+    portEXIT_CRITICAL(&g_metrics_mux);
+    return state;
+}
+
 bool metrics_has_ads_error(void) {
-    return g_ads_error;
+    metrics_adc_state_t state = metrics_get_adc_state();
+    return state == METRICS_ADC_OFFLINE || state == METRICS_ADC_RECOVERING;
+}
+
+static void metrics_record_adc_batch(bool success) {
+    portENTER_CRITICAL(&g_metrics_mux);
+    if (!success) {
+        g_adc_good_batches = 0;
+        g_adc_state = METRICS_ADC_OFFLINE;
+    } else if (g_adc_state != METRICS_ADC_AVAILABLE) {
+        if (++g_adc_good_batches >= ADC_RECOVERY_BATCHES) {
+            g_adc_state = METRICS_ADC_AVAILABLE;
+        } else if (g_adc_state == METRICS_ADC_OFFLINE) {
+            g_adc_state = METRICS_ADC_RECOVERING;
+        }
+    }
+    portEXIT_CRITICAL(&g_metrics_mux);
 }
 
 bool metrics_has_ina_error(void) {
-    return ina226_has_error();
+    return ina226_get_snapshot().state == INA226_OFFLINE;
 }
 
 static void metrics_snapshot_write_from_state(void) {
-    metrics_snapshot_t snap;
+    metrics_snapshot_t snap = {0};
     for (int i = 0; i < METRICS_TEMP_CHANNELS; i++) {
         snap.temp_c[i] = g_temp_values[i];
         snap.temp_valid[i] = g_temp_valid[i] ? 1U : 0U;
@@ -492,43 +531,19 @@ static void metrics_snapshot_write_from_state(void) {
         snap.fan_rpm[i] = g_fan_channels[i].rpm;
         snap.fan_valid[i] = g_fan_channels[i].valid ? 1U : 0U;
     }
-    snap.voltage_v = g_voltage_v;
-    snap.current_ma = g_current_ma;
-    snap.power_valid = g_power_valid ? 1U : 0U;
-
     __atomic_fetch_add(&g_snapshot_seq, 1U, __ATOMIC_ACQ_REL);
     g_snapshot = snap;
     __atomic_fetch_add(&g_snapshot_seq, 1U, __ATOMIC_ACQ_REL);
 }
 
-static uint16_t metrics_update_power_sample(void) {
-    ina226_sample_t sample;
-    if (!ina226_get_sample(&sample)) {
-        portENTER_CRITICAL(&g_metrics_mux);
-        if (!g_power_valid) {
-            portEXIT_CRITICAL(&g_metrics_mux);
-            return 0;
-        }
-        g_power_valid = false;
-        g_voltage_v = NAN;
-        g_current_ma = NAN;
-        portEXIT_CRITICAL(&g_metrics_mux);
-        return METRICS_VOLTAGE_CHANGED_BIT | METRICS_CURRENT_CHANGED_BIT;
-    }
-
-    uint16_t changed = 0;
+bool metrics_get_temp_sample(uint8_t channel, float *temp_c, int64_t *sampled_us) {
+    if (channel >= METRICS_TEMP_CHANNELS) return false;
     portENTER_CRITICAL(&g_metrics_mux);
-    if (!g_power_valid || fabsf(g_voltage_v - sample.voltage_v) >= 0.01f) {
-        g_voltage_v = sample.voltage_v;
-        changed |= METRICS_VOLTAGE_CHANGED_BIT;
-    }
-    if (!g_power_valid || fabsf(g_current_ma - sample.current_ma) >= 0.1f) {
-        g_current_ma = sample.current_ma;
-        changed |= METRICS_CURRENT_CHANGED_BIT;
-    }
-    g_power_valid = true;
+    bool valid = g_temp_valid[channel];
+    *temp_c = g_temp_latest[channel];
+    *sampled_us = g_temp_sample_us[channel];
     portEXIT_CRITICAL(&g_metrics_mux);
-    return changed;
+    return valid;
 }
 
 static void metrics_publish_changes(uint16_t changed_mask) {
@@ -546,12 +561,12 @@ static void metrics_poll_task(void *arg) {
 
     while (1) {
         uint16_t changed_mask = 0;
+        bool adc_ok = true;
 
         for (uint8_t ch = 0; ch < METRICS_TEMP_CHANNELS; ch++) {
             int16_t raw = 0;
             uint8_t ads_input = g_ads_input_by_temp_channel[ch];
             if (ads1115_read_raw(ads_input, &raw)) {
-                g_ads_error = false;
                 float temp_c = ads1115_raw_to_temp(raw);
                 if (raw < METRICS_RAW_NO_SENSOR_THRESHOLD || !isfinite(temp_c)) {
                     bool was_offline = g_temp_failures[ch] >= METRICS_FAIL_THRESHOLD;
@@ -575,8 +590,9 @@ static void metrics_poll_task(void *arg) {
                     changed_mask |= (uint16_t)(1U << ch);
                 }
             } else {
+                adc_ok = false;
+                metrics_record_adc_batch(false);
                 if (ads1115_has_error()) {
-                    g_ads_error = true;
                     for (uint8_t i = 0; i < METRICS_TEMP_CHANNELS; i++) {
                         if (metrics_mark_invalid(i)) {
                             changed_mask |= (uint16_t)(1U << i);
@@ -599,7 +615,7 @@ static void metrics_poll_task(void *arg) {
             vTaskDelay(pdMS_TO_TICKS(ADS1115_INTER_CH_DELAY_MS));
         }
 
-        changed_mask |= metrics_update_power_sample();
+        if (adc_ok) metrics_record_adc_batch(true);
         metrics_publish_changes(changed_mask);
         vTaskDelay(pdMS_TO_TICKS(METRICS_POLL_TASK_PERIOD_MS));
     }
@@ -612,11 +628,17 @@ static void metrics_tach_task(void *arg) {
     fan_tach_select_channel(channel);
 
     while (1) {
-        vTaskDelay(pdMS_TO_TICKS(METRICS_TACH_CHANNEL_SETTLE_MS));
+        vTaskDelay(pdMS_TO_TICKS(METRICS_TACH_CHANNEL_WINDOW_MS));
 
         float rpm = 0.0f;
+        metrics_fan_observation_t observation;
+        bool rpm_valid = metrics_calc_fan_rpm(channel, &rpm, &observation);
+        portENTER_CRITICAL(&g_metrics_mux);
+        g_fan_channels[channel].observation = observation;
+        portEXIT_CRITICAL(&g_metrics_mux);
+
         uint16_t changed_mask = 0;
-        if (metrics_calc_fan_rpm(channel, &rpm)) {
+        if (rpm_valid) {
             if (metrics_update_fan(channel, rpm)) {
                 changed_mask |= (uint16_t)METRICS_FAN_CHANGED_BIT(channel);
             }
@@ -628,7 +650,6 @@ static void metrics_tach_task(void *arg) {
 
         channel = (uint8_t)((channel + 1U) % METRICS_FAN_CHANNELS);
         fan_tach_select_channel(channel);
-        esp_rom_delay_us(FAN_TACH_SWITCH_DELAY_US);
     }
 }
 

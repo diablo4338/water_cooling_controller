@@ -6,6 +6,7 @@ from PySide6.QtWidgets import QInputDialog, QListWidget, QListWidgetItem
 
 from ..core import (
     DeviceInfo,
+    FAN_MODE_NAMES,
     add_or_update_paired,
     get_auto_connect_address,
     load_paired_records,
@@ -13,10 +14,14 @@ from ..core import (
     set_paired_auto_connect,
     save_paired_records,
 )
+from ..core_logic.models import OutputLimitState, ThermalInputState
 from .constants import PAIRED_HIGHLIGHT_BRUSH, USER_ROLE
 
 
 class MainWindowListMixin:
+    def _update_output_max_save(self) -> None:
+        self.output_max_save.setEnabled(self.output_max_input.isEnabled() and self.output_max_input.value() > 0)
+
     def _apply_ui(self) -> None:
         ui = self.model.ui
         status = ui.status_text
@@ -47,23 +52,65 @@ class MainWindowListMixin:
         )
         self.rename_button.setEnabled(can_rename_paired)
 
-        params_enabled = (
-            self.model.state.conn == self.ConnState.CONNECTED
-            and not self.model.state.busy
-            and not self._profile_operation_active
-            and self._device_params_snapshot is not None
+        mode = self.model.state.fan_mode_status
+        if mode is None:
+            self.effective_fan_mode_label.setText("Current fan mode unavailable")
+        else:
+            effective = "Service operation" if mode.effective == 3 else FAN_MODE_NAMES[mode.effective]
+            detail = {
+                ThermalInputState.ADC_INITIALIZING: "waiting for ADS1115 readings",
+                ThermalInputState.ADC_OFFLINE: "ADS1115 unavailable: I?C error or recovery",
+                ThermalInputState.NTC_UNAVAILABLE: "control thermistor unavailable: no valid temperature",
+            }.get(mode.thermal_input)
+            if mode.selected != mode.effective:
+                detail = f"selected: {FAN_MODE_NAMES[mode.selected]}" + (f"; {detail}" if detail else "")
+            self.effective_fan_mode_label.setText(
+                f"Current fan mode: {effective}" + (f" ({detail})" if detail else "")
+            )
+
+        limit = self.model.state.output_limit
+        self.output_max_input.setEnabled(self.Action.SET_OUTPUT_MAX in ui.enabled_actions)
+        self._update_output_max_save()
+        self.output_limit_reset.setEnabled(
+            self.Action.RESET_OUTPUT_LIMIT in ui.enabled_actions
+            and limit is not None and limit.reset_sequence is not None
         )
-        if self._operation_active:
-            self.apply_button.setEnabled(False)
-            self.discard_button.setEnabled(False)
-            self.calibrate_button.setEnabled(False)
-            self.setup_fans_button.setEnabled(False)
-            params_enabled = False
+        if limit is None:
+            self.output_limit_label.setText("Current limit unavailable")
+        elif limit.configured == 0:
+            self.output_limit_label.setText("Output blocked: saved limit unavailable. Set and save the maximum.")
+        else:
+            details = {
+                OutputLimitState.CONFIRMING: "confirming overload",
+                OutputLimitState.START_BLOCKED: "start blocked by overload protection",
+                OutputLimitState.VERIFY_TIMEOUT: "could not verify the limit after the output changed",
+                OutputLimitState.MEASURE: "measuring overload",
+                OutputLimitState.VERIFY_FORMULA: "checking calculated limit",
+                OutputLimitState.VERIFY_STEP: "checking a correction step",
+                OutputLimitState.VERIFY_MINIMUM: "overload: checking minimum",
+                OutputLimitState.LIMITED: "output adjusted due to load",
+                OutputLimitState.MINIMUM: "limited to minimum while INA226 is unavailable",
+                OutputLimitState.SENSOR_ERROR: "INA226 unavailable during overload; applying the fallback limit",
+                OutputLimitState.FAULT: "overload alarm; output shut off",
+            }.get(limit.state, "")
+            if limit.alert_without_load:
+                details = "abnormal overload with no load"
+            elif limit.state == OutputLimitState.LIMITED and limit.effective == 0:
+                details = "output limited to 0% due to load"
+            if limit.state == OutputLimitState.LIMITED and limit.temporary_minimum is not None:
+                current_limit = f"Temporary range: {limit.temporary_minimum}–{limit.effective}%"
+            elif limit.state == OutputLimitState.LIMITED:
+                current_limit = f"Temporary limit: {limit.effective}%"
+            else:
+                current_limit = f"Current limit: {limit.effective}%"
+            caption = f"Saved maximum: {limit.configured}% | {current_limit}"
+            self.output_limit_label.setText(f"{caption} ? {details}" if details else caption)
+
+        params_enabled = ui.can_edit_params and self._device_params_snapshot is not None
         for button in self.profile_buttons:
-            button.setEnabled(params_enabled)
+            button.setEnabled(self.Action.APPLY_PROFILE in ui.enabled_actions)
         self.clear_profile_button.setEnabled(
-            params_enabled
-            and self._selected_profile_index is not None
+            self.Action.CLEAR_PROFILE in ui.enabled_actions
             and self._selected_profile_index in self._device_profile_slots
         )
         for item in self.param_fields:

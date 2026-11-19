@@ -39,7 +39,6 @@ extern uint8_t K[32];
 extern uint8_t host_id_hash[32];
 
 extern esp_timer_handle_t g_term_timer;
-extern esp_timer_handle_t g_pair_timer;
 
 extern portMUX_TYPE g_state_mux;
 
@@ -49,7 +48,6 @@ void state_unlock(void);
 void fsm_reset(void);
 bool fsm_dispatch(fsm_event_t event, uint16_t conn_handle);
 fsm_state_t fsm_get_state(void);
-bool fsm_is_paired(void);
 bool fsm_is_authed(void);
 
 uint16_t fsm_get_conn_handle(void);
@@ -59,7 +57,7 @@ uint16_t fsm_get_auth_conn_handle(void);
 
 bool fsm_pair_conn_bind_or_check(uint16_t conn_handle);
 bool fsm_pair_conn_check(uint16_t conn_handle);
-bool fsm_auth_conn_check_or_any(uint16_t conn_handle);
+bool fsm_auth_request_allowed(uint16_t conn_handle);
 bool fsm_auth_conn_check(uint16_t conn_handle);
 void fsm_set_term_conn_handle(uint16_t conn_handle);
 void fsm_conn_guard_reset(void);

@@ -10,7 +10,7 @@ from bleak import BleakScanner
 
 from ..config import BleConfig, DEFAULT_CONFIG
 from .crypto import load_or_create_host_key
-from .models import DeviceInfo
+from .models import DeviceInfo, OutputLimitStatus
 from .protocol import UUID_LABELS
 
 
@@ -29,6 +29,9 @@ class BleCoreBaseMixin:
         self._host_key = load_or_create_host_key()
         self.client: Optional[BleakClient] = None
         self.device: Optional[DeviceInfo] = None
+        self._output_limit_notify_uuid: Optional[str] = None
+        self._last_output_limit: Optional[OutputLimitStatus] = None
+        self._output_reset_waiter: Optional[tuple[int, asyncio.Future[OutputLimitStatus]]] = None
 
     def set_adapter(self, adapter: Optional[str]) -> None:
         self._adapter = adapter
@@ -97,8 +100,11 @@ class BleCoreBaseMixin:
         *,
         connect_timeout: float,
         services: Optional[list[str]] = None,
+        disconnected_callback: Optional[Callable[[BleakClient], None]] = None,
     ) -> BleakClient:
         kwargs: dict[str, Any] = {"timeout": connect_timeout}
+        if disconnected_callback is not None:
+            kwargs["disconnected_callback"] = disconnected_callback
         if self._adapter:
             kwargs["adapter"] = self._adapter
         if services and self._config.use_service_filter:

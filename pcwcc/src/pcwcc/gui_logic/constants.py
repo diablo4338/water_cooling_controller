@@ -29,7 +29,7 @@ FAN_MODE_CHOICES = [
 PARAM_FIELDS = [
     {
         "key": "fan_min_speed",
-        "label": "Min fan speed, %",
+        "label": "Base fan speed, %",
         "kind": "int",
         "min": 10,
         "max": 100,
@@ -87,7 +87,7 @@ FAN_MONITORING_KEYS = [
     "fan4_monitoring_enabled",
 ]
 PARAM_LABELS_BY_ID = {
-    0: "Min fan speed, %",
+    0: "Base fan speed, %",
     1: "Control type",
     2: "Max temperature, °C",
     3: "Shutdown delta, °C",
@@ -100,7 +100,7 @@ PARAM_LABELS_BY_ID = {
     10: "Overheat alarm",
 }
 PARAM_ERROR_MESSAGES = {
-    0: "Min fan speed must be between 10 and 100",
+    0: "Base fan speed must be between 10% and 100%. The controller caps the applied value at the saved maximum.",
     1: "Control type must be DC or PWM",
     2: "Max temperature must be in range 0..150 and greater than start temperature",
     3: "Shutdown delta must be in range 0..150 and less than start temperature",

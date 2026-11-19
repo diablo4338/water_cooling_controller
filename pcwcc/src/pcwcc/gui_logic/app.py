@@ -35,17 +35,20 @@ class BleWorker(BleWorkerRuntimeMixin, BleWorkerFlowMixin, QThread):
     scan_results = Signal(list)
     metrics_received = Signal(object)
     params_received = Signal(object)
-    params_status = Signal(object)
+    params_command_done = Signal(object, object, str)
     profiles_received = Signal(object)
     profile_metadata_received = Signal(object)
     profile_action_done = Signal(int, int, bool, str)
     profile_metadata_done = Signal(int, object, bool, str)
-    apply_done = Signal(bool, str)
     fan_status_received = Signal(object)
     device_status_received = Signal(object)
-    operation_status_received = Signal(object)
+    operation_status_received = Signal(object, object)
+    operation_start_failed = Signal(int, str)
+    output_limit_received = Signal(object, object)
+    fan_mode_status_received = Signal(object, object)
+    output_limit_command_done = Signal(object, str)
     pairing_result = Signal(bool, str, object, object)
-    connection_state = Signal(bool, object)
+    connection_event = Signal(object)
 
     def __init__(self) -> None:
         super().__init__()
@@ -54,11 +57,8 @@ class BleWorker(BleWorkerRuntimeMixin, BleWorkerFlowMixin, QThread):
         self.core = BleAppCore(log=self.log.emit, config=self.config)
         self.device: Optional[DeviceInfo] = None
         self._disconnect_evt: Optional[asyncio.Event] = None
-        self._auto_stop_evt: Optional[asyncio.Event] = None
-        self._auto_running = False
-        self._manual_disconnect = False
-        self._monitor_stop_evt: Optional[asyncio.Event] = None
-        self._monitor_task: Optional[asyncio.Task] = None
+        self._connection_id: Optional[object] = None
+        self._connection_lock = asyncio.Lock()
         self._metrics_snapshot = MetricsSnapshot.empty()
 
 

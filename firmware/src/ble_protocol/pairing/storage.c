@@ -81,17 +81,21 @@ static void trust_store_cleanup_legacy_keys(nvs_handle_t h) {
     nvs_erase_key(h, NVS_KEY_OLD_FORCE);
 }
 
-static void trust_store_save_ram(void) {
+static bool trust_store_save(const trust_store_t *store) {
     nvs_handle_t h;
-    if (nvs_open(NVS_NS, NVS_READWRITE, &h) != ESP_OK) {
-        ESP_LOGW(TAG, "Failed to open NVS for trust save");
-        return;
+    esp_err_t err = nvs_open(NVS_NS, NVS_READWRITE, &h);
+    if (err == ESP_OK) {
+        err = nvs_set_blob(h, NVS_KEY_STORE, store, sizeof(*store));
+        if (err == ESP_OK) {
+            trust_store_cleanup_legacy_keys(h);
+            err = nvs_commit(h);
+        }
+        nvs_close(h);
     }
-
-    ESP_ERROR_CHECK(nvs_set_blob(h, NVS_KEY_STORE, &g_store, sizeof(g_store)));
-    trust_store_cleanup_legacy_keys(h);
-    ESP_ERROR_CHECK(nvs_commit(h));
-    nvs_close(h);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to save trust store: %s", esp_err_to_name(err));
+    }
+    return err == ESP_OK;
 }
 
 void nvs_load_or_empty(void) {
@@ -118,11 +122,13 @@ void nvs_load_or_empty(void) {
         return;
     }
 
-    if (trust_store_read_old_single(h)) {
+    if (err == ESP_ERR_NVS_NOT_FOUND && trust_store_read_old_single(h)) {
         nvs_close(h);
-        trust_store_save_ram();
+        bool migrated = trust_store_save(&g_store);
         fsm_dispatch(FSM_EVT_TRUST_LOADED, BLE_HS_CONN_HANDLE_NONE);
-        ESP_LOGW(TAG, "Migrated legacy single-client trust store");
+        if (migrated) {
+            ESP_LOGW(TAG, "Migrated legacy single-client trust store");
+        }
         return;
     }
 
@@ -159,36 +165,34 @@ bool trust_store_match_auth(const uint8_t auth_nonce[16],
     return false;
 }
 
-void trust_store_upsert(const uint8_t host_id_hash[32], const uint8_t k[32]) {
-    uint8_t count_before = trust_store_count_ram();
+bool trust_store_upsert(const uint8_t host_id_hash[32], const uint8_t k[32]) {
+    trust_store_t next = g_store;
+    uint8_t slot_index = 0;
 
-    for (size_t i = 0; i < TRUST_MAX_CLIENTS; i++) {
-        trust_slot_t *slot = &g_store.slots[i];
-        if (slot->used != 1) {
-            continue;
+    for (; slot_index < TRUST_MAX_CLIENTS; slot_index++) {
+        const trust_slot_t *slot = &next.slots[slot_index];
+        if (slot->used == 1 && memcmp(slot->host_id_hash, host_id_hash, 32) == 0) {
+            break;
         }
-        if (memcmp(slot->host_id_hash, host_id_hash, 32) != 0) {
-            continue;
-        }
-        memcpy(slot->key, k, 32);
-        trust_store_save_ram();
-        if (count_before == 0) {
-            fsm_dispatch(FSM_EVT_TRUST_LOADED, BLE_HS_CONN_HANDLE_NONE);
-        }
-        return;
     }
 
-    uint8_t slot_index = g_store.next_slot % TRUST_MAX_CLIENTS;
-    trust_slot_t *slot = &g_store.slots[slot_index];
+    if (slot_index == TRUST_MAX_CLIENTS) {
+        slot_index = next.next_slot % TRUST_MAX_CLIENTS;
+        next.next_slot = (uint8_t)((slot_index + 1) % TRUST_MAX_CLIENTS);
+    }
+    trust_slot_t *slot = &next.slots[slot_index];
     slot->used = 1;
-    memcpy(slot->host_id_hash, host_id_hash, 32);
-    memcpy(slot->key, k, 32);
-    g_store.next_slot = (uint8_t)((slot_index + 1) % TRUST_MAX_CLIENTS);
+    memcpy(slot->host_id_hash, host_id_hash, sizeof(slot->host_id_hash));
+    memcpy(slot->key, k, sizeof(slot->key));
 
-    trust_store_save_ram();
+    if (!trust_store_save(&next)) {
+        return false;
+    }
+    g_store = next;
     fsm_dispatch(FSM_EVT_TRUST_LOADED, BLE_HS_CONN_HANDLE_NONE);
     ESP_LOGI(TAG, "Trusted client stored in slot %u (count=%u)",
              (unsigned)slot_index, (unsigned)trust_store_count_ram());
+    return true;
 }
 
 uint8_t trust_store_count(void) {
@@ -212,16 +216,13 @@ bool trust_store_get_entry(uint8_t slot, uint8_t out_host_id_hash[32], uint8_t o
     return true;
 }
 
-void trust_reset(void) {
-    nvs_handle_t h;
-    if (nvs_open(NVS_NS, NVS_READWRITE, &h) == ESP_OK) {
-        nvs_erase_key(h, NVS_KEY_STORE);
-        trust_store_cleanup_legacy_keys(h);
-        nvs_commit(h);
-        nvs_close(h);
-    }
-
+bool trust_reset(void) {
     trust_store_reset_ram();
     fsm_dispatch(FSM_EVT_TRUST_RESET, BLE_HS_CONN_HANDLE_NONE);
-    ESP_LOGW(TAG, "Trust reset");
+
+    bool saved = trust_store_save(&g_store);
+    if (saved) {
+        ESP_LOGW(TAG, "Trust reset saved");
+    }
+    return saved;
 }

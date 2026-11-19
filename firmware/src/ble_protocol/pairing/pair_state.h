@@ -15,18 +15,17 @@ typedef enum {
     PAIR_STATE_FINISHED
 } pair_state_t;
 
-void pair_state_reset(void);
-void pair_state_full_reset(void);
-void pair_state_start(void);
+typedef enum {
+    PAIR_EVT_SESSION_STARTED,
+    PAIR_EVT_HOST_PUB_ACCEPTED,
+    PAIR_EVT_CONFIRM_ACCEPTED,
+    PAIR_EVT_FINISH_ACCEPTED,
+    PAIR_EVT_SESSION_RESET,
+} pair_event_t;
 
-bool pair_state_can_host_pub(void);
-void pair_state_set_host_pub_ok(void);
-
-bool pair_state_can_confirm(void);
-void pair_state_set_confirm_ok(void);
-
-bool pair_state_can_finish(void);
-void pair_state_set_finish_ok(void);
+// Called on the BLE host task after initialization.
+bool pair_state_can_dispatch(pair_event_t event);
+bool pair_state_dispatch(pair_event_t event);
 
 pair_state_t pair_state_get(void);
 

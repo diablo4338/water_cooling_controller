@@ -65,13 +65,14 @@ void overheat_alarm_task(void *param) {
         bool silence_requested =
             __atomic_exchange_n(&s_silence_requested, false, __ATOMIC_ACQ_REL);
         params_t params;
-        bool alarm_enabled = params_cache_get(&params) && params.overheat_alarm_enabled != 0;
+        bool alarm_enabled = params_read(&params) && params.overheat_alarm_enabled != 0;
+        bool output_alarm = device_status_has_error_flag(DEVICE_ERROR_OUTPUT_ALARM);
         bool sounding = overheat_alarm_update(
             &state,
             alarm_enabled,
             device_status_has_error_flag(DEVICE_ERROR_OVERHEAT),
             silence_requested
-        );
+        ) || output_alarm;
         TickType_t now = xTaskGetTickCount();
 
         if (sounding && !was_sounding) {

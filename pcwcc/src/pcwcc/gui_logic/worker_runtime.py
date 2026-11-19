@@ -4,7 +4,7 @@ import asyncio
 from concurrent.futures import Future
 from typing import Callable, Optional
 
-from ..core import UUID_CONFIG_STATUS
+from ..presentation import ConnEvent, ConnEventKind
 
 
 class BleWorkerRuntimeMixin:
@@ -24,9 +24,9 @@ class BleWorkerRuntimeMixin:
         if self.loop:
             self._call_soon_noargs(self.loop, self.loop.stop)
 
-    def stop_auto(self) -> None:
-        if self.loop and self._auto_stop_evt is not None:
-            self._call_soon_noargs(self.loop, self._auto_stop_evt.set)
+    def stop_auto(self, stop_event: asyncio.Event) -> None:
+        if self.loop:
+            self._call_soon_noargs(self.loop, stop_event.set)
 
     def submit(self, coro) -> Optional[Future]:
         if not self.loop:
@@ -47,45 +47,12 @@ class BleWorkerRuntimeMixin:
         except asyncio.TimeoutError as exc:
             raise RuntimeError(f"Timeout: {label}") from exc
 
-    def _on_disconnected(self, _) -> None:
-        if self._disconnect_evt is not None and self._disconnect_evt.is_set():
+    def _on_disconnected(self, connection_id: object, client) -> None:
+        if self._connection_id is not connection_id or self.core.client is not client:
             return
-        if self._disconnect_evt is not None:
-            self._disconnect_evt.set()
-        if self._monitor_stop_evt is not None:
-            self._monitor_stop_evt.set()
-        if self._manual_disconnect:
+        if self._disconnect_evt is None or self._disconnect_evt.is_set():
             return
-        self.log.emit(self._conn_message("Connection dropped by device."))
-        self.connection_state.emit(False, None)
-
-    def _start_monitor(self) -> None:
-        if self._monitor_task is not None:
-            return
-        self._monitor_stop_evt = asyncio.Event()
-        self._monitor_task = asyncio.create_task(self._monitor_connection())
-
-    async def _monitor_connection(self) -> None:
-        try:
-            ping_interval = 2.0
-            ping_every = 3
-            counter = 0
-            while self._monitor_stop_evt is not None and not self._monitor_stop_evt.is_set():
-                client = self.core.client
-                if client is None:
-                    break
-                if not getattr(client, "is_connected", False):
-                    self._on_disconnected(None)
-                    break
-                counter += 1
-                if counter >= ping_every:
-                    counter = 0
-                    try:
-                        await asyncio.wait_for(client.read_gatt_char(UUID_CONFIG_STATUS), timeout=1.0)
-                    except Exception:
-                        self._on_disconnected(None)
-                        break
-                await asyncio.sleep(ping_interval)
-        finally:
-            self._monitor_task = None
-            self._monitor_stop_evt = None
+        self._disconnect_evt.set()
+        if self.device is not None:
+            self.log.emit(self._conn_message("Connection dropped by device."))
+            self.connection_event.emit(ConnEvent(ConnEventKind.LINK_CLOSED, connection_id))

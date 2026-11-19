@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
+
+from bleak.exc import BleakCharacteristicNotFoundError
 from typing import Optional
 
 from ..core import (
@@ -10,14 +13,16 @@ from ..core import (
     FanStatus,
     MetricsSnapshot,
     OP_STATE_IN_SERVICE,
+    OP_TYPE_FAN_CALIBRATION,
+    OP_TYPE_SETUP_FANS,
     OperationStatus,
-    ParamsStatus,
-    PROFILE_ACTION_APPLY,
     PROFILE_ACTION_CLEAR,
     PROFILE_ACTION_SAVE_CURRENT,
     PROFILE_COUNT,
     load_paired_records,
 )
+
+from ..presentation import ConnEvent, ConnEventKind
 
 
 class BleWorkerFlowMixin:
@@ -45,47 +50,48 @@ class BleWorkerFlowMixin:
         self.scan_results.emit(devices)
         self.log.emit(f"Pairing-ready devices found: {len(devices)}")
 
-    async def auto_connect_saved(self) -> None:
-        if self._auto_running:
-            self.log.emit("Auto-connect is already running.")
-            return
-        self._auto_running = True
-        self._auto_stop_evt = asyncio.Event()
+    async def auto_connect_saved(self, stop_event: asyncio.Event) -> None:
+        stop = asyncio.create_task(stop_event.wait())
         try:
-            while not self._auto_stop_evt.is_set():
+            while not stop_event.is_set():
                 saved = self._load_saved_devices()
                 if not saved:
                     self.log.emit("No saved devices.")
-                    try:
-                        await asyncio.wait_for(self._auto_stop_evt.wait(), timeout=2.0)
-                    except asyncio.TimeoutError:
-                        pass
+                    await asyncio.wait({stop}, timeout=2.0)
                     continue
                 for device in saved:
-                    if self._auto_stop_evt.is_set():
+                    if stop_event.is_set():
                         break
-                    await self.connect_device(device)
-                    if self.core.client:
-                        await self._wait_disconnect_or_stop()
-                    if self._auto_stop_evt.is_set():
+                    connection_id = object()
+                    self.connection_event.emit(ConnEvent(
+                        ConnEventKind.CONNECT_REQUEST, connection_id, auto_run_id=stop_event,
+                    ))
+                    connect = asyncio.create_task(self.connect_device(device, connection_id))
+                    await asyncio.wait({connect, stop}, return_when=asyncio.FIRST_COMPLETED)
+                    if stop_event.is_set():
+                        connect.cancel()
+                        with suppress(asyncio.CancelledError):
+                            await connect
                         break
+                    if await connect:
+                        assert self._disconnect_evt is not None
+                        disconnect = asyncio.create_task(self._disconnect_evt.wait())
+                        try:
+                            await asyncio.wait({disconnect, stop}, return_when=asyncio.FIRST_COMPLETED)
+                        finally:
+                            disconnect.cancel()
+                            with suppress(asyncio.CancelledError):
+                                await disconnect
+                    else:
+                        await asyncio.wait({stop}, timeout=0.4)
         finally:
-            self._auto_running = False
-            self._auto_stop_evt = None
-
-    async def _wait_disconnect_or_stop(self) -> None:
-        if self._disconnect_evt is None or self._auto_stop_evt is None:
-            return
-        while True:
-            if self._disconnect_evt.is_set() or self._auto_stop_evt.is_set():
-                break
-            client = self.core.client
-            if client is None or not getattr(client, "is_connected", False):
-                self._on_disconnected(None)
-                break
-            await asyncio.sleep(0.5)
-        if self._auto_stop_evt.is_set():
-            await self.disconnect_device()
+            stop.cancel()
+            with suppress(asyncio.CancelledError):
+                await stop
+            await self.disconnect_device(fast=True)
+            self.connection_event.emit(ConnEvent(
+                ConnEventKind.AUTO_STOPPED, auto_run_id=stop_event,
+            ))
 
     @staticmethod
     def _load_saved_devices() -> list[DeviceInfo]:
@@ -98,20 +104,51 @@ class BleWorkerFlowMixin:
                 devices.append(DeviceInfo(name=item.get("name", "Unknown"), address=address))
         return devices
 
-    async def connect_device(self, device: DeviceInfo) -> None:
-        await self.disconnect_device()
-        self._metrics_snapshot = MetricsSnapshot.empty()
-        self.log.emit(self._conn_message(f"Connecting to {device.name} ({device.address})..."))
-        last_exc: Optional[Exception] = None
-        self._disconnect_evt = asyncio.Event()
-        for attempt in range(1, 2):
-            self.log.emit(self._conn_message(f"Connect attempt {attempt} to {device.address}"))
+    async def _subscribe_runtime_status(self, name, subscribe, read, signal, connection_id) -> None:
+        notification_count = 0
+
+        def on_notify(status) -> None:
+            nonlocal notification_count
+            if self._connection_id is connection_id:
+                notification_count += 1
+                signal.emit(status, connection_id)
+
+        try:
+            await self._with_timeout(subscribe(on_notify), f"start {name} notify", timeout=3.0)
+        except Exception as exc:
+            self.log.emit(self._conn_message(f"{name} notify unavailable: {exc}"))
+
+        before_read = notification_count
+        try:
+            status = await read(timeout=self.config.metrics_timeout_s)
+        except Exception as exc:
+            self.log.emit(self._conn_message(f"Initial {name} read failed: {exc}"))
+        else:
+            if status is not None and before_read == notification_count and self._connection_id is connection_id:
+                signal.emit(status, connection_id)
+
+    async def connect_device(self, device: DeviceInfo, connection_id: object) -> bool:
+        async with self._connection_lock:
+            await self._disconnect_device(notify=False)
+            self.connection_event.emit(ConnEvent(ConnEventKind.OLD_SESSION_CLOSED, connection_id))
+            self._connection_id = connection_id
+            self._disconnect_evt = asyncio.Event()
+            self.log.emit(self._conn_message(f"Connecting to {device.name} ({device.address})..."))
             try:
-                await self.core.connect_raw(device, connect_timeout=self.config.connect_timeout_s)
-                if self.core.client and hasattr(self.core.client, "set_disconnected_callback"):
-                    self.core.client.set_disconnected_callback(self._on_disconnected)
+                loop = asyncio.get_running_loop()
+                await self.core.connect_raw(
+                    device, connect_timeout=self.config.connect_timeout_s,
+                    disconnected_callback=lambda client: loop.call_soon_threadsafe(
+                        self._on_disconnected, connection_id, client
+                    ),
+                )
+                client = self.core.client
+                if client is None:
+                    raise RuntimeError("BLE client unavailable")
                 self.log.emit(self._conn_message("Connected, starting AUTH..."))
                 await self._do_auth()
+                if self._disconnect_evt.is_set() or not client.is_connected:
+                    raise RuntimeError("Connection closed during authorization")
                 self.log.emit(self._conn_message("AUTH ok, reading initial PARAMS..."))
                 try:
                     params = await self.core.read_params(timeout=self.config.metrics_timeout_s)
@@ -137,7 +174,7 @@ class BleWorkerFlowMixin:
                 try:
                     status = await self.core.read_operation_status(timeout=self.config.metrics_timeout_s)
                     if status.state == OP_STATE_IN_SERVICE:
-                        self.operation_status_received.emit(status)
+                        self.operation_status_received.emit(status, connection_id)
                     self.log.emit(self._conn_message("Initial OP status read ok."))
                 except Exception as exc:
                     self.log.emit(self._conn_message(f"Initial OP status read failed: {exc}"))
@@ -155,24 +192,15 @@ class BleWorkerFlowMixin:
                             self._on_metrics_snapshot,
                             initial_snapshot=self._metrics_snapshot,
                         ),
-                        f"start_notify#{attempt}",
+                        "start_notify",
                     )
                     self.log.emit(self._conn_message("Notify METRICS started."))
                 except Exception as exc:
                     self.log.emit(self._conn_message(f"METRICS notify unavailable: {exc}"))
                 try:
                     await self._with_timeout(
-                        self.core.start_params_notify(self._on_params_status),
-                        f"start_params_notify#{attempt}",
-                        timeout=3.0,
-                    )
-                    self.log.emit(self._conn_message("Notify PARAMS status started."))
-                except Exception as exc:
-                    self.log.emit(self._conn_message(f"PARAMS status notify unavailable: {exc}"))
-                try:
-                    await self._with_timeout(
                         self.core.start_fan_status_notify(self._on_fan_status),
-                        f"start_fan_status_notify#{attempt}",
+                        "start_fan_status_notify",
                         timeout=3.0,
                     )
                     self.log.emit(self._conn_message("Notify FAN status started."))
@@ -181,7 +209,7 @@ class BleWorkerFlowMixin:
                 try:
                     await self._with_timeout(
                         self.core.start_device_status_notify(self._on_device_status),
-                        f"start_device_status_notify#{attempt}",
+                        "start_device_status_notify",
                         timeout=3.0,
                     )
                     self.log.emit(self._conn_message("Notify DEVICE status started."))
@@ -189,99 +217,71 @@ class BleWorkerFlowMixin:
                     self.log.emit(self._conn_message(f"DEVICE status notify unavailable: {exc}"))
                 try:
                     await self._with_timeout(
-                        self.core.start_operation_status_notify(self._on_operation_status),
-                        f"start_operation_status_notify#{attempt}",
+                        self.core.start_operation_status_notify(
+                            lambda status: self._on_operation_status(status, connection_id)
+                        ),
+                        "start_operation_status_notify",
                         timeout=3.0,
                     )
                     self.log.emit(self._conn_message("Notify OP status started."))
                 except Exception as exc:
                     self.log.emit(self._conn_message(f"OP status notify unavailable: {exc}"))
-                self._start_monitor()
+                await self._subscribe_runtime_status(
+                    "output limit", self.core.start_output_limit_notify, self.core.read_output_limit,
+                    self.output_limit_received, connection_id,
+                )
+                await self._subscribe_runtime_status(
+                    "fan mode", self.core.start_fan_mode_status_notify, self.core.read_fan_mode_status,
+                    self.fan_mode_status_received, connection_id,
+                )
+                if self._disconnect_evt.is_set() or not client.is_connected:
+                    raise RuntimeError("Connection closed during setup")
                 self.device = device
-                self.connection_state.emit(True, device)
-                return
+                self.connection_event.emit(ConnEvent(ConnEventKind.CONNECT_SUCCEEDED, connection_id, device))
+                return True
+            except asyncio.CancelledError:
+                await self._disconnect_device()
+                raise
             except Exception as exc:
-                last_exc = exc
-                self.log.emit(self._conn_message(
-                    f"Connect attempt {attempt} failed: {self._format_error(exc)}"
-                ))
-                try:
-                    await self._with_timeout(self.core.disconnect(), "disconnect", timeout=3.0)
-                except Exception:
-                    pass
-                await asyncio.sleep(0.4 * attempt)
-        self.log.emit(self._conn_message(f"Connection error: {self._format_error(last_exc)}"))
-        if self._disconnect_evt is None or not self._disconnect_evt.is_set():
-            self.connection_state.emit(False, None)
+                error = self._format_error(exc)
+                self.log.emit(self._conn_message(f"Connection error: {error}"))
+                await self._disconnect_device(notify=False)
+                self.connection_event.emit(ConnEvent(ConnEventKind.CONNECT_FAILED, connection_id, error=error))
+                return False
 
-    async def disconnect_device(self) -> None:
-        already_disconnected = (
-            self._disconnect_evt.is_set() if self._disconnect_evt is not None else False
-        )
-        self._manual_disconnect = True
-        try:
-            if self.core.client:
-                log_enabled = not already_disconnected
-                if log_enabled:
-                    self.log.emit(self._conn_message("Disconnecting..."))
-                if self._monitor_stop_evt is not None:
-                    self._monitor_stop_evt.set()
-                try:
-                    if log_enabled:
-                        self.log.emit(self._conn_message("Stopping notify METRICS..."))
-                    await self._with_timeout(self.core.stop_metrics_notify(), "stop_notify", timeout=3.0)
-                except Exception:
-                    pass
-                try:
-                    if log_enabled:
-                        self.log.emit(self._conn_message("Stopping notify PARAMS..."))
-                    await self._with_timeout(self.core.stop_params_notify(), "stop_params_notify", timeout=3.0)
-                except Exception:
-                    pass
-                try:
-                    if log_enabled:
-                        self.log.emit(self._conn_message("Stopping notify FAN status..."))
-                    await self._with_timeout(
-                        self.core.stop_fan_status_notify(),
-                        "stop_fan_status_notify",
-                        timeout=3.0,
-                    )
-                except Exception:
-                    pass
-                try:
-                    if log_enabled:
-                        self.log.emit(self._conn_message("Stopping notify DEVICE status..."))
-                    await self._with_timeout(
-                        self.core.stop_device_status_notify(),
-                        "stop_device_status_notify",
-                        timeout=3.0,
-                    )
-                except Exception:
-                    pass
-                try:
-                    if log_enabled:
-                        self.log.emit(self._conn_message("Stopping notify OP status..."))
-                    await self._with_timeout(
-                        self.core.stop_operation_status_notify(),
-                        "stop_operation_status_notify",
-                        timeout=3.0,
-                    )
-                except Exception:
-                    pass
-                try:
-                    if log_enabled:
-                        self.log.emit(self._conn_message("Disconnecting BLE..."))
-                    await self._with_timeout(self.core.disconnect(), "disconnect", timeout=3.0)
-                except Exception:
-                    pass
-            self._metrics_snapshot = MetricsSnapshot.empty()
-            self.device = None
-            if self._disconnect_evt is not None:
-                self._disconnect_evt.set()
-            if not already_disconnected:
-                self.connection_state.emit(False, None)
-        finally:
-            self._manual_disconnect = False
+    async def disconnect_device(self, connection_id: object | None = None, *, fast: bool = False) -> None:
+        async with self._connection_lock:
+            if connection_id is None or self._connection_id is connection_id:
+                await self._disconnect_device(fast=fast)
+
+    async def _disconnect_device(self, *, notify: bool = True, fast: bool = False) -> None:
+        connection_id = self._connection_id
+        disconnected = self._disconnect_evt
+        self._connection_id = None
+        if self.core.client:
+            if self.device is not None:
+                with suppress(Exception):
+                    await self.core.cancel_operation(timeout=1.0)
+            if not fast:
+                for stop_notify in (
+                    self.core.stop_metrics_notify,
+                    self.core.stop_fan_status_notify,
+                    self.core.stop_device_status_notify,
+                    self.core.stop_operation_status_notify,
+                    self.core.stop_output_limit_notify,
+                    self.core.stop_fan_mode_status_notify,
+                ):
+                    with suppress(Exception):
+                        await self._with_timeout(stop_notify(), stop_notify.__name__, timeout=3.0)
+            with suppress(Exception):
+                await self._with_timeout(self.core.disconnect(), "disconnect", timeout=3.0)
+        self._metrics_snapshot = MetricsSnapshot.empty()
+        self.device = None
+        if disconnected is not None:
+            disconnected.set()
+        self._disconnect_evt = None
+        if notify and connection_id is not None:
+            self.connection_event.emit(ConnEvent(ConnEventKind.LINK_CLOSED, connection_id))
 
     async def pair(self, device: DeviceInfo) -> None:
         result = await self.core.pair(device)
@@ -303,26 +303,26 @@ class BleWorkerFlowMixin:
         except Exception as exc:
             self.log.emit(f"Failed to send parameters: {exc}")
 
-    async def apply_params(self, params: DeviceParams) -> None:
-        ok = False
-        error = ""
+    async def _run_params_command(self, command_id: object, command) -> None:
         try:
-            await self._with_timeout(
-                self.core.write_params(params, timeout=self.config.metrics_timeout_s),
-                "write_params",
-                timeout=self.config.metrics_timeout_s,
+            await command()
+            status = await self._with_timeout(
+                self.core.read_params_status(timeout=self.config.metrics_timeout_s),
+                "read_params_status", timeout=self.config.metrics_timeout_s,
             )
-            await self._with_timeout(
-                self.core.apply_params(timeout=self.config.metrics_timeout_s),
-                "apply_params",
-                timeout=self.config.metrics_timeout_s,
-            )
-            ok = True
         except Exception as exc:
             error = f"Apply failed: {exc}"
             self.log.emit(error)
-        finally:
-            self.apply_done.emit(ok, error)
+            self.params_command_done.emit(command_id, None, error)
+        else:
+            self.params_command_done.emit(command_id, status, "")
+
+    async def apply_params(self, params: DeviceParams, command_id: object) -> None:
+        async def apply():
+            await self.core.write_params(params, timeout=self.config.metrics_timeout_s)
+            await self.core.apply_params(timeout=self.config.metrics_timeout_s)
+
+        await self._run_params_command(command_id, apply)
 
     async def start_fan_calibration(self) -> None:
         try:
@@ -333,7 +333,7 @@ class BleWorkerFlowMixin:
             )
             self.log.emit("Calibration request sent")
         except Exception as exc:
-            self.log.emit(f"Fan calibration error: {exc}")
+            self.operation_start_failed.emit(OP_TYPE_FAN_CALIBRATION, self._format_error(exc))
 
     async def start_setup_fans(self) -> None:
         try:
@@ -344,29 +344,55 @@ class BleWorkerFlowMixin:
             )
             self.log.emit("Setup fans request sent")
         except Exception as exc:
-            self.log.emit(f"Setup fans error: {exc}")
+            self.operation_start_failed.emit(OP_TYPE_SETUP_FANS, self._format_error(exc))
+
+    async def change_output_limit(self, command_id: object, maximum: Optional[int]) -> None:
+        timeout = self.config.metrics_timeout_s
+        connection_id = self._connection_id
+        try:
+            if maximum is None:
+                await self.core.reset_output_limit(timeout=timeout)
+            else:
+                await self.core.set_output_max(maximum, timeout=timeout)
+        except Exception as exc:
+            self.output_limit_command_done.emit(command_id, self._format_error(exc))
+        else:
+            if maximum is not None and self._connection_id == connection_id:
+                if not self.core.output_limit_notifications_active:
+                    try:
+                        status = await self.core.read_output_limit(timeout=timeout)
+                    except Exception as exc:
+                        self.log.emit(f"Maximum saved, but its status could not be read: {self._format_error(exc)}")
+                    else:
+                        self.output_limit_received.emit(status, connection_id)
+                if self._connection_id == connection_id:
+                    await self.read_params_snapshot()
+            self.output_limit_command_done.emit(command_id, "")
 
     async def read_operation_status(self) -> None:
+        connection_id = self._connection_id
         try:
             status = await self._with_timeout(
                 self.core.read_operation_status(timeout=self.config.metrics_timeout_s),
                 "read_operation_status",
                 timeout=self.config.metrics_timeout_s,
             )
-            self.operation_status_received.emit(status)
+            self.operation_status_received.emit(status, connection_id)
             self.log.emit("OP status updated.")
         except Exception as exc:
             self.log.emit(f"Failed to read OP status: {exc}")
 
     async def read_params_snapshot(self) -> None:
+        connection_id = self._connection_id
         try:
             params = await self._with_timeout(
                 self.core.read_params(timeout=self.config.metrics_timeout_s),
                 "read_params_snapshot",
                 timeout=self.config.metrics_timeout_s,
             )
-            self.params_received.emit(params)
-            self.log.emit("Parameters refreshed after operation.")
+            if self._connection_id == connection_id:
+                self.params_received.emit(params)
+                self.log.emit("Parameters refreshed after operation.")
         except Exception as exc:
             self.log.emit(f"Failed to read parameters after operation: {exc}")
 
@@ -397,12 +423,6 @@ class BleWorkerFlowMixin:
                     "save_profile",
                     timeout=self.config.metrics_timeout_s,
                 )
-            elif action == PROFILE_ACTION_APPLY:
-                await self._with_timeout(
-                    self.core.apply_profile(slot, timeout=self.config.metrics_timeout_s),
-                    "apply_profile",
-                    timeout=self.config.metrics_timeout_s,
-                )
             elif action == PROFILE_ACTION_CLEAR:
                 await self._with_timeout(
                     self.core.clear_profile(slot, timeout=self.config.metrics_timeout_s),
@@ -421,8 +441,18 @@ class BleWorkerFlowMixin:
     async def save_profile(self, slot: int) -> None:
         await self._run_profile_action(PROFILE_ACTION_SAVE_CURRENT, slot)
 
-    async def apply_profile(self, slot: int) -> None:
-        await self._run_profile_action(PROFILE_ACTION_APPLY, slot)
+    async def apply_profile(self, slot: int, command_id: object) -> None:
+        timeout = self.config.metrics_timeout_s
+        try:
+            await self.core.apply_profile(slot, timeout=timeout)
+            try:
+                result = await self.core.read_profile_apply_result(slot, timeout=timeout)
+            except BleakCharacteristicNotFoundError:
+                result = await self.core.read_params_status(timeout=timeout)
+        except Exception as exc:
+            self.params_command_done.emit(command_id, None, self._format_error(exc))
+        else:
+            self.params_command_done.emit(command_id, result, "")
 
     async def clear_profile(self, slot: int) -> None:
         await self._run_profile_action(PROFILE_ACTION_CLEAR, slot)
@@ -450,14 +480,11 @@ class BleWorkerFlowMixin:
     def _on_metrics_snapshot(self, snapshot: MetricsSnapshot) -> None:
         self._set_metrics_snapshot(snapshot)
 
-    def _on_params_status(self, status: ParamsStatus) -> None:
-        self.params_status.emit(status)
-
     def _on_fan_status(self, status: FanStatus) -> None:
         self.fan_status_received.emit(status)
 
     def _on_device_status(self, status: DeviceStatus) -> None:
         self.device_status_received.emit(status)
 
-    def _on_operation_status(self, status: OperationStatus) -> None:
-        self.operation_status_received.emit(status)
+    def _on_operation_status(self, status: OperationStatus, connection_id: object) -> None:
+        self.operation_status_received.emit(status, connection_id)

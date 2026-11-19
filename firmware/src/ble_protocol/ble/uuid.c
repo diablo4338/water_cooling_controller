@@ -22,6 +22,10 @@ const char *UUID_CONFIG_DEVICE_STATUS_STR  = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e
 const char *UUID_CONFIG_PROFILES_STR = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e15";
 const char *UUID_CONFIG_PROFILE1_METADATA_STR = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e16";
 const char *UUID_CONFIG_PROFILE2_METADATA_STR = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e17";
+const char *UUID_CONFIG_FAN_MODE_STATUS_STR = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e1a";
+const char *UUID_CONFIG_PROFILE_RESULT_STR = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e1b";
+const char *UUID_CONFIG_OUTPUT_LIMIT_STR = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e19";
+const char *UUID_CONFIG_OUTPUT_RANGE_STR = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e1c";
 const char *UUID_CONFIG_PROFILE3_METADATA_STR = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e18";
 const char *UUID_OP_CONTROL_STR = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e21";
 const char *UUID_OP_STATUS_STR  = "6d4f8a52-1f5c-4b02-9b7c-cc7f2a1d9e22";
@@ -60,6 +64,10 @@ ble_uuid_any_t UUID_CONFIG_PROFILES;
 ble_uuid_any_t UUID_CONFIG_PROFILE1_METADATA;
 ble_uuid_any_t UUID_CONFIG_PROFILE2_METADATA;
 ble_uuid_any_t UUID_CONFIG_PROFILE3_METADATA;
+ble_uuid_any_t UUID_CONFIG_FAN_MODE_STATUS;
+ble_uuid_any_t UUID_CONFIG_PROFILE_RESULT;
+ble_uuid_any_t UUID_CONFIG_OUTPUT_LIMIT;
+ble_uuid_any_t UUID_CONFIG_OUTPUT_RANGE;
 ble_uuid_any_t UUID_OP_CONTROL;
 ble_uuid_any_t UUID_OP_STATUS;
 

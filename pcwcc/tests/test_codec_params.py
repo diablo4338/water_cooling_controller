@@ -9,6 +9,7 @@ from pcwcc.core_logic.codec import (
 )
 from pcwcc.core_logic.models import DeviceParams
 from pcwcc.core_logic.protocol import (
+    DEVICE_ERROR_ALERT_WITHOUT_LOAD,
     DEVICE_ERROR_INA_OFFLINE,
     DEVICE_ERROR_OVERCURRENT,
     DEVICE_ERROR_OVERHEAT,
@@ -87,3 +88,12 @@ def test_decode_device_status_exposes_ina_offline_flag() -> None:
     assert status.error_mask == DEVICE_ERROR_INA_OFFLINE
     assert status.errors == (DEVICE_ERROR_INA_OFFLINE,)
     assert status.error_labels == ("INA_OFFLINE",)
+
+
+def test_decode_device_status_exposes_alert_without_load() -> None:
+    payload = struct.pack("<BBI", 2, DEVICE_STATE_ERROR, DEVICE_ERROR_ALERT_WITHOUT_LOAD)
+
+    status = decode_device_status(payload)
+
+    assert status.errors == (DEVICE_ERROR_ALERT_WITHOUT_LOAD,)
+    assert status.error_labels == ("ALERT_WITHOUT_LOAD",)

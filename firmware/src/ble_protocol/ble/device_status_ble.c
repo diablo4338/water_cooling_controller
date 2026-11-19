@@ -5,7 +5,6 @@
 #include "host/ble_hs.h"
 
 #include "access.h"
-#include "conn_guard.h"
 #include "state.h"
 
 uint16_t g_device_status_attr_handle = 0;
@@ -30,8 +29,7 @@ void device_status_notify(uint16_t conn_handle, const uint8_t *payload, size_t l
     if (!g_device_status_notify_enabled) return;
     if (g_device_status_attr_handle == 0) return;
     if (conn_handle == BLE_HS_CONN_HANDLE_NONE) return;
-    if (!auth_conn_check(conn_handle)) return;
-    if (!can_access_data()) return;
+    if (!can_access_data(conn_handle)) return;
 
     struct os_mbuf *om = ble_hs_mbuf_from_flat(payload, len);
     if (!om) return;

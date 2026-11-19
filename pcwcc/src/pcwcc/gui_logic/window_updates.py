@@ -21,11 +21,8 @@ from ..core import (
     OP_STATE_IDLE,
     OP_STATE_IN_SERVICE,
     OP_STATE_NAMES,
-    OP_TYPE_FAN_CALIBRATION,
     OP_TYPE_NAMES,
     OP_TYPE_NONE,
-    OP_TYPE_SETUP_FANS,
-    PROFILE_ACTION_APPLY,
     PROFILE_ACTION_CLEAR,
     PROFILE_ACTION_SAVE_CURRENT,
     PARAM_STATUS_STORAGE_ERROR,
@@ -43,6 +40,16 @@ from ..core import (
     update_paired_last_connected,
 )
 from .constants import PARAM_ERROR_MESSAGES, PARAM_LABELS_BY_ID, USER_ROLE
+
+from ..core_logic.models import FanModeStatus, OutputLimitState, ProfileApplyResult, ProfileSkipReason
+from ..core_logic.protocol import (
+    DEVICE_ERROR_INA_OFFLINE,
+    PARAM_FIELD_FAN_MIN_SPEED,
+    PARAM_STATUS_ADC_UNAVAILABLE,
+    PARAM_STATUS_NTC_UNAVAILABLE,
+    PARAM_STATUS_OUTPUT_ADJUSTING,
+)
+from ..presentation import ConnEvent, ConnEventKind, PROFILE_COMMANDS, operation_running
 
 
 class MainWindowUpdateMixin:
@@ -189,7 +196,7 @@ class MainWindowUpdateMixin:
         if field is None:
             return
         is_nc = value is None or not math.isfinite(value)
-        text = "NC" if is_nc else f"{value:.{decimals}f}"
+        text = "—" if is_nc else f"{value:.{decimals}f}"
         field.setText(text)
         if append_data:
             self.data_view.append(self._format_log_entry(f"{label}: {text} {unit}"))
@@ -212,10 +219,12 @@ class MainWindowUpdateMixin:
             )
         self._apply_fan_percent_value(snapshot.fan_percent)
         self.metrics_chart.add_sample(snapshot.fan_percent, snapshot.temperatures[3], snapshot.temperatures[2])
+        limit = self.model.state.output_limit
+        ina_unavailable = limit is not None and limit.state == OutputLimitState.SENSOR_ERROR
         self._apply_power_value(
             self.voltage_field,
             "Voltage",
-            snapshot.voltage_v,
+            None if ina_unavailable else snapshot.voltage_v,
             "V",
             2,
             append_data=self._metric_value_changed(prev_snapshot.voltage_v, snapshot.voltage_v),
@@ -223,7 +232,7 @@ class MainWindowUpdateMixin:
         self._apply_power_value(
             self.current_field,
             "Current",
-            snapshot.current_ma,
+            None if ina_unavailable else snapshot.current_ma,
             "mA",
             1,
             append_data=self._metric_value_changed(prev_snapshot.current_ma, snapshot.current_ma),
@@ -232,51 +241,118 @@ class MainWindowUpdateMixin:
 
     @Slot(object)
     def on_params_received(self, params: DeviceParams) -> None:
-        self._set_params_fields(params, save=True)
+        saving_maximum = self.model.state.active_action == self.Action.SET_OUTPUT_MAX
+        previous = self._device_params_snapshot
+        self._set_params_fields(params, save=True, preserve_edits=saving_maximum)
+        if saving_maximum and previous is not None and params.fan_min_speed < previous.fan_min_speed:
+            self._show_apply_result("ok", f"Base fan speed reduced to {params.fan_min_speed}% to match the saved maximum.")
         if self.model.state.active_action == self.Action.DISCARD:
             self._finish_action(self.Action.DISCARD)
 
-    @Slot(object)
-    def on_params_status(self, status: ParamsStatus) -> None:
+    @Slot(object, object, str)
+    def on_params_command_done(self, command_id: object, status: Optional[ParamsStatus | ProfileApplyResult], error: str) -> None:
+        action = self.model.handle_params_result(status is not None and status.ok, command_id)
+        if action is None:
+            return
+        self._finish_action(action)
+        if status is None:
+            self._show_apply_result("error", error or "Error: apply failed")
+            return
+        if isinstance(status, ProfileApplyResult) and status.ok:
+            reasons = {
+                ProfileSkipReason.INVALID: "value is invalid or read-only",
+                ProfileSkipReason.OUTPUT_MAX: "above the global maximum output",
+                ProfileSkipReason.TEMPERATURE_CONFLICT: "temperature thresholds conflict",
+                ProfileSkipReason.ADC_UNAVAILABLE: "ADS1115 unavailable",
+                ProfileSkipReason.NTC_UNAVAILABLE: "control thermistor unavailable",
+                ProfileSkipReason.OUTPUT_ADJUSTING: "overload protection is adjusting the output",
+            }
+            skipped = [
+                f"{PARAM_LABELS_BY_ID.get(field, field)}: {reasons[reason]}"
+                for field, reason in enumerate(status.skipped)
+                if reason != ProfileSkipReason.NONE and not status.applied_mask & (1 << field)
+            ]
+            capped = [
+                f"{PARAM_LABELS_BY_ID.get(field, field)}: reduced to the saved maximum output"
+                for field, reason in enumerate(status.skipped)
+                if reason == ProfileSkipReason.OUTPUT_MAX and status.applied_mask & (1 << field)
+            ]
+            title = (
+                "No profile fields applied" if status.applied_mask == 0
+                else "Profile applied partially" if skipped else "Profile applied"
+            )
+            message = f"Profile {status.slot}: {title}"
+            if skipped or capped:
+                message += " (" + "; ".join(capped + skipped) + ")"
+            self.on_log(message)
+            self._show_apply_result("ok", message)
+            self.worker.submit(self.worker.read_params_snapshot())
+            return
         if status.ok:
             self.on_log("Parameters applied")
             self._show_apply_result("ok", "Applied")
-            if self._profile_apply_pending is not None:
-                self._profile_apply_pending = None
-                self._profile_operation_active = False
-            save_slot = self._profile_save_pending
-            self._profile_save_pending = None
-            if save_slot is not None:
-                self._profile_operation_active = True
+            save_slot = self.model.state.command_slot
+            if self.model.state.active_action == self.Action.SAVE_PROFILE:
                 self._submit_profile_action(lambda: self.worker.save_profile(save_slot))
-            if self.model.state.active_action == self.Action.APPLY:
-                self._finish_action(self.Action.APPLY)
             self.worker.submit(self.worker.read_params_snapshot())
-            self._refresh_profile_buttons()
             return
-        self._profile_save_pending = None
-        if self._profile_apply_pending is not None:
-            self._profile_apply_pending = None
-            self._profile_operation_active = False
-        if status.status == self.PARAM_STATUS_BUSY:
-            message = "Error: device busy"
-            self.on_log("Parameters not applied: device busy")
+        if status.status == PARAM_STATUS_OUTPUT_ADJUSTING:
+            message = "Settings were not saved. Wait for overload protection to finish, then apply again."
+            self.on_log(message)
+        elif status.status == self.PARAM_STATUS_BUSY:
+            if isinstance(status, ParamsStatus) and status.field_id == PARAM_FIELD_FAN_MIN_SPEED:
+                message = "Cannot change minimum output while overload protection is adjusting"
+            else:
+                message = "Error: device busy"
+            self.on_log(message)
+        elif status.status == PARAM_STATUS_ADC_UNAVAILABLE:
+            message = "Cannot enable temperature mode: ADS1115 unavailable"
+            self.on_log(message)
+        elif status.status == PARAM_STATUS_NTC_UNAVAILABLE:
+            message = "Cannot enable temperature mode: control thermistor unavailable"
+            self.on_log(message)
         elif status.status == PARAM_STATUS_STORAGE_ERROR:
             message = "Error: could not commit parameters to device storage"
             self.on_log("Parameters not applied: device storage commit failed")
         else:
+            field_id = status.field_id if isinstance(status, ParamsStatus) else None
             field_label = (
-                PARAM_LABELS_BY_ID.get(status.field_id, "unknown field")
-                if status.field_id is not None
+                PARAM_LABELS_BY_ID.get(field_id, "unknown field")
+                if field_id is not None
                 else "unknown field"
             )
-            detail = PARAM_ERROR_MESSAGES.get(status.field_id, field_label)
+            detail = PARAM_ERROR_MESSAGES.get(field_id, field_label)
             message = f"Error: {detail}"
             self.on_log(f"Parameter error: {detail}")
         self._show_apply_result("error", message)
-        if self.model.state.active_action == self.Action.APPLY:
-            self._finish_action(self.Action.APPLY)
-        self._refresh_profile_buttons()
+
+    @Slot(object, object)
+    def on_fan_mode_status(self, status: FanModeStatus, connection_id: object) -> None:
+        if self.model.handle_fan_mode_status(status, connection_id):
+            self._apply_ui()
+
+    @Slot(object, object)
+    def on_output_limit(self, status, connection_id: object) -> None:
+        previous = self.model.state.output_limit
+        if self.model.handle_output_limit(status, connection_id):
+            if status.state == OutputLimitState.SENSOR_ERROR:
+                self._apply_power_value(self.voltage_field, "Voltage", None, "V", 2, append_data=False)
+                self._apply_power_value(self.current_field, "Current", None, "mA", 1, append_data=False)
+            if previous is None or previous.configured != status.configured:
+                self.output_max_input.setValue(status.configured)
+            self._apply_ui()
+
+    @Slot(object, str)
+    def on_output_limit_command_done(self, command_id: object, error: str) -> None:
+        if self.model.state.command_id is not command_id:
+            return
+        action = self.model.state.active_action
+        if action not in (self.Action.SET_OUTPUT_MAX, self.Action.RESET_OUTPUT_LIMIT):
+            return
+        self._finish_action(action)
+        if error:
+            self.on_log(f"Output-limit command failed: {error}")
+            self._show_apply_result("error", error)
 
     @Slot(object)
     def on_fan_status(self, status: FanStatus) -> None:
@@ -305,6 +381,7 @@ class MainWindowUpdateMixin:
     def on_device_status(self, status: DeviceStatus) -> None:
         if self.device_status_field is None:
             return
+        self.ina_warning_label.setVisible(bool(status.error_mask & DEVICE_ERROR_INA_OFFLINE))
         if status.state == DEVICE_STATE_OK:
             self.device_status_field.setText("OK")
             self._set_device_status_indicator("#22c55e")
@@ -319,70 +396,50 @@ class MainWindowUpdateMixin:
             self._set_device_status_indicator("#6b7280")
         self._apply_ui()
 
-    @Slot(object)
-    def on_operation_status(self, status: OperationStatus) -> None:
+    @Slot(int, str)
+    def on_operation_start_failed(self, op_type: int, error: str) -> None:
+        action = self.model.handle_operation_start_failure(op_type)
+        if action is None:
+            return
+        op_label = OP_TYPE_NAMES.get(op_type, f"OP{op_type}")
+        self.on_log(f"Could not start {op_label}: {error}")
+        self._finish_action(action)
+
+    @Slot(object, object)
+    def on_operation_status(self, status: OperationStatus, connection_id: object) -> None:
+        previous = self.model.state.operation_status
+        completed = self.model.handle_operation_status(status, connection_id)
+        if (self.model.state.operation_status is not status
+                or self.model.state.connection_id is not connection_id):
+            return
         op_label = OP_TYPE_NAMES.get(status.op_type, f"OP{status.op_type}")
         state_label = OP_STATE_NAMES.get(status.state, "UNKNOWN")
-        is_noop_idle = status.op_type == OP_TYPE_NONE and status.state == OP_STATE_IDLE
-        if status.state == OP_STATE_IN_SERVICE and not self._operation_active:
+        started = operation_running(status) and (
+            not operation_running(previous) or previous.op_type != status.op_type
+        )
+        if started:
             self._clear_op_log()
-        if self.op_log_view is not None and not is_noop_idle:
+        if self.op_log_view is not None and not (
+            status.op_type == OP_TYPE_NONE and status.state == OP_STATE_IDLE
+        ):
             self.op_log_view.append(self._format_log_entry(f"{op_label}: {status.error or state_label}"))
-        op_action = None
-        if status.op_type == OP_TYPE_SETUP_FANS:
-            op_action = self.Action.SETUP_FANS
-        elif status.op_type == OP_TYPE_FAN_CALIBRATION:
-            op_action = self.Action.SETUP_FANS if self.model.state.active_action == self.Action.SETUP_FANS else self.Action.CALIBRATE
-        if status.state == OP_STATE_IN_SERVICE:
-            if not self._operation_active:
-                self._set_status_message(f"Operation started: {op_label}")
-            self._operation_active = True
+        if completed is not None:
+            self._finish_action(completed)
+        if started:
+            self._set_status_message(f"Operation started: {op_label}")
         elif status.state == OP_STATE_DONE:
             self._set_status_message(f"Operation completed: {op_label}")
-            self._operation_active = False
-            if op_action:
-                self._finish_action(op_action)
-                self.worker.submit(self.worker.read_params_snapshot())
+            self.worker.submit(self.worker.read_params_snapshot())
         elif status.state == OP_STATE_ERROR:
-            err_text = status.error or "unknown error"
-            if err_text.strip().lower() == "busy":
-                self._set_status_message(f"Operation busy: {op_label}")
-                self._operation_active = True
-            else:
-                self._set_status_message(f"Operation error {op_label}: {err_text}")
-                self._operation_active = False
-                if op_action:
-                    self._finish_action(op_action)
-        elif status.state == OP_STATE_IDLE:
-            self._operation_active = False
-            if op_action:
-                self._finish_action(op_action)
-        else:
-            self._set_status_message(f"Operation {op_label}: {state_label}")
+            self._set_status_message(f"Operation error {op_label}: {status.error or 'unknown error'}")
         self._apply_ui()
-
-    @Slot(bool, str)
-    def on_apply_done(self, ok: bool, message: str) -> None:
-        if ok:
-            return
-        self._profile_save_pending = None
-        self._show_apply_result("error", message or "Error: apply failed")
-        if self.model.state.active_action == self.Action.APPLY:
-            self._finish_action(self.Action.APPLY)
 
     @Slot(int, int, bool, str)
     def on_profile_action_done(self, action: int, slot: int, ok: bool, error: str) -> None:
-        if action == PROFILE_ACTION_APPLY:
-            if not ok:
-                self._profile_apply_pending = None
-                self._profile_operation_active = False
-                self.on_log(error)
-                self._show_apply_result("error", error)
-            else:
-                self._profile_operation_active = False
-            self._refresh_profile_buttons()
+        command = PROFILE_COMMANDS.get(action)
+        if command is None or not self.model.handle_profile_result(command, slot):
             return
-        self._profile_operation_active = False
+        self._finish_action(command)
         if not ok:
             self.on_log(error)
             self._show_apply_result("error", error)
@@ -397,7 +454,9 @@ class MainWindowUpdateMixin:
     def on_profile_metadata_done(
         self, slot: int, metadata: object, ok: bool, error: str
     ) -> None:
-        self._profile_operation_active = False
+        if not self.model.handle_profile_result(self.Action.EDIT_PROFILE, slot):
+            return
+        self._finish_action(self.Action.EDIT_PROFILE)
         if ok:
             self._device_profile_metadata[slot] = dict(metadata)
             self.on_log(f"Updated profile {slot} metadata on controller")
@@ -417,11 +476,28 @@ class MainWindowUpdateMixin:
         if self.model.state.active_action == self.Action.PAIR:
             self._finish_action(self.Action.PAIR)
 
-    @Slot(bool, object)
-    def on_connection_state(self, connected: bool, device: Optional[DeviceInfo]) -> None:
-        if connected and device:
+    @Slot(object)
+    def on_connection_event(self, event: ConnEvent) -> None:
+        previous = self.model.state
+        if not self.model.handle_connection_event(event):
+            return
+        if previous.active_action is not None and previous.active_action != self.model.state.active_action:
+            if event.kind == ConnEventKind.LINK_CLOSED:
+                future = self._action_futures.get(previous.active_action)
+                if future is not None:
+                    future.cancel()
+            self._finish_action(previous.active_action)
+
+        if event.kind in (ConnEventKind.CONNECT_REQUEST, ConnEventKind.OLD_SESSION_CLOSED):
+            self._apply_ui()
+            return
+        if event.kind == ConnEventKind.AUTO_STOPPED and previous.conn == self.ConnState.DISCONNECTED:
+            self._apply_ui()
+            return
+        if event.kind == ConnEventKind.CONNECT_SUCCEEDED:
+            device = event.device
+            assert device is not None
             self._startup_auto_connect_device = None
-            self.model.set_connected(True, device)
             self._reset_profiles_for_device()
             self.worker.submit(self.worker.read_profiles())
             if self._device_params_snapshot is None:
@@ -435,19 +511,13 @@ class MainWindowUpdateMixin:
                     self.metrics_snapshot.temperatures[2],
                 )
             self._lock_selection_to_connected()
-            if self.model.state.active_action == self.Action.CONNECT:
-                self._finish_action(self.Action.CONNECT)
+            self._apply_ui()
             self.on_log(f"Connected to {device.name}")
             return
-        already_disconnected = self.model.state.conn == self.ConnState.DISCONNECTED
-        disconnected_device = self.model.state.connected_device
+        disconnected_device = previous.connected_device
         self._save_metrics_chart_history(disconnected_device)
-        self.model.set_connected(False, None)
         self._device_profile_slots = set()
         self._device_profile_metadata = {}
-        self._profile_operation_active = False
-        self._profile_apply_pending = None
-        self._profile_save_pending = None
         self._reset_profile_selection()
         self._refresh_profile_buttons()
         self._clear_paired_selection()
@@ -459,17 +529,14 @@ class MainWindowUpdateMixin:
         else:
             self.metrics_chart.set_offline_mode()
             self._set_metrics_history_mode("OFFLINE")
-        if self.model.state.active_action == self.Action.DISCONNECT:
-            self._finish_action(self.Action.DISCONNECT)
-        elif self.model.state.active_action == self.Action.CONNECT:
-            self._finish_action(self.Action.CONNECT)
+        self._apply_ui()
         startup_auto_failed = self._startup_auto_connect_device is not None
         failed_device = self._startup_auto_connect_device
         self._startup_auto_connect_device = None
         if startup_auto_failed and failed_device is not None:
             self.on_log(f"Auto-connect failed: {failed_device.name}")
             return
-        if not already_disconnected:
+        if disconnected_device is not None:
             self.on_log("Disconnected")
 
     def _reset_temp_fields(self) -> None:
@@ -494,8 +561,8 @@ class MainWindowUpdateMixin:
             self._set_fan_status_tooltip(channel, "—")
         if self.device_status_field is not None:
             self.device_status_field.setText("—")
+            self.ina_warning_label.hide()
         self._set_device_status_indicator("#6b7280")
-        self._operation_active = False
         self.metrics_chart.clear()
         self.metrics_chart.set_offline_mode()
         self._set_metrics_history_mode("OFFLINE")

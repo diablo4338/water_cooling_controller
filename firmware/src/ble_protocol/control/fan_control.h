@@ -10,6 +10,9 @@ extern "C" {
 #endif
 
 #define FAN_STATUS_VERSION 1
+#define FAN_MODE_STATUS_VERSION 1
+#define FAN_MODE_STATUS_PAYLOAD_LEN 4
+#define FAN_MODE_EFFECTIVE_SERVICE 3
 #define FAN_STATUS_PAYLOAD_LEN 6
 
 typedef enum {
@@ -25,14 +28,10 @@ typedef enum {
 void fan_control_init(void);
 void fan_control_task(void *param);
 
+void fan_control_get_mode_payload(uint8_t *out, size_t len);
 void fan_control_get_status_payload(uint8_t *out, size_t len);
-bool fan_control_override_set(uint8_t op_type, float target_rpm);
 bool fan_control_override_set_output(uint8_t op_type, uint8_t control_type, float target_percent);
 void fan_control_override_clear(uint8_t op_type);
-void fan_control_cycle_limit_reset(void);
-bool fan_control_overcurrent_recovery_active(void);
-float fan_control_cycle_max_percent(void);
-bool fan_control_force_overcurrent_recovery(float applied_percent);
 float fan_control_get_output_percent(void);
 
 #ifdef __cplusplus

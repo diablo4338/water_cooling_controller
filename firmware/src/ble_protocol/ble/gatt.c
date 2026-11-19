@@ -25,6 +25,7 @@
 #include "fan_control.h"
 #include "fan_status_ble.h"
 #include "operation_manager.h"
+#include "output_limit.h"
 #include "operation_status_ble.h"
 #include "params.h"
 #include "profiles.h"
@@ -60,7 +61,7 @@ static int gatt_write_host_pub(uint16_t conn_handle, uint16_t attr_handle,
                                struct ble_gatt_access_ctxt *ctxt, void *arg) {
     (void)conn_handle; (void)attr_handle; (void)arg;
     if (!can_access_pairing()) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
-    if (!pair_state_can_host_pub()) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
+    if (!pair_state_can_dispatch(PAIR_EVT_HOST_PUB_ACCEPTED)) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
     if (!pairing_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
 
     int len = OS_MBUF_PKTLEN(ctxt->om);
@@ -82,7 +83,9 @@ static int gatt_write_host_pub(uint16_t conn_handle, uint16_t attr_handle,
 
     host_verify_update(host_pub65);
 
-    pair_state_set_host_pub_ok();
+    if (!pair_state_dispatch(PAIR_EVT_HOST_PUB_ACCEPTED)) {
+        return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
+    }
     ESP_LOGI(TAG, "Host pub received; K derived");
     return 0;
 }
@@ -91,7 +94,7 @@ static int gatt_write_pair_confirm(uint16_t conn_handle, uint16_t attr_handle,
                                    struct ble_gatt_access_ctxt *ctxt, void *arg) {
     (void)conn_handle; (void)attr_handle; (void)arg;
     if (!can_access_pairing()) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
-    if (!pair_state_can_confirm()) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
+    if (!pair_state_can_dispatch(PAIR_EVT_CONFIRM_ACCEPTED)) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
     if (!pairing_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
 
     int len = OS_MBUF_PKTLEN(ctxt->om);
@@ -119,7 +122,9 @@ static int gatt_write_pair_confirm(uint16_t conn_handle, uint16_t attr_handle,
         return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
     }
 
-    pair_state_set_confirm_ok();
+    if (!pair_state_dispatch(PAIR_EVT_CONFIRM_ACCEPTED)) {
+        return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
+    }
     ESP_LOGI(TAG, "PAIR_CONFIRM ok");
     return 0;
 }
@@ -128,7 +133,7 @@ static int gatt_write_pair_finish(uint16_t conn_handle, uint16_t attr_handle,
                                   struct ble_gatt_access_ctxt *ctxt, void *arg) {
     (void)conn_handle; (void)attr_handle; (void)arg;
     if (!can_access_pairing()) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
-    if (!pair_state_can_finish()) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
+    if (!pair_state_can_dispatch(PAIR_EVT_FINISH_ACCEPTED)) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
     if (!pairing_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
 
     int len = OS_MBUF_PKTLEN(ctxt->om);
@@ -138,9 +143,13 @@ static int gatt_write_pair_finish(uint16_t conn_handle, uint16_t attr_handle,
     os_mbuf_copydata(ctxt->om, 0, 1, &b);
     if (b != 0x01) return BLE_ATT_ERR_UNLIKELY;
 
-    trust_store_upsert(host_id_hash, K);
-    pair_state_set_finish_ok();
-    pair_mode_deactivate();
+    if (!trust_store_upsert(host_id_hash, K)) {
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+    if (!pair_state_dispatch(PAIR_EVT_FINISH_ACCEPTED)) {
+        return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
+    }
+    pair_mode_dispatch(PAIR_WINDOW_PAIR_COMPLETED);
 
     fsm_set_term_conn_handle(conn_handle);
     esp_timer_stop(g_term_timer);
@@ -153,8 +162,7 @@ static int gatt_write_pair_finish(uint16_t conn_handle, uint16_t attr_handle,
 static int gatt_read_auth_nonce(uint16_t conn_handle, uint16_t attr_handle,
                                 struct ble_gatt_access_ctxt *ctxt, void *arg) {
     (void)conn_handle; (void)attr_handle; (void)arg;
-    if (!can_access_auth_nonce()) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
-    if (!auth_conn_check_or_any(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
+    if (!can_access_auth_nonce(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
     uint8_t tmp[sizeof(auth_nonce)];
     state_lock();
     memcpy(tmp, auth_nonce, sizeof(auth_nonce));
@@ -167,20 +175,11 @@ static int gatt_write_auth_proof(uint16_t conn_handle, uint16_t attr_handle,
                                  struct ble_gatt_access_ctxt *ctxt, void *arg) {
     (void)conn_handle; (void)attr_handle; (void)arg;
 
-    if (!can_access_auth_nonce()) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
-    if (!auth_conn_check_or_any(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
+    if (!can_access_auth_nonce(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
 
-    bool already_authed = false;
-    uint16_t authed_handle = BLE_HS_CONN_HANDLE_NONE;
-    already_authed = fsm_is_authed();
-    authed_handle = fsm_get_auth_conn_handle();
-    if (already_authed) {
-        if (authed_handle == conn_handle) {
-            ESP_LOGI(TAG, "AUTH already ok; ignoring repeat proof");
-            return 0;
-        }
-        ESP_LOGW(TAG, "AUTH proof from other handle while authed");
-        return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    if (can_access_data(conn_handle)) {
+        ESP_LOGI(TAG, "AUTH already ok; ignoring repeat proof");
+        return 0;
     }
 
     int len = OS_MBUF_PKTLEN(ctxt->om);
@@ -200,10 +199,9 @@ static int gatt_write_auth_proof(uint16_t conn_handle, uint16_t attr_handle,
         return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
     }
 
-    fsm_dispatch(FSM_EVT_AUTH_OK, conn_handle);
-    state_lock();
-    memset(auth_nonce, 0, sizeof(auth_nonce));
-    state_unlock();
+    if (!fsm_dispatch(FSM_EVT_AUTH_OK, conn_handle)) {
+        return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    }
     ESP_LOGI(TAG, "AUTH ok (authed=true)");
     return 0;
 }
@@ -212,8 +210,7 @@ static int gatt_write_auth_proof(uint16_t conn_handle, uint16_t attr_handle,
 static int gatt_read_temp_single(uint16_t conn_handle, uint16_t attr_handle,
                                  struct ble_gatt_access_ctxt *ctxt, void *arg) {
     (void)attr_handle;
-    if (!can_access_data()) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
-    if (!auth_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    if (!can_access_data(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
     uint8_t channel = (uint8_t)(uintptr_t)arg;
     float temp = metrics_get_temp(channel);
     os_mbuf_append(ctxt->om, &temp, sizeof(temp));
@@ -223,8 +220,7 @@ static int gatt_read_temp_single(uint16_t conn_handle, uint16_t attr_handle,
 static int gatt_read_fan_speed(uint16_t conn_handle, uint16_t attr_handle,
                                struct ble_gatt_access_ctxt *ctxt, void *arg) {
     (void)attr_handle;
-    if (!can_access_data()) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
-    if (!auth_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    if (!can_access_data(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
     uint8_t channel = (uint8_t)(uintptr_t)arg;
     float rpm = metrics_get_fan_speed_rpm_channel(channel);
     os_mbuf_append(ctxt->om, &rpm, sizeof(rpm));
@@ -235,8 +231,7 @@ static int gatt_read_voltage(uint16_t conn_handle, uint16_t attr_handle,
                              struct ble_gatt_access_ctxt *ctxt, void *arg) {
     (void)attr_handle;
     (void)arg;
-    if (!can_access_data()) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
-    if (!auth_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    if (!can_access_data(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
     float voltage = metrics_get_voltage_v();
     os_mbuf_append(ctxt->om, &voltage, sizeof(voltage));
     return 0;
@@ -246,8 +241,7 @@ static int gatt_read_current(uint16_t conn_handle, uint16_t attr_handle,
                              struct ble_gatt_access_ctxt *ctxt, void *arg) {
     (void)attr_handle;
     (void)arg;
-    if (!can_access_data()) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
-    if (!auth_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    if (!can_access_data(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
     float current = metrics_get_current_ma();
     os_mbuf_append(ctxt->om, &current, sizeof(current));
     return 0;
@@ -257,8 +251,7 @@ static int gatt_read_fan_percent(uint16_t conn_handle, uint16_t attr_handle,
                                  struct ble_gatt_access_ctxt *ctxt, void *arg) {
     (void)attr_handle;
     (void)arg;
-    if (!can_access_data()) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
-    if (!auth_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    if (!can_access_data(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
     float percent = fan_control_get_output_percent();
     os_mbuf_append(ctxt->om, &percent, sizeof(percent));
     return 0;
@@ -269,8 +262,7 @@ static int gatt_read_params(uint16_t conn_handle, uint16_t attr_handle,
                             struct ble_gatt_access_ctxt *ctxt, void *arg) {
     (void)attr_handle;
     (void)arg;
-    if (!can_access_data()) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
-    if (!auth_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    if (!can_access_data(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
 
     uint8_t payload[PARAMS_PAYLOAD_LEN];
     if (!params_get_current_payload(payload, sizeof(payload))) return BLE_ATT_ERR_UNLIKELY;
@@ -282,9 +274,8 @@ static int gatt_write_params(uint16_t conn_handle, uint16_t attr_handle,
                              struct ble_gatt_access_ctxt *ctxt, void *arg) {
     (void)attr_handle;
     (void)arg;
-    if (!can_access_data()) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
-    if (!auth_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
-    if (operation_manager_is_active()) {
+    if (!can_access_data(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    if (operation_manager_is_busy()) {
         params_set_last_status(PARAM_STATUS_BUSY, PARAM_FIELD_NONE);
         return BLE_ATT_ERR_INSUFFICIENT_RES;
     }
@@ -294,7 +285,7 @@ static int gatt_write_params(uint16_t conn_handle, uint16_t attr_handle,
 
     uint8_t buf[PARAMS_PAYLOAD_LEN];
     os_mbuf_copydata(ctxt->om, 0, sizeof(buf), buf);
-    if (!params_set_pending_payload(buf, sizeof(buf))) return BLE_ATT_ERR_UNLIKELY;
+    if (!params_set_pending_payload(conn_handle, buf, sizeof(buf))) return BLE_ATT_ERR_UNLIKELY;
     return 0;
 }
 
@@ -330,8 +321,7 @@ static int gatt_access_params_status(uint16_t conn_handle, uint16_t attr_handle,
                                      struct ble_gatt_access_ctxt *ctxt, void *arg) {
     (void)attr_handle;
     (void)arg;
-    if (!can_access_data()) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
-    if (!auth_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    if (!can_access_data(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
 
     if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
         uint8_t payload[PARAMS_STATUS_LEN];
@@ -348,12 +338,12 @@ static int gatt_access_params_status(uint16_t conn_handle, uint16_t attr_handle,
         os_mbuf_copydata(ctxt->om, 0, 1, &cmd);
         if (cmd != 0x01) return BLE_ATT_ERR_UNLIKELY;
 
-        if (operation_manager_is_active()) {
+        if (operation_manager_is_busy()) {
             params_set_last_status(PARAM_STATUS_BUSY, PARAM_FIELD_NONE);
             return BLE_ATT_ERR_INSUFFICIENT_RES;
         }
 
-        params_apply(NULL);
+        params_apply(conn_handle);
 
         gatt_notify_params_status(conn_handle);
         return 0;
@@ -366,8 +356,7 @@ static int gatt_access_profiles(uint16_t conn_handle, uint16_t attr_handle,
                                 struct ble_gatt_access_ctxt *ctxt, void *arg) {
     (void)attr_handle;
     (void)arg;
-    if (!can_access_data()) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
-    if (!auth_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    if (!can_access_data(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
 
     if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
         uint8_t mask = 0;
@@ -390,7 +379,7 @@ static int gatt_access_profiles(uint16_t conn_handle, uint16_t attr_handle,
     uint8_t action = command[0];
     uint8_t slot = command[1];
     if (slot < 1 || slot > PROFILE_COUNT) return BLE_ATT_ERR_UNLIKELY;
-    if (operation_manager_is_active()) {
+    if (operation_manager_is_busy()) {
         params_set_last_status(PARAM_STATUS_BUSY, PARAM_FIELD_NONE);
         gatt_notify_params_status(conn_handle);
         return BLE_ATT_ERR_INSUFFICIENT_RES;
@@ -400,9 +389,7 @@ static int gatt_access_profiles(uint16_t conn_handle, uint16_t attr_handle,
         return profiles_save_current(slot) ? 0 : BLE_ATT_ERR_UNLIKELY;
     }
     if (action == PROFILE_ACTION_APPLY) {
-        uint8_t status = PARAM_STATUS_INVALID;
-        uint8_t field_id = PARAM_FIELD_NONE;
-        if (!profiles_apply(slot, &status, &field_id)) {
+        if (!profiles_apply(slot)) {
             return BLE_ATT_ERR_UNLIKELY;
         }
         gatt_notify_params_status(conn_handle);
@@ -418,8 +405,7 @@ static int gatt_access_profile_metadata(uint16_t conn_handle, uint16_t attr_hand
                                         struct ble_gatt_access_ctxt *ctxt, void *arg) {
     (void)attr_handle;
     uint8_t slot = (uint8_t)(uintptr_t)arg;
-    if (!can_access_data()) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
-    if (!auth_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    if (!can_access_data(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
 
     if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
         uint8_t payload[PROFILE_METADATA_MAX_LEN];
@@ -451,8 +437,7 @@ static int gatt_read_fan_status(uint16_t conn_handle, uint16_t attr_handle,
                                 struct ble_gatt_access_ctxt *ctxt, void *arg) {
     (void)attr_handle;
     (void)arg;
-    if (!can_access_data()) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
-    if (!auth_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    if (!can_access_data(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
 
     uint8_t payload[FAN_STATUS_PAYLOAD_LEN];
     fan_control_get_status_payload(payload, sizeof(payload));
@@ -464,8 +449,7 @@ static int gatt_read_device_status(uint16_t conn_handle, uint16_t attr_handle,
                                    struct ble_gatt_access_ctxt *ctxt, void *arg) {
     (void)attr_handle;
     (void)arg;
-    if (!can_access_data()) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
-    if (!auth_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    if (!can_access_data(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
 
     uint8_t payload[DEVICE_STATUS_PAYLOAD_LEN];
     device_status_get_payload(payload, sizeof(payload));
@@ -478,8 +462,7 @@ static int gatt_access_operation_control(uint16_t conn_handle, uint16_t attr_han
                                          struct ble_gatt_access_ctxt *ctxt, void *arg) {
     (void)attr_handle;
     (void)arg;
-    if (!can_access_data()) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
-    if (!auth_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    if (!can_access_data(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
 
     if (ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR) {
         return BLE_ATT_ERR_UNLIKELY;
@@ -494,18 +477,27 @@ static int gatt_access_operation_control(uint16_t conn_handle, uint16_t attr_han
     uint8_t op_type = buf[1];
     uint8_t action = buf[2];
     if (version != OP_CONTROL_VERSION) return BLE_ATT_ERR_UNLIKELY;
-    if (action != 0x01) return BLE_ATT_ERR_UNLIKELY;
+    if (action == OP_CONTROL_CANCEL && op_type == OP_TYPE_NONE) {
+        return operation_manager_cancel(conn_handle) ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+    if (action != OP_CONTROL_START) return BLE_ATT_ERR_UNLIKELY;
 
-    operation_manager_start((operation_type_t)op_type);
-    return 0;
+    switch (operation_manager_start((operation_type_t)op_type, conn_handle)) {
+        case OP_START_OK:
+            return 0;
+        case OP_START_BUSY:
+        case OP_START_OVERHEAT:
+            return BLE_ATT_ERR_INSUFFICIENT_RES;
+        default:
+            return BLE_ATT_ERR_UNLIKELY;
+    }
 }
 
 static int gatt_access_operation_status(uint16_t conn_handle, uint16_t attr_handle,
                                         struct ble_gatt_access_ctxt *ctxt, void *arg) {
     (void)attr_handle;
     (void)arg;
-    if (!can_access_data()) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
-    if (!auth_conn_check(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    if (!can_access_data(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
 
     if (ctxt->op != BLE_GATT_ACCESS_OP_READ_CHR) {
         return BLE_ATT_ERR_UNLIKELY;
@@ -536,6 +528,61 @@ static struct ble_gatt_chr_def main_chrs[] = {
     { .uuid = NULL, .access_cb = gatt_write_auth_proof, .flags = BLE_GATT_CHR_F_WRITE },
     { 0 }
 };
+
+static int gatt_access_output_limit(uint16_t conn_handle, uint16_t attr_handle,
+                                    struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    (void)attr_handle;
+    bool extended = arg != NULL;
+    if (!can_access_data(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+
+    if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
+        uint8_t payload[OUTPUT_LIMIT_EXTENDED_LEN];
+        size_t len = output_limit_status_encode(extended, payload);
+        return os_mbuf_append(ctxt->om, payload, len) == 0
+                   ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+    if (extended || ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR) return BLE_ATT_ERR_UNLIKELY;
+    uint8_t command[3];
+    if (OS_MBUF_PKTLEN(ctxt->om) != sizeof(command)) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+    if (os_mbuf_copydata(ctxt->om, 0, sizeof(command), command) != 0 ||
+        command[0] != OUTPUT_LIMIT_VERSION) return BLE_ATT_ERR_UNLIKELY;
+    if (operation_manager_is_busy()) {
+        if (command[1] == OUTPUT_LIMIT_WRITE_MAX) params_set_last_status(PARAM_STATUS_BUSY, PARAM_FIELD_NONE);
+        return BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+
+    if (command[1] == OUTPUT_LIMIT_WRITE_MAX) {
+        uint8_t result = params_set_output_max(command[2]);
+        if (result == PARAM_STATUS_OUTPUT_ADJUSTING) return BLE_ATT_ERR_INSUFFICIENT_RES;
+        return result == PARAM_STATUS_OK ? 0 : BLE_ATT_ERR_UNLIKELY;
+    }
+    if (command[1] == OUTPUT_LIMIT_RESET && command[2] == 0) {
+        return output_limit_request_reset() ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+    return BLE_ATT_ERR_UNLIKELY;
+}
+
+static int gatt_access_fan_mode_status(uint16_t conn_handle, uint16_t attr_handle,
+                                       struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    (void)attr_handle;
+    (void)arg;
+    if (!can_access_data(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    if (ctxt->op != BLE_GATT_ACCESS_OP_READ_CHR) return BLE_ATT_ERR_UNLIKELY;
+    uint8_t payload[FAN_MODE_STATUS_PAYLOAD_LEN];
+    fan_control_get_mode_payload(payload, sizeof(payload));
+    return os_mbuf_append(ctxt->om, payload, sizeof(payload)) == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+}
+
+static int gatt_access_profile_result(uint16_t conn_handle, uint16_t attr_handle,
+                                      struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    (void)attr_handle;
+    (void)arg;
+    if (!can_access_data(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    if (ctxt->op != BLE_GATT_ACCESS_OP_READ_CHR) return BLE_ATT_ERR_UNLIKELY;
+    uint8_t payload[PROFILE_RESULT_PAYLOAD_LEN];
+    profiles_get_result_payload(payload);
+    return os_mbuf_append(ctxt->om, payload, sizeof(payload)) == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+}
 
 static struct ble_gatt_chr_def config_chrs[] = {
     {
@@ -583,6 +630,27 @@ static struct ble_gatt_chr_def config_chrs[] = {
         .access_cb = gatt_access_profile_metadata,
         .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE,
         .arg = (void *)(uintptr_t)3,
+    },
+    {
+        .uuid = NULL,
+        .access_cb = gatt_access_output_limit,
+        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_NOTIFY,
+        .val_handle = &g_output_limit_attr_handle,
+    },
+    {
+        .access_cb = gatt_access_fan_mode_status,
+        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+        .val_handle = &g_fan_mode_status_attr_handle,
+    },
+    {
+        .access_cb = gatt_access_profile_result,
+        .flags = BLE_GATT_CHR_F_READ,
+    },
+    {
+        .access_cb = gatt_access_output_limit,
+        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+        .arg = (void *)(uintptr_t)1,
+        .val_handle = &g_output_range_attr_handle,
     },
     { 0 }
 };
@@ -722,6 +790,10 @@ void gatt_init_uuids_and_services(void) {
     parse_uuid_or_abort(UUID_CONFIG_PROFILE1_METADATA_STR, &UUID_CONFIG_PROFILE1_METADATA);
     parse_uuid_or_abort(UUID_CONFIG_PROFILE2_METADATA_STR, &UUID_CONFIG_PROFILE2_METADATA);
     parse_uuid_or_abort(UUID_CONFIG_PROFILE3_METADATA_STR, &UUID_CONFIG_PROFILE3_METADATA);
+    parse_uuid_or_abort(UUID_CONFIG_OUTPUT_LIMIT_STR, &UUID_CONFIG_OUTPUT_LIMIT);
+    parse_uuid_or_abort(UUID_CONFIG_OUTPUT_RANGE_STR, &UUID_CONFIG_OUTPUT_RANGE);
+    parse_uuid_or_abort(UUID_CONFIG_FAN_MODE_STATUS_STR, &UUID_CONFIG_FAN_MODE_STATUS);
+    parse_uuid_or_abort(UUID_CONFIG_PROFILE_RESULT_STR, &UUID_CONFIG_PROFILE_RESULT);
     parse_uuid_or_abort(UUID_OP_CONTROL_STR, &UUID_OP_CONTROL);
     parse_uuid_or_abort(UUID_OP_STATUS_STR, &UUID_OP_STATUS);
     
@@ -760,6 +832,10 @@ void gatt_init_uuids_and_services(void) {
     config_chrs[5].uuid = &UUID_CONFIG_PROFILE1_METADATA.u;
     config_chrs[6].uuid = &UUID_CONFIG_PROFILE2_METADATA.u;
     config_chrs[7].uuid = &UUID_CONFIG_PROFILE3_METADATA.u;
+    config_chrs[8].uuid = &UUID_CONFIG_OUTPUT_LIMIT.u;
+    config_chrs[9].uuid = &UUID_CONFIG_FAN_MODE_STATUS.u;
+    config_chrs[10].uuid = &UUID_CONFIG_PROFILE_RESULT.u;
+    config_chrs[11].uuid = &UUID_CONFIG_OUTPUT_RANGE.u;
     operations_chrs[0].uuid = &UUID_OP_CONTROL.u;
     operations_chrs[1].uuid = &UUID_OP_STATUS.u;
 

@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import asyncio
+from contextlib import suppress
 from typing import Callable, Optional
+
+from bleak import BleakClient
+from bleak.exc import BleakCharacteristicNotFoundError
 
 from .codec import (
     decode_device_status,
@@ -15,17 +20,29 @@ from .codec import (
     encode_profile_command,
     encode_params,
 )
-from .models import DeviceInfo, DeviceStatus, FanStatus, OperationStatus, ParamsStatus
+from .models import (
+    DeviceInfo, DeviceStatus, FanModeStatus, FanStatus, OperationStatus, OutputLimitResetResult,
+    OutputLimitState, OutputLimitStatus, ParamsStatus, ProfileApplyResult, ProfileSkipReason,
+    ThermalInputState,
+)
 from .protocol import (
     MAIN_SERVICE_UUIDS,
     OP_TYPE_FAN_CALIBRATION,
+    OP_TYPE_NONE,
     OP_TYPE_SETUP_FANS,
+    PARAM_STATUS_INVALID,
+    PARAM_STATUS_OUTPUT_ADJUSTING,
+    PARAM_STATUS_STORAGE_ERROR,
     PROFILE_ACTION_APPLY,
     PROFILE_ACTION_CLEAR,
     PROFILE_ACTION_SAVE_CURRENT,
     UUID_CONFIG_DEVICE_STATUS,
     UUID_CONFIG_FAN_STATUS,
     UUID_CONFIG_PARAMS,
+    UUID_CONFIG_OUTPUT_LIMIT,
+    UUID_CONFIG_OUTPUT_RANGE,
+    UUID_CONFIG_FAN_MODE_STATUS,
+    UUID_CONFIG_PROFILE_RESULT,
     UUID_CONFIG_PROFILE_METADATA,
     UUID_CONFIG_PROFILES,
     UUID_CONFIG_STATUS,
@@ -35,7 +52,10 @@ from .protocol import (
 
 
 class BleCoreControlMixin:
-    async def connect_raw(self, device: DeviceInfo, connect_timeout: Optional[float] = None) -> None:
+    async def connect_raw(
+        self, device: DeviceInfo, connect_timeout: Optional[float] = None, *,
+        disconnected_callback: Optional[Callable[[BleakClient], None]] = None,
+    ) -> None:
         if connect_timeout is None:
             connect_timeout = self._config.connect_timeout_s
         self._emit_conn(
@@ -47,12 +67,18 @@ class BleCoreControlMixin:
             target,
             connect_timeout=connect_timeout,
             services=MAIN_SERVICE_UUIDS,
+            disconnected_callback=disconnected_callback,
         )
-        await self._run_step(
-            f"connect {self._format_device(device)}",
-            client.connect(),
-            timeout=connect_timeout,
-        )
+        try:
+            await self._run_step(
+                f"connect {self._format_device(device)}",
+                client.connect(),
+                timeout=connect_timeout,
+            )
+        except (Exception, asyncio.CancelledError):
+            with suppress(Exception):
+                await self._run_step("disconnect after failed connect", client.disconnect(), timeout=3.0)
+            raise
         self.client = client
         self.device = device if isinstance(target, str) else device.with_ble_device(target)
         backend_id = getattr(client, "backend_id", None)
@@ -62,18 +88,25 @@ class BleCoreControlMixin:
         )
 
     async def disconnect(self) -> None:
-        if self.client:
-            try:
-                label = (
-                    f"disconnect {self._format_device(self.device)}"
-                    if self.device
-                    else "disconnect current client"
-                )
-                await self._run_step(label, self.client.disconnect(), timeout=3.0)
-            except Exception as exc:
-                self._emit_conn(f"disconnect cleanup error: {self._format_error(exc)}")
-        self.client = None
-        self.device = None
+        try:
+            if self.client:
+                try:
+                    label = (
+                        f"disconnect {self._format_device(self.device)}"
+                        if self.device
+                        else "disconnect current client"
+                    )
+                    await self._run_step(label, self.client.disconnect(), timeout=3.0)
+                except Exception as exc:
+                    self._emit_conn(f"disconnect cleanup error: {self._format_error(exc)}")
+        finally:
+            self.client = None
+            self.device = None
+            self._output_limit_notify_uuid = None
+            self._last_output_limit = None
+            if self._output_reset_waiter is not None:
+                self._output_reset_waiter[1].cancel()
+                self._output_reset_waiter = None
 
     async def read_params(self, timeout: Optional[float] = None):
         if not self.client:
@@ -142,6 +175,167 @@ class BleCoreControlMixin:
     async def clear_profile(self, slot: int, timeout: Optional[float] = None) -> None:
         await self._profile_command(PROFILE_ACTION_CLEAR, slot, timeout)
 
+    async def read_fan_mode_status(self, *, timeout: float) -> FanModeStatus:
+        data = await self._read_char(UUID_CONFIG_FAN_MODE_STATUS, timeout=timeout)
+        return self._decode_fan_mode_status(data)
+
+    @staticmethod
+    def _decode_fan_mode_status(data: bytes | bytearray) -> FanModeStatus:
+        if len(data) != 4 or data[0] != 1 or data[1] not in range(3) or data[2] not in range(4):
+            raise RuntimeError("Invalid fan mode status")
+        return FanModeStatus(data[1], data[2], ThermalInputState(data[3]))
+
+    async def read_profile_apply_result(self, slot: int, *, timeout: float) -> ProfileApplyResult:
+        data = await self._read_char(UUID_CONFIG_PROFILE_RESULT, timeout=timeout)
+        if len(data) != 16 or data[0] != 1 or data[1] != slot:
+            raise RuntimeError("Controller did not return the result for the requested profile")
+        return ProfileApplyResult(
+            slot=slot, status=data[2], applied_mask=int.from_bytes(data[3:5], "little"),
+            skipped=tuple(ProfileSkipReason(reason) for reason in data[5:]),
+        )
+
+    async def read_output_limit(self, *, timeout: float) -> OutputLimitStatus:
+        previous = self._last_output_limit
+        try:
+            data = await self._read_char(self._output_limit_notify_uuid or UUID_CONFIG_OUTPUT_RANGE, timeout=timeout)
+        except BleakCharacteristicNotFoundError:
+            data = await self._read_char(UUID_CONFIG_OUTPUT_LIMIT, timeout=timeout)
+        status = self._decode_output_limit(data)
+        if self._last_output_limit is not None and self._last_output_limit is not previous:
+            return self._last_output_limit
+        self._last_output_limit = status
+        return status
+
+    @staticmethod
+    def _decode_output_limit(data: bytes | bytearray) -> OutputLimitStatus:
+        if not data or (data[0], len(data)) not in ((1, 4), (2, 6), (3, 8)):
+            raise RuntimeError("Invalid output-limit status")
+        if data[1] > 100 or data[2] > data[1]:
+            raise RuntimeError("Invalid output-limit status")
+        minimum = data[6] if data[0] == 3 and data[6] != 255 else None
+        if data[0] == 3 and (data[7] > 1 or (minimum is not None and minimum > data[2])):
+            raise RuntimeError("Invalid output-limit status")
+        return OutputLimitStatus(
+            configured=data[1], effective=data[2], state=OutputLimitState(data[3]),
+            reset_sequence=data[4] if data[0] >= 2 else None,
+            reset_result=OutputLimitResetResult(data[5]) if data[0] >= 2 else OutputLimitResetResult.NONE,
+            temporary_minimum=minimum,
+            alert_without_load=data[0] == 3 and bool(data[7]),
+        )
+
+    async def set_output_max(self, maximum: int, *, timeout: float) -> None:
+        if not 1 <= maximum <= 100:
+            raise ValueError("Maximum output must be between 1% and 100%")
+        try:
+            await self._write_char(UUID_CONFIG_OUTPUT_LIMIT, bytes((1, 1, maximum)), response=True, timeout=timeout)
+        except Exception as exc:
+            status = None
+            with suppress(Exception):
+                status = await self.read_params_status(timeout=timeout)
+            if status is not None:
+                message = {
+                    PARAM_STATUS_INVALID: "Maximum output was rejected by the controller.",
+                    PARAM_STATUS_OUTPUT_ADJUSTING: "Maximum was not saved. Wait for overload protection to finish.",
+                    PARAM_STATUS_STORAGE_ERROR: "Could not save the maximum output to device storage.",
+                }.get(status.status)
+                if message:
+                    raise RuntimeError(message) from exc
+            raise
+
+    async def reset_output_limit(self, *, timeout: float) -> OutputLimitStatus:
+        previous = self._last_output_limit
+        if self._output_limit_notify_uuid is None or previous is None or previous.reset_sequence is None:
+            raise RuntimeError("Firmware with output-limit notifications is required to confirm the reset")
+        if self._output_reset_waiter is not None:
+            raise RuntimeError("An overload reset is already in progress")
+
+        future = asyncio.get_running_loop().create_future()
+        sequence = (previous.reset_sequence + 1) & 0xFF
+        waiter = (sequence, future)
+        self._output_reset_waiter = waiter
+
+        async def reset_and_confirm() -> OutputLimitStatus:
+            await self._write_char(UUID_CONFIG_OUTPUT_LIMIT, bytes((1, 2, 0)), response=True, timeout=timeout)
+            status = await future
+            if status.reset_result == OutputLimitResetResult.REJECTED:
+                raise RuntimeError("Temporary limit was not reset: overload active or sensor unavailable")
+            return status
+
+        try:
+            return await asyncio.wait_for(reset_and_confirm(), timeout=timeout)
+        except asyncio.TimeoutError as exc:
+            raise RuntimeError("Controller did not confirm the temporary limit reset") from exc
+        finally:
+            if self._output_reset_waiter is waiter:
+                self._output_reset_waiter = None
+            future.cancel()
+
+    def _supports_notify(self, uuid: str) -> bool:
+        if self.client is None:
+            raise RuntimeError("Not connected")
+        characteristic = self.client.services.get_characteristic(uuid)
+        return characteristic is not None and "notify" in characteristic.properties
+
+    @property
+    def output_limit_notifications_active(self) -> bool:
+        return self._output_limit_notify_uuid is not None
+
+    async def start_fan_mode_status_notify(self, callback: Callable[[FanModeStatus], None]) -> None:
+        if not self._supports_notify(UUID_CONFIG_FAN_MODE_STATUS):
+            return
+        client = self.client
+
+        def on_notify(_, data: bytearray) -> None:
+            if self.client is not client:
+                return
+            try:
+                status = self._decode_fan_mode_status(data)
+            except (RuntimeError, ValueError):
+                return
+            callback(status)
+
+        await self._start_notify(UUID_CONFIG_FAN_MODE_STATUS, on_notify)
+
+    async def stop_fan_mode_status_notify(self) -> None:
+        if self._supports_notify(UUID_CONFIG_FAN_MODE_STATUS):
+            await self._stop_notify(UUID_CONFIG_FAN_MODE_STATUS)
+
+    async def start_output_limit_notify(self, callback: Callable[[OutputLimitStatus], None]) -> None:
+        uuid = next((uuid for uuid in (UUID_CONFIG_OUTPUT_RANGE, UUID_CONFIG_OUTPUT_LIMIT)
+                     if self._supports_notify(uuid)), None)
+        if uuid is None:
+            return
+        client = self.client
+        self._output_limit_notify_uuid = uuid
+
+        def on_notify(_, data: bytearray) -> None:
+            if self.client is not client or self._output_limit_notify_uuid != uuid:
+                return
+            try:
+                status = self._decode_output_limit(data)
+            except (RuntimeError, ValueError):
+                return
+            self._last_output_limit = status
+            waiter = self._output_reset_waiter
+            if waiter is not None:
+                sequence, future = waiter
+                if (status.reset_sequence == sequence and not future.done() and
+                        status.reset_result in (OutputLimitResetResult.APPLIED, OutputLimitResetResult.REJECTED)):
+                    future.set_result(status)
+            callback(status)
+
+        try:
+            await self._start_notify(uuid, on_notify)
+        except (Exception, asyncio.CancelledError):
+            self._output_limit_notify_uuid = None
+            raise
+
+    async def stop_output_limit_notify(self) -> None:
+        uuid = self._output_limit_notify_uuid
+        self._output_limit_notify_uuid = None
+        if uuid is not None:
+            await self._stop_notify(uuid)
+
     async def read_fan_status(self, timeout: Optional[float] = None) -> FanStatus:
         if not self.client:
             raise RuntimeError("Not connected")
@@ -179,6 +373,11 @@ class BleCoreControlMixin:
             timeout=timeout,
         )
 
+    async def read_params_status(self, timeout: Optional[float] = None) -> ParamsStatus:
+        if timeout is None:
+            timeout = self._config.metrics_timeout_s
+        return decode_params_status(bytes(await self._read_char(UUID_CONFIG_STATUS, timeout=timeout)))
+
     async def apply_params(self, timeout: Optional[float] = None) -> None:
         if not self.client:
             raise RuntimeError("Not connected")
@@ -200,6 +399,14 @@ class BleCoreControlMixin:
         await self._write_char(
             UUID_OP_CONTROL,
             payload,
+            response=True,
+            timeout=timeout,
+        )
+
+    async def cancel_operation(self, *, timeout: float) -> None:
+        await self._write_char(
+            UUID_OP_CONTROL,
+            encode_operation_control(OP_TYPE_NONE, action=2),
             response=True,
             timeout=timeout,
         )

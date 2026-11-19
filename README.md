@@ -14,7 +14,7 @@ The desktop application works over BLE and supports pairing mode, controller con
 - [`hardware/`](hardware/README.md) - KiCad project, BOM, and production exports for the PCB.
 - [`tests/raspberry/`](tests/raspberry/README.md) - Raspberry Pi helper for hardware integration tests.
 - [`docker/`](docker/README.md) - local Docker environment for release-build verification.
-- [`docs/`](docs/) - additional notes on architecture, CLI, release flow, and hardware.
+- [Architecture and documentation index](docs/architecture.md)
 
 ## Release artifacts
 The `scripts/make_release.sh` script and the `Release` workflow produce:

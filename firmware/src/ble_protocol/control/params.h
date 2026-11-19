@@ -17,6 +17,9 @@ extern "C" {
 #define PARAM_STATUS_INVALID 0x01
 #define PARAM_STATUS_BUSY 0x02
 #define PARAM_STATUS_STORAGE_ERROR 0x03
+#define PARAM_STATUS_ADC_UNAVAILABLE 0x04
+#define PARAM_STATUS_NTC_UNAVAILABLE 0x05
+#define PARAM_STATUS_OUTPUT_ADJUSTING 0x06
 
 #define PARAM_FIELD_FAN_MIN_SPEED 0
 #define PARAM_FIELD_FAN_CONTROL_TYPE 1
@@ -29,7 +32,24 @@ extern "C" {
 #define PARAM_FIELD_FAN3_MONITORING_ENABLED 8
 #define PARAM_FIELD_FAN4_MONITORING_ENABLED 9
 #define PARAM_FIELD_OVERHEAT_ALARM_ENABLED 10
+#define PARAM_FIELD_COUNT 11
 #define PARAM_FIELD_NONE 0xFF
+
+typedef enum {
+    PROFILE_SKIP_NONE = 0,
+    PROFILE_SKIP_INVALID,
+    PROFILE_SKIP_OUTPUT_MAX, // An applied field with this reason was capped at the saved maximum.
+    PROFILE_SKIP_TEMP_CONFLICT,
+    PROFILE_SKIP_ADC,
+    PROFILE_SKIP_NTC,
+    PROFILE_SKIP_OUTPUT_ADJUSTING, // Legacy profile result.
+} profile_skip_reason_t;
+
+typedef struct {
+    uint8_t status;
+    uint16_t applied_mask;
+    uint8_t skipped[PARAM_FIELD_COUNT];
+} params_profile_result_t;
 
 #define PARAM_MASK_FAN_MIN_SPEED (1u << 0)
 #define PARAM_MASK_FAN_CONTROL_TYPE (1u << 1)
@@ -68,18 +88,29 @@ typedef struct {
     uint8_t overheat_alarm_enabled;
 } params_t;
 
+typedef struct {
+    params_t params;
+    uint8_t maximum;
+} params_config_t;
+
 void params_init(void);
 
 bool params_read(params_t *out);
-bool params_write(const params_t *params, uint16_t mask);
-bool params_cache_get(params_t *out);
+params_config_t params_read_config(void);
 
-bool params_set_pending_payload(const uint8_t *data, size_t len);
+bool params_set_pending_payload(uint16_t conn_handle, const uint8_t *data, size_t len);
+void params_discard_pending(uint16_t conn_handle);
 bool params_get_current_payload(uint8_t *out, size_t len);
 void params_get_last_status_payload(uint8_t *out, size_t len);
 void params_set_last_status(uint8_t status, uint8_t field);
-uint8_t params_apply(uint8_t *field_id);
-void params_factory_reset(void);
+uint8_t params_apply(uint16_t conn_handle);
+bool params_apply_profile_payload(const uint8_t *data, size_t len, params_profile_result_t *result);
+uint32_t params_reset_revision(void);
+uint8_t params_apply_operation_result(const params_t *changes, uint16_t mask, uint32_t revision);
+// Zero indicates that the saved configuration is unavailable and blocks output.
+uint8_t params_get_output_max(void);
+uint8_t params_set_output_max(uint8_t maximum);
+bool params_factory_reset(void);
 
 #ifdef __cplusplus
 }

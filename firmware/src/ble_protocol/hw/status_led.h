@@ -11,7 +11,7 @@ typedef enum {
 
 void status_led_init(void);
 void status_led_task(void *param);
-void status_led_blink_twice(void);
+void status_led_report_factory_reset(bool success);
 
 #ifdef PAIR_RUN_TESTS
 status_led_mode_t status_led_resolve_mode_for_state(bool pairing_active, bool overheat_active, bool error_active);

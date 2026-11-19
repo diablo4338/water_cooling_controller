@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import fields, replace
 
 from PySide6.QtWidgets import QInputDialog, QMenu
 
@@ -106,16 +107,27 @@ class MainWindowParamsMixin:
         save: bool = True,
         apply_status: str | None = None,
         apply_status_text: str | None = None,
+        preserve_edits: bool = False,
     ) -> None:
         if len(self.param_fields) != len(PARAM_FIELDS) or len(self.fan_monitor_checkboxes) != 4:
             return
+        displayed = params
+        previous = self._device_params_snapshot
+        if preserve_edits and previous is not None:
+            draft = self._current_params()
+            edits = {
+                field.name: getattr(draft, field.name)
+                for field in fields(DeviceParams)
+                if getattr(draft, field.name) != getattr(previous, field.name)
+            }
+            displayed = replace(params, **edits)
         self._device_params_snapshot = params
         self._params_update_lock = True
         try:
             for item in self.param_fields:
                 spec = item["spec"]
                 widget = item["widget"]
-                value = getattr(params, spec["key"])
+                value = getattr(displayed, spec["key"])
                 if spec["kind"] == "enum":
                     idx = widget.findData(int(value))
                     widget.setCurrentIndex(idx if idx >= 0 else 0)
@@ -130,7 +142,7 @@ class MainWindowParamsMixin:
                 elif spec["key"] == "overheat_alarm_enabled":
                     widget.setToolTip("")
             for idx, key in enumerate(FAN_MONITORING_KEYS):
-                self.fan_monitor_checkboxes[idx].setChecked(bool(getattr(params, key)))
+                self.fan_monitor_checkboxes[idx].setChecked(bool(getattr(displayed, key)))
                 self.fan_monitor_checkboxes[idx].setEnabled(idx > 0)
         finally:
             self._params_update_lock = False
@@ -195,22 +207,7 @@ class MainWindowParamsMixin:
             color = "#22c55e" if exists else "#9ca3af"
             status_bar.setStyleSheet(f"background:{color};")
             status_bar.setToolTip("Profile has saved settings" if exists else "Profile is empty")
-        connected = self.model.state.connected_device is not None
-        for button in self.profile_buttons:
-            button.setEnabled(
-                connected and not self.model.state.busy and not self._profile_operation_active
-            )
-        selected_profile_is_saved = (
-            self._selected_profile_index in self._device_profile_slots
-            if self._selected_profile_index is not None
-            else False
-        )
-        self.clear_profile_button.setEnabled(
-            connected
-            and not self.model.state.busy
-            and not self._profile_operation_active
-            and selected_profile_is_saved
-        )
+        self._apply_ui()
 
     def _reset_profile_selection(self) -> None:
         self._selected_profile_index = None
@@ -232,17 +229,10 @@ class MainWindowParamsMixin:
         self._refresh_profile_buttons()
 
     def _submit_profile_action(self, action) -> None:
-        coroutine = action()
-        if self.worker.submit(coroutine) is None:
-            coroutine.close()
-            self._profile_operation_active = False
-            self._profile_apply_pending = None
-            self.on_log("Profile command could not be queued")
-            self._refresh_profile_buttons()
+        self._start_action(self.model.state.active_action, action())
 
     def on_profile_clicked(self, index: int, checked: bool) -> None:
-        device = self.model.state.connected_device
-        if device is None or self.model.state.conn != self.ConnState.CONNECTED:
+        if self.Action.APPLY_PROFILE not in self.model.ui.enabled_actions:
             return
         if not checked:
             if self._selected_profile_index == index:
@@ -259,27 +249,21 @@ class MainWindowParamsMixin:
             )
             self._apply_ui()
             return
-        self._profile_operation_active = True
-        self._profile_apply_pending = index
+        if self.model.dispatch(self.Action.APPLY_PROFILE, slot=index) is None:
+            return
         self._apply_ui()
-        self._submit_profile_action(lambda: self.worker.apply_profile(index))
+        self._submit_profile_action(lambda: self.worker.apply_profile(index, self.model.state.command_id))
 
     def _save_profile_metadata(self, index: int, title: str, description: str) -> None:
-        device = self.model.state.connected_device
-        if device is None or self._profile_operation_active:
+        if self.model.dispatch(self.Action.EDIT_PROFILE, slot=index) is None:
             return
-        self._profile_operation_active = True
-        self._refresh_profile_buttons()
+        self._apply_ui()
         self._submit_profile_action(
             lambda: self.worker.save_profile_metadata(index, title.strip(), description.strip())
         )
 
     def _show_profile_menu(self, index: int, global_position) -> None:
-        if (
-            self.model.state.connected_device is None
-            or self.model.state.busy
-            or self._profile_operation_active
-        ):
+        if self.Action.EDIT_PROFILE not in self.model.ui.enabled_actions:
             return
         metadata = self._device_profile_metadata.get(index, {})
         menu = QMenu(self)
@@ -319,16 +303,11 @@ class MainWindowParamsMixin:
 
     def on_clear_profile(self) -> None:
         index = self._selected_profile_index
-        device = self.model.state.connected_device
-        if (
-            index is None
-            or device is None
-            or index not in self._device_profile_slots
-            or self._profile_operation_active
-        ):
+        if index not in self._device_profile_slots:
             return
-        self._profile_operation_active = True
-        self._refresh_profile_buttons()
+        if self.model.dispatch(self.Action.CLEAR_PROFILE, slot=index) is None:
+            return
+        self._apply_ui()
         self._submit_profile_action(lambda: self.worker.clear_profile(index))
 
     def _on_params_changed(self, _) -> None:
@@ -353,6 +332,7 @@ class MainWindowParamsMixin:
             self.apply_status_label.setStyleSheet(f"color:{color};")
             self.apply_status_label.setText(text)
             self.apply_status_label.setToolTip(text)
+            self.apply_status_label.setVisible(bool(text))
 
     def _show_apply_result(self, kind: str, text: str) -> None:
         self._set_apply_status(kind, text)

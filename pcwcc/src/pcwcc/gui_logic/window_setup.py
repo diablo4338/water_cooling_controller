@@ -106,9 +106,10 @@ class MainWindowSetupMixin:
         )
         self.status_label = QLabel(self.model.state.status)
         self.apply_status_label = QLabel("")
-        self.apply_status_label.setMinimumWidth(220)
+        self.apply_status_label.setWordWrap(True)
         self.apply_status_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
         self.apply_status_label.setStyleSheet("color:#6b7280;")
+        self.apply_status_label.hide()
         self._apply_status_timer = QTimer(self)
         self._apply_status_timer.setSingleShot(True)
         self._apply_status_timer.timeout.connect(self._clear_apply_status)
@@ -127,16 +128,12 @@ class MainWindowSetupMixin:
         self.current_field = None
         self.device_status_field = None
         self.device_status_indicator = None
-        self._operation_active = False
         self.param_fields = []
         self._params_update_lock = False
         self._device_params_snapshot = None
         self._selected_profile_index = None
         self._device_profile_slots = set()
         self._device_profile_metadata = {}
-        self._profile_operation_active = False
-        self._profile_apply_pending = None
-        self._profile_save_pending = None
         self._apply_status_kind = "idle"
         self._apply_status_text = ""
 
@@ -242,29 +239,40 @@ class MainWindowSetupMixin:
         self.worker.scan_results.connect(self.on_scan_results)
         self.worker.metrics_received.connect(self.on_metrics_received)
         self.worker.params_received.connect(self.on_params_received)
-        self.worker.params_status.connect(self.on_params_status)
+        self.worker.params_command_done.connect(self.on_params_command_done)
         self.worker.profiles_received.connect(self.on_profiles_received)
         self.worker.profile_metadata_received.connect(self.on_profile_metadata_received)
         self.worker.profile_action_done.connect(self.on_profile_action_done)
         self.worker.profile_metadata_done.connect(self.on_profile_metadata_done)
-        self.worker.apply_done.connect(self.on_apply_done)
         self.worker.fan_status_received.connect(self.on_fan_status)
         self.worker.device_status_received.connect(self.on_device_status)
         self.worker.operation_status_received.connect(self.on_operation_status)
+        self.worker.operation_start_failed.connect(self.on_operation_start_failed)
+        self.worker.output_limit_received.connect(self.on_output_limit)
+        self.worker.fan_mode_status_received.connect(self.on_fan_mode_status)
+        self.worker.output_limit_command_done.connect(self.on_output_limit_command_done)
         self.worker.pairing_result.connect(self.on_pairing_result)
-        self.worker.connection_state.connect(self.on_connection_state)
+        self.worker.connection_event.connect(self.on_connection_event)
 
         self.found_list.itemSelectionChanged.connect(self._on_found_selected)
         self.paired_list.itemSelectionChanged.connect(self._on_paired_selected)
         self.paired_list.itemChanged.connect(self._on_paired_item_changed)
 
     def closeEvent(self, event) -> None:
-        self.worker.stop_auto()
+        stop_event = self.model.state.auto_run_id
+        if stop_event is not None:
+            self.worker.stop_auto(stop_event)
+        connection = self._action_futures.get(self.Action.CONNECT)
+        if connection is not None:
+            connection.cancel()
         self._save_metrics_chart_history()
-        fut = self.worker.submit(self.worker.disconnect_device())
-        if fut is not None:
+        disconnect = self.worker.disconnect_device(fast=True)
+        fut = self.worker.submit(disconnect)
+        if fut is None:
+            disconnect.close()
+        else:
             try:
-                fut.result(timeout=3)
+                fut.result(timeout=4.5)
             except Exception:
                 pass
         self.worker.stop()
@@ -313,6 +321,29 @@ class MainWindowSetupMixin:
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
+        limit_layout = QHBoxLayout()
+        limit_layout.addWidget(QLabel("Maximum output"))
+        self.output_max_input = QSpinBox()
+        self.output_max_input.setRange(0, 100)
+        self.output_max_input.setSpecialValueText("Unavailable")
+        self.output_max_input.setValue(100)
+        self.output_max_input.setSuffix("%")
+        limit_layout.addWidget(self.output_max_input)
+        self.output_max_save = QPushButton("Save maximum")
+        self.output_max_save.clicked.connect(lambda: self.on_change_output_limit(self.output_max_input.value()))
+        self.output_max_input.valueChanged.connect(self._update_output_max_save)
+        limit_layout.addWidget(self.output_max_save)
+        self.output_limit_label = QLabel("Current limit unavailable")
+        self.output_limit_label.setWordWrap(True)
+        limit_layout.addWidget(self.output_limit_label, 1)
+        self.output_limit_reset = QPushButton("Reset overload")
+        self.output_limit_reset.setToolTip("Clear the temporary output limit and the overload alarm.")
+        self.output_limit_reset.clicked.connect(lambda: self.on_change_output_limit(None))
+        limit_layout.addWidget(self.output_limit_reset)
+        layout.addLayout(limit_layout)
+        self.effective_fan_mode_label = QLabel("Current fan mode unavailable")
+        self.effective_fan_mode_label.setWordWrap(True)
+        layout.addWidget(self.effective_fan_mode_label)
         groups_layout = QHBoxLayout()
         groups_layout.setSpacing(6)
         self.param_fields.clear()
@@ -373,10 +404,10 @@ class MainWindowSetupMixin:
             button_row.addWidget(cell)
         button_row.addWidget(self.clear_profile_button)
         button_row.addStretch(1)
-        button_row.addWidget(self.apply_status_label)
         button_row.addWidget(self.apply_button)
         button_row.addWidget(self.discard_button)
         layout.addLayout(button_row)
+        layout.addWidget(self.apply_status_label)
         wrapper.setLayout(layout)
         return wrapper
 
@@ -456,7 +487,7 @@ class MainWindowSetupMixin:
 
     def _build_device_status_widget(self) -> QWidget:
         wrapper = QWidget()
-        layout = QHBoxLayout()
+        layout = QVBoxLayout()
 
         device_status_label = QLabel("Device status")
 
@@ -481,6 +512,12 @@ class MainWindowSetupMixin:
         value_row.addStretch(1)
 
         layout.addLayout(value_row)
+        self.ina_warning_label = QLabel(
+            "INA226 unavailable. Load monitoring is unavailable. Adjust the output at your own risk."
+        )
+        self.ina_warning_label.setWordWrap(True)
+        self.ina_warning_label.hide()
+        layout.addWidget(self.ina_warning_label)
         wrapper.setLayout(layout)
         return wrapper
 

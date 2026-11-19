@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from enum import IntEnum
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -148,3 +149,74 @@ DEFAULT_PARAMS = DeviceParams(
     fan4_monitoring_enabled=True,
     overheat_alarm_enabled=True,
 )
+
+
+
+class OutputLimitState(IntEnum):
+    NORMAL = 0
+    MEASURE = 1
+    VERIFY_FORMULA = 2
+    VERIFY_STEP = 3
+    VERIFY_MINIMUM = 4
+    LIMITED = 5
+    MINIMUM = 6
+    SENSOR_ERROR = 7
+    FAULT = 8
+    CONFIRMING = 9
+    START_BLOCKED = 10
+    VERIFY_TIMEOUT = 11
+
+
+class OutputLimitResetResult(IntEnum):
+    NONE = 0
+    PENDING = 1
+    APPLIED = 2
+    REJECTED = 3
+
+
+@dataclass(frozen=True)
+class OutputLimitStatus:
+    configured: int
+    effective: int
+    state: OutputLimitState
+    reset_sequence: Optional[int] = None
+    reset_result: OutputLimitResetResult = OutputLimitResetResult.NONE
+    temporary_minimum: Optional[int] = None
+    alert_without_load: bool = False
+
+
+
+class ThermalInputState(IntEnum):
+    READY = 0
+    ADC_INITIALIZING = 1
+    ADC_OFFLINE = 2
+    NTC_UNAVAILABLE = 3
+
+
+@dataclass(frozen=True)
+class FanModeStatus:
+    selected: int
+    effective: int
+    thermal_input: ThermalInputState
+
+
+class ProfileSkipReason(IntEnum):
+    NONE = 0
+    INVALID = 1
+    OUTPUT_MAX = 2
+    TEMPERATURE_CONFLICT = 3
+    ADC_UNAVAILABLE = 4
+    NTC_UNAVAILABLE = 5
+    OUTPUT_ADJUSTING = 6
+
+
+@dataclass(frozen=True)
+class ProfileApplyResult:
+    slot: int
+    status: int
+    applied_mask: int
+    skipped: tuple[ProfileSkipReason, ...]
+
+    @property
+    def ok(self) -> bool:
+        return self.status == 0

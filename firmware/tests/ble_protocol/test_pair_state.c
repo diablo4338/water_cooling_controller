@@ -8,48 +8,47 @@ void pair_tests_force_link(void) {}
 
 static void reset_globals(void) {
     fsm_reset();
-    pair_state_reset();
+    pair_state_dispatch(PAIR_EVT_SESSION_RESET);
 }
 
-TEST_CASE("pair state enforces order", "[pair]") {
+TEST_CASE("pair state rejects skipped and repeated steps", "[pair]") {
     reset_globals();
 
     TEST_ASSERT_EQUAL(PAIR_STATE_IDLE, pair_state_get());
-    TEST_ASSERT_FALSE(pair_state_can_host_pub());
-    TEST_ASSERT_FALSE(pair_state_can_confirm());
-    TEST_ASSERT_FALSE(pair_state_can_finish());
+    TEST_ASSERT_FALSE(pair_state_dispatch(PAIR_EVT_HOST_PUB_ACCEPTED));
 
-    pair_state_start();
-    TEST_ASSERT_TRUE(pair_state_can_host_pub());
-    TEST_ASSERT_FALSE(pair_state_can_confirm());
-    TEST_ASSERT_FALSE(pair_state_can_finish());
+    TEST_ASSERT_TRUE(pair_state_dispatch(PAIR_EVT_SESSION_STARTED));
+    TEST_ASSERT_FALSE(pair_state_dispatch(PAIR_EVT_SESSION_STARTED));
+    TEST_ASSERT_FALSE(pair_state_dispatch(PAIR_EVT_CONFIRM_ACCEPTED));
+    TEST_ASSERT_EQUAL(PAIR_STATE_WAIT_HOST_PUB, pair_state_get());
 
-    pair_state_set_host_pub_ok();
-    TEST_ASSERT_FALSE(pair_state_can_host_pub());
-    TEST_ASSERT_TRUE(pair_state_can_confirm());
-    TEST_ASSERT_FALSE(pair_state_can_finish());
+    TEST_ASSERT_TRUE(pair_state_dispatch(PAIR_EVT_HOST_PUB_ACCEPTED));
+    TEST_ASSERT_FALSE(pair_state_dispatch(PAIR_EVT_HOST_PUB_ACCEPTED));
+    TEST_ASSERT_FALSE(pair_state_dispatch(PAIR_EVT_FINISH_ACCEPTED));
+    TEST_ASSERT_EQUAL(PAIR_STATE_WAIT_CONFIRM, pair_state_get());
 
-    pair_state_set_confirm_ok();
-    TEST_ASSERT_FALSE(pair_state_can_confirm());
-    TEST_ASSERT_TRUE(pair_state_can_finish());
+    TEST_ASSERT_TRUE(pair_state_dispatch(PAIR_EVT_CONFIRM_ACCEPTED));
+    TEST_ASSERT_FALSE(pair_state_dispatch(PAIR_EVT_CONFIRM_ACCEPTED));
+    TEST_ASSERT_EQUAL(PAIR_STATE_WAIT_FINISH, pair_state_get());
 
-    pair_state_set_finish_ok();
+    TEST_ASSERT_TRUE(pair_state_dispatch(PAIR_EVT_FINISH_ACCEPTED));
     TEST_ASSERT_EQUAL(PAIR_STATE_FINISHED, pair_state_get());
-    TEST_ASSERT_FALSE(pair_state_can_finish());
+    TEST_ASSERT_FALSE(pair_state_dispatch(PAIR_EVT_FINISH_ACCEPTED));
 }
 
-TEST_CASE("pair state reset clears progress", "[pair]") {
+TEST_CASE("pair state reset clears progress and link binding", "[pair]") {
     reset_globals();
 
-    pair_state_start();
-    pair_state_set_host_pub_ok();
-    pair_state_set_confirm_ok();
+    TEST_ASSERT_TRUE(fsm_dispatch(FSM_EVT_CONNECT, 7));
+    TEST_ASSERT_TRUE(fsm_pair_conn_bind_or_check(7));
+    TEST_ASSERT_TRUE(pair_state_dispatch(PAIR_EVT_SESSION_STARTED));
+    TEST_ASSERT_TRUE(pair_state_dispatch(PAIR_EVT_HOST_PUB_ACCEPTED));
 
-    pair_state_reset();
+    TEST_ASSERT_TRUE(pair_state_dispatch(PAIR_EVT_SESSION_RESET));
     TEST_ASSERT_EQUAL(PAIR_STATE_IDLE, pair_state_get());
-    TEST_ASSERT_FALSE(pair_state_can_host_pub());
-    TEST_ASSERT_FALSE(pair_state_can_confirm());
-    TEST_ASSERT_FALSE(pair_state_can_finish());
+    TEST_ASSERT_FALSE(pair_state_dispatch(PAIR_EVT_CONFIRM_ACCEPTED));
+    TEST_ASSERT_FALSE(fsm_pair_conn_check(7));
+    TEST_ASSERT_TRUE(pair_state_dispatch(PAIR_EVT_SESSION_STARTED));
 }
 
 TEST_CASE("state handles reset to none", "[state]") {
@@ -62,14 +61,16 @@ TEST_CASE("access control gates pairing and data", "[access]") {
     reset_globals();
 
     TEST_ASSERT_FALSE(can_access_pairing());
-    TEST_ASSERT_FALSE(can_access_auth_nonce());
-    TEST_ASSERT_FALSE(can_access_data());
+    TEST_ASSERT_FALSE(can_access_auth_nonce(7));
+    TEST_ASSERT_FALSE(can_access_data(7));
 
     fsm_reset();
     fsm_dispatch(FSM_EVT_TRUST_LOADED, BLE_HS_CONN_HANDLE_NONE);
     TEST_ASSERT_FALSE(can_access_pairing());
-    TEST_ASSERT_TRUE(can_access_auth_nonce());
+    TEST_ASSERT_FALSE(can_access_auth_nonce(7));
 
-    fsm_dispatch(FSM_EVT_AUTH_OK, 7);
-    TEST_ASSERT_TRUE(can_access_data());
+    TEST_ASSERT_TRUE(fsm_dispatch(FSM_EVT_CONNECT, 7));
+    TEST_ASSERT_TRUE(can_access_auth_nonce(7));
+    TEST_ASSERT_TRUE(fsm_dispatch(FSM_EVT_AUTH_OK, 7));
+    TEST_ASSERT_TRUE(can_access_data(7));
 }

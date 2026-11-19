@@ -5,15 +5,15 @@
 #include <string.h>
 
 #include "esp_log.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/queue.h"
 
 #include "esp_timer.h"
 
+#include "device_status.h"
 #include "fan_control.h"
 #include "metrics.h"
 #include "operation_status_ble.h"
 #include "operation_preflight.h"
+#include "output_limit.h"
 #include "params.h"
 #include "state.h"
 
@@ -21,8 +21,12 @@
 #define OP_CALIB_STOP_WAIT_US (6 * 1000000LL)
 #define OP_CALIB_INCREMENT_PAUSE_US (3 * 1000000LL)
 #define OP_CALIB_STEP_WAIT_US (4 * 1000000LL)
+#define OP_CALIB_OBSERVATION_MAX_AGE_US (METRICS_TACH_SCAN_US + METRICS_TACH_CHANNEL_WINDOW_MS * 1000LL)
+#define OP_CALIB_ROTATION_WINDOWS 3
+#define OP_CALIB_ROTATION_TIMEOUT_US (OP_CALIB_ROTATION_WINDOWS * METRICS_TACH_SCAN_US + OP_CALIB_OBSERVATION_MAX_AGE_US)
 #define OP_CALIB_STEP_DELTA 5
 #define OP_CALIB_RPM_DELTA 50.0f
+#define OP_OUTPUT_CONFIRM_TIMEOUT_US (9 * 1000000LL)
 #define OP_CALIB_START_SPEED 10
 #define OP_CALIB_MAX_SPEED_OFFSET 30.0f
 #define OP_SETUP_WAIT_US (6 * 1000000LL)
@@ -31,22 +35,41 @@
 
 typedef enum {
     CALIB_PHASE_IDLE = 0,
+    CALIB_PHASE_WAIT_STOP_OUTPUT,
     CALIB_PHASE_STOP_WAIT,
+    CALIB_PHASE_WAIT_OUTPUT,
     CALIB_PHASE_WAIT_BASELINE,
-    CALIB_PHASE_INCREMENT_PAUSE,
-    CALIB_PHASE_RAMP,
+    CALIB_PHASE_CONFIRM_ROTATION,
+    CALIB_PHASE_ROTATION_CONFIRMED,
 } calib_phase_t;
 
 typedef enum {
     SETUP_PHASE_IDLE = 0,
     SETUP_PHASE_WAIT_DC,
     SETUP_PHASE_WAIT_PWM,
+    SETUP_PHASE_CALIBRATION,
 } setup_phase_t;
 
-typedef struct {
-    bool uses_override;
-    float override_rpm;
-} op_guard_t;
+typedef enum {
+    CALIB_EVENT_STARTED,
+    CALIB_EVENT_STOP_APPLIED,
+    CALIB_EVENT_STEP_REQUESTED,
+    CALIB_EVENT_BASELINE_APPLIED,
+    CALIB_EVENT_BASELINE_OBSERVED,
+    CALIB_EVENT_STEP_APPLIED,
+    CALIB_EVENT_OUTPUT_INTERRUPTED,
+    CALIB_EVENT_ROTATION_CONFIRMED,
+    CALIB_EVENT_ROTATION_LOST,
+    CALIB_EVENT_ROTATION_TIMED_OUT,
+    CALIB_EVENT_FINISHED,
+} calib_event_t;
+
+typedef enum {
+    SETUP_EVENT_DC_OUTPUT_SET,
+    SETUP_EVENT_PWM_OUTPUT_SET,
+    SETUP_EVENT_CALIBRATION_STARTED,
+    SETUP_EVENT_FINISHED,
+} setup_event_t;
 
 typedef enum {
     OP_STEP_CONTINUE = 0,
@@ -60,37 +83,97 @@ typedef void (*op_finish_fn)(void);
 
 typedef struct {
     operation_type_t type;
-    op_guard_t guard;
     op_start_fn start;
     op_step_fn step;
     op_finish_fn finish;
 } op_def_t;
 
-static void operation_manager_notify_custom(operation_type_t type,
-                                            operation_state_t state,
-                                            const char *err_text);
-static void operation_manager_notify_state(operation_state_t state_override);
+static void operation_manager_publish_progress(const char *text);
 
 static calib_phase_t g_calib_phase = CALIB_PHASE_IDLE;
 static int64_t g_calib_next_check_us = 0;
+static int64_t g_calib_observe_from_us;
+static int64_t g_calib_output_deadline_us;
 static float g_calib_baseline_rpm = 0.0f;
 static uint8_t g_calib_target = 0;
 static uint8_t g_calib_pending_target = 0;
+static struct {
+    int64_t completed_us;
+    uint8_t consecutive;
+} g_calib_rotation[METRICS_FAN_CHANNELS];
 static setup_phase_t g_setup_phase = SETUP_PHASE_IDLE;
 static int64_t g_setup_next_check_us = 0;
 static float g_setup_dc_rpm[METRICS_FAN_CHANNELS] = {0};
 static bool g_setup_active[METRICS_FAN_CHANNELS] = {false};
-static operation_state_t g_state = OP_STATE_IDLE;
-static operation_type_t g_active = OP_TYPE_NONE;
 static float g_preflight_dc_max_percent = 100.0f;
 static float g_preflight_pwm_max_percent = 100.0f;
-static bool g_operation_started = false;
-static uint8_t g_calib_control_type = PARAM_FAN_CONTROL_DC;
+static params_t g_operation_params;
+static uint32_t g_operation_revision;
+static int64_t g_output_confirm_deadline_us;
 
-static float op_calib_read_rpm(void) {
-    float rpm = metrics_get_fan_speed_rpm_channel(0);
-    if (!isfinite(rpm)) return 0.0f;
-    return rpm;
+static void op_calib_dispatch(calib_event_t event) {
+    switch (event) {
+        case CALIB_EVENT_STARTED:
+            if (g_calib_phase == CALIB_PHASE_IDLE) g_calib_phase = CALIB_PHASE_WAIT_STOP_OUTPUT;
+            break;
+        case CALIB_EVENT_STOP_APPLIED:
+            if (g_calib_phase == CALIB_PHASE_WAIT_STOP_OUTPUT) g_calib_phase = CALIB_PHASE_STOP_WAIT;
+            break;
+        case CALIB_EVENT_STEP_REQUESTED:
+            if (g_calib_phase == CALIB_PHASE_STOP_WAIT) g_calib_phase = CALIB_PHASE_WAIT_OUTPUT;
+            break;
+        case CALIB_EVENT_BASELINE_APPLIED:
+            if (g_calib_phase == CALIB_PHASE_WAIT_OUTPUT) g_calib_phase = CALIB_PHASE_WAIT_BASELINE;
+            break;
+        case CALIB_EVENT_BASELINE_OBSERVED:
+            if (g_calib_phase == CALIB_PHASE_WAIT_BASELINE) g_calib_phase = CALIB_PHASE_WAIT_STOP_OUTPUT;
+            break;
+        case CALIB_EVENT_STEP_APPLIED:
+            if (g_calib_phase == CALIB_PHASE_WAIT_OUTPUT) g_calib_phase = CALIB_PHASE_CONFIRM_ROTATION;
+            break;
+        case CALIB_EVENT_OUTPUT_INTERRUPTED:
+            if (g_calib_phase == CALIB_PHASE_STOP_WAIT) g_calib_phase = CALIB_PHASE_WAIT_STOP_OUTPUT;
+            if (g_calib_phase == CALIB_PHASE_WAIT_BASELINE || g_calib_phase == CALIB_PHASE_CONFIRM_ROTATION ||
+                g_calib_phase == CALIB_PHASE_ROTATION_CONFIRMED) {
+                g_calib_phase = CALIB_PHASE_WAIT_OUTPUT;
+            }
+            break;
+        case CALIB_EVENT_ROTATION_CONFIRMED:
+            if (g_calib_phase == CALIB_PHASE_CONFIRM_ROTATION) g_calib_phase = CALIB_PHASE_ROTATION_CONFIRMED;
+            break;
+        case CALIB_EVENT_ROTATION_LOST:
+            if (g_calib_phase == CALIB_PHASE_ROTATION_CONFIRMED) g_calib_phase = CALIB_PHASE_CONFIRM_ROTATION;
+            break;
+        case CALIB_EVENT_ROTATION_TIMED_OUT:
+            if (g_calib_phase == CALIB_PHASE_CONFIRM_ROTATION) g_calib_phase = CALIB_PHASE_WAIT_STOP_OUTPUT;
+            break;
+        case CALIB_EVENT_FINISHED:
+            g_calib_phase = CALIB_PHASE_IDLE;
+            break;
+    }
+}
+
+static void op_setup_dispatch(setup_event_t event) {
+    switch (event) {
+        case SETUP_EVENT_DC_OUTPUT_SET:
+            if (g_setup_phase == SETUP_PHASE_IDLE) g_setup_phase = SETUP_PHASE_WAIT_DC;
+            break;
+        case SETUP_EVENT_PWM_OUTPUT_SET:
+            if (g_setup_phase == SETUP_PHASE_WAIT_DC) g_setup_phase = SETUP_PHASE_WAIT_PWM;
+            break;
+        case SETUP_EVENT_CALIBRATION_STARTED:
+            if (g_setup_phase == SETUP_PHASE_WAIT_PWM) g_setup_phase = SETUP_PHASE_CALIBRATION;
+            break;
+        case SETUP_EVENT_FINISHED:
+            g_setup_phase = SETUP_PHASE_IDLE;
+            break;
+    }
+}
+
+static bool op_calib_observe_fan(uint8_t channel, int64_t now_us, metrics_fan_observation_t *observation) {
+    return metrics_get_fan_observation(channel, observation) &&
+           observation->started_us >= g_calib_observe_from_us &&
+           now_us - observation->completed_us <= OP_CALIB_OBSERVATION_MAX_AGE_US;
 }
 
 static float op_clamp_percent(float value) {
@@ -108,7 +191,7 @@ static float op_percent_from_control_max(uint8_t control_type, float offset_perc
 }
 
 static uint8_t op_calib_max_speed(void) {
-    float max_speed = op_percent_from_control_max(g_calib_control_type, OP_CALIB_MAX_SPEED_OFFSET);
+    float max_speed = op_percent_from_control_max(g_operation_params.fan_control_type, OP_CALIB_MAX_SPEED_OFFSET);
     if (max_speed < (float)OP_CALIB_START_SPEED) {
         max_speed = (float)OP_CALIB_START_SPEED;
     }
@@ -131,17 +214,40 @@ static bool op_calib_fan_monitoring_enabled(const params_t *params, uint8_t chan
     }
 }
 
-static bool op_calib_monitored_fans_spinning(const params_t *params) {
+static const char *op_calib_rotation_error(int64_t now_us) {
+    static const char *const errors[METRICS_FAN_CHANNELS] = {
+        "fan 1 RPM unstable", "fan 2 RPM unstable", "fan 3 RPM unstable", "fan 4 RPM unstable",
+    };
+    const char *error = NULL;
     for (uint8_t ch = 0; ch < METRICS_FAN_CHANNELS; ch++) {
-        if (!op_calib_fan_monitoring_enabled(params, ch)) {
-            continue;
+        if (!op_calib_fan_monitoring_enabled(&g_operation_params, ch)) continue;
+
+        metrics_fan_observation_t observation;
+        if (!op_calib_observe_fan(ch, now_us, &observation)) {
+            g_calib_rotation[ch].consecutive = 0;
+        } else if (observation.completed_us > g_calib_rotation[ch].completed_us) {
+            if (observation.completed_us - g_calib_rotation[ch].completed_us > OP_CALIB_OBSERVATION_MAX_AGE_US) {
+                g_calib_rotation[ch].consecutive = 0;
+            }
+            g_calib_rotation[ch].completed_us = observation.completed_us;
+            bool spinning = isfinite(observation.rpm) && observation.rpm > 0.0f;
+            bool enough_rpm = ch != 0 || observation.rpm >= g_calib_baseline_rpm + OP_CALIB_RPM_DELTA;
+            if (!spinning || !enough_rpm) {
+                g_calib_rotation[ch].consecutive = 0;
+            } else if (g_calib_rotation[ch].consecutive < OP_CALIB_ROTATION_WINDOWS) {
+                g_calib_rotation[ch].consecutive++;
+            }
         }
-        float rpm = metrics_get_fan_speed_rpm_channel(ch);
-        if (!isfinite(rpm) || rpm <= 0.0f) {
-            return false;
-        }
+        if (!error && g_calib_rotation[ch].consecutive < OP_CALIB_ROTATION_WINDOWS) error = errors[ch];
     }
-    return true;
+    return error;
+}
+
+static void op_calib_publish_step(float rpm) {
+    char msg[OP_ERROR_TEXT_MAX + 1];
+    uint16_t rpm_u = (uint16_t)fminf(fmaxf(rpm, 0.0f), 65535.0f);
+    snprintf(msg, sizeof(msg), "calib S%03hu R%05hu", (uint16_t)g_calib_target, rpm_u);
+    operation_manager_publish_progress(msg);
 }
 
 static bool op_calib_apply_target(uint8_t target, const char **err_text) {
@@ -152,149 +258,142 @@ static bool op_calib_apply_target(uint8_t target, const char **err_text) {
     if (target > calib_max_speed) {
         target = calib_max_speed;
     }
-    if (!fan_control_override_set(OP_TYPE_FAN_CALIBRATION, (float)target)) {
+    if (!fan_control_override_set_output(operation_manager_get_active_type(),
+                                         g_operation_params.fan_control_type, (float)target)) {
         if (err_text) *err_text = "fan busy";
         return false;
     }
     g_calib_target = target;
-    g_calib_next_check_us = esp_timer_get_time() + OP_CALIB_STEP_WAIT_US;
+    g_calib_output_deadline_us = esp_timer_get_time() + OP_OUTPUT_CONFIRM_TIMEOUT_US;
+    op_calib_dispatch(CALIB_EVENT_STEP_REQUESTED);
     return true;
 }
 
-static bool op_calib_pause_before_target(uint8_t target, const char **err_text) {
-    uint8_t calib_max_speed = op_calib_max_speed();
-    if (target < OP_CALIB_START_SPEED) {
-        target = OP_CALIB_START_SPEED;
-    }
-    if (target > calib_max_speed) {
-        target = calib_max_speed;
-    }
-    if (!fan_control_override_set(OP_TYPE_FAN_CALIBRATION, 0.0f)) {
+static bool op_calib_request_stop(uint8_t next_target, calib_event_t event, const char **err_text) {
+    if (!fan_control_override_set_output(operation_manager_get_active_type(),
+                                         g_operation_params.fan_control_type, 0.0f)) {
         if (err_text) *err_text = "fan busy";
         return false;
     }
-    g_calib_pending_target = target;
-    g_calib_phase = CALIB_PHASE_INCREMENT_PAUSE;
-    g_calib_next_check_us = esp_timer_get_time() + OP_CALIB_INCREMENT_PAUSE_US;
+    g_calib_pending_target = next_target;
+    g_calib_output_deadline_us = esp_timer_get_time() + OP_OUTPUT_CONFIRM_TIMEOUT_US;
+    op_calib_dispatch(event);
     return true;
+}
+
+static bool op_calibration_begin(const params_t *params, const char **err_text) {
+    g_operation_params = *params;
+    g_calib_target = 0;
+    g_calib_baseline_rpm = 0.0f;
+    return op_calib_request_stop(0, CALIB_EVENT_STARTED, err_text);
 }
 
 static bool op_calibration_start(const char **err_text) {
     params_t current;
-    if (!(params_cache_get(&current) || params_read(&current))) {
+    if (!params_read(&current)) {
         if (err_text) *err_text = "params read";
         return false;
     }
-    g_calib_control_type = current.fan_control_type;
-    if (!fan_control_override_set(OP_TYPE_FAN_CALIBRATION, 0.0f)) {
-        if (err_text) *err_text = "fan busy";
-        return false;
-    }
-    g_calib_target = 0;
-    g_calib_pending_target = 0;
-    g_calib_phase = CALIB_PHASE_STOP_WAIT;
-    g_calib_baseline_rpm = 0.0f;
-    g_calib_next_check_us = esp_timer_get_time() + OP_CALIB_STOP_WAIT_US;
-    return true;
+    return op_calibration_begin(&current, err_text);
 }
 
 static op_step_result_t op_calibration_step(int64_t now_us, const char **err_text) {
+    if (g_calib_phase == CALIB_PHASE_WAIT_STOP_OUTPUT || g_calib_phase == CALIB_PHASE_WAIT_OUTPUT) {
+        return OP_STEP_CONTINUE;
+    }
     if (g_calib_phase == CALIB_PHASE_STOP_WAIT) {
-        if (now_us < g_calib_next_check_us) {
-            return OP_STEP_CONTINUE;
-        }
-        if (!op_calib_apply_target(OP_CALIB_START_SPEED, err_text)) {
-            return OP_STEP_ERROR;
-        }
-        g_calib_phase = CALIB_PHASE_WAIT_BASELINE;
-        g_calib_baseline_rpm = 0.0f;
-        g_calib_next_check_us = esp_timer_get_time() + OP_CALIB_BASELINE_WAIT_US;
+        if (now_us < g_calib_next_check_us) return OP_STEP_CONTINUE;
+        uint8_t target = g_calib_pending_target ? g_calib_pending_target : OP_CALIB_START_SPEED;
+        if (!op_calib_apply_target(target, err_text)) return OP_STEP_ERROR;
+        g_calib_pending_target = 0;
         return OP_STEP_CONTINUE;
     }
     if (g_calib_phase == CALIB_PHASE_WAIT_BASELINE) {
-        if (now_us < g_calib_next_check_us) {
-            return OP_STEP_CONTINUE;
-        }
-        g_calib_baseline_rpm = op_calib_read_rpm();
-        {
-            char msg[OP_ERROR_TEXT_MAX + 1];
-            uint16_t rpm_u = (uint16_t)fminf(fmaxf(g_calib_baseline_rpm, 0.0f), 65535.0f);
-            uint16_t step_u = (uint16_t)g_calib_target;
-            snprintf(msg, sizeof(msg), "calib S%03hu R%05hu", step_u, rpm_u);
-            operation_manager_notify_custom(OP_TYPE_FAN_CALIBRATION, OP_STATE_IN_SERVICE, msg);
-        }
-        if (!op_calib_pause_before_target((uint8_t)(g_calib_target + OP_CALIB_STEP_DELTA), err_text)) {
+        if (now_us < g_calib_observe_from_us) return OP_STEP_CONTINUE;
+        metrics_fan_observation_t observation;
+        if (!op_calib_observe_fan(0, now_us, &observation)) {
+            if (now_us < g_calib_next_check_us) return OP_STEP_CONTINUE;
+            if (err_text) *err_text = "fan 1 no tach data";
             return OP_STEP_ERROR;
         }
-        return OP_STEP_CONTINUE;
-    }
-    if (g_calib_phase == CALIB_PHASE_INCREMENT_PAUSE) {
-        if (now_us < g_calib_next_check_us) {
-            return OP_STEP_CONTINUE;
-        }
-        if (!op_calib_apply_target(g_calib_pending_target, err_text)) {
+        g_calib_baseline_rpm = isfinite(observation.rpm) ? observation.rpm : 0.0f;
+        op_calib_publish_step(g_calib_baseline_rpm);
+        uint8_t next = g_calib_target + OP_CALIB_STEP_DELTA;
+        if (next > op_calib_max_speed()) next = op_calib_max_speed();
+        if (next <= g_calib_target) {
+            if (err_text) *err_text = "no RPM test range";
             return OP_STEP_ERROR;
         }
-        g_calib_pending_target = 0;
-        g_calib_phase = CALIB_PHASE_RAMP;
-        return OP_STEP_CONTINUE;
+        return op_calib_request_stop(next, CALIB_EVENT_BASELINE_OBSERVED, err_text) ?
+               OP_STEP_CONTINUE : OP_STEP_ERROR;
     }
-    if (g_calib_phase == CALIB_PHASE_RAMP) {
-        if (now_us < g_calib_next_check_us) {
-            return OP_STEP_CONTINUE;
-        }
-        float rpm = op_calib_read_rpm();
-        {
-            char msg[OP_ERROR_TEXT_MAX + 1];
-            uint16_t rpm_u = (uint16_t)fminf(fmaxf(rpm, 0.0f), 65535.0f);
-            uint16_t step_u = (uint16_t)g_calib_target;
-            snprintf(msg, sizeof(msg), "calib S%03hu R%05hu", step_u, rpm_u);
-            operation_manager_notify_custom(OP_TYPE_FAN_CALIBRATION, OP_STATE_IN_SERVICE, msg);
-        }
-        bool fan1_gap_ok = rpm >= g_calib_baseline_rpm + OP_CALIB_RPM_DELTA;
-        bool monitored_fans_ok = false;
-        params_t current;
-        bool params_loaded = false;
-        if (fan1_gap_ok) {
-            params_loaded = params_cache_get(&current) || params_read(&current);
-            if (!params_loaded) {
-                if (err_text) *err_text = "params read";
-                return OP_STEP_ERROR;
-            }
-            monitored_fans_ok = op_calib_monitored_fans_spinning(&current);
-        }
-        if (fan1_gap_ok && monitored_fans_ok) {
-            current.fan_min_speed = (int32_t)g_calib_target;
-            if (!params_write(&current, PARAM_MASK_FAN_MIN_SPEED)) {
-                if (err_text) *err_text = "params write";
-                return OP_STEP_ERROR;
-            }
-            if (params_apply(NULL) != PARAM_STATUS_OK) {
-                if (err_text) *err_text = "params apply";
-                return OP_STEP_ERROR;
-            }
+    if (g_calib_phase == CALIB_PHASE_CONFIRM_ROTATION) {
+        if (now_us < g_calib_observe_from_us) return OP_STEP_CONTINUE;
+        const char *rotation_error = op_calib_rotation_error(now_us);
+        if (rotation_error && now_us < g_calib_next_check_us) return OP_STEP_CONTINUE;
+
+        metrics_fan_observation_t observation;
+        op_calib_publish_step(op_calib_observe_fan(0, now_us, &observation) ? observation.rpm : 0.0f);
+        if (!rotation_error) {
+            g_operation_params.fan_min_speed = (int32_t)g_calib_target;
+            op_calib_dispatch(CALIB_EVENT_ROTATION_CONFIRMED);
             return OP_STEP_DONE;
         }
         uint8_t calib_max_speed = op_calib_max_speed();
         if (g_calib_target >= calib_max_speed) {
-            if (err_text) *err_text = fan1_gap_ok ? "fan not spinning" : "no rpm change";
+            if (err_text) *err_text = rotation_error;
             return OP_STEP_ERROR;
         }
         uint8_t next = g_calib_target + OP_CALIB_STEP_DELTA;
-        if (next > calib_max_speed) {
-            next = calib_max_speed;
-        }
-        if (!op_calib_pause_before_target(next, err_text)) {
-            return OP_STEP_ERROR;
-        }
-        return OP_STEP_CONTINUE;
+        if (next > calib_max_speed) next = calib_max_speed;
+        return op_calib_request_stop(next, CALIB_EVENT_ROTATION_TIMED_OUT, err_text) ?
+               OP_STEP_CONTINUE : OP_STEP_ERROR;
     }
     if (err_text) *err_text = "calib state";
     return OP_STEP_ERROR;
 }
 
+static const char *op_calib_check_output(float applied, uint8_t control_type, output_limit_status_t limit) {
+    int64_t now_us = esp_timer_get_time();
+    if (output_limit_is_adjusting(limit.state)) {
+        op_calib_dispatch(CALIB_EVENT_OUTPUT_INTERRUPTED);
+        g_calib_output_deadline_us = now_us + OP_OUTPUT_CONFIRM_TIMEOUT_US;
+        return NULL;
+    }
+    if (limit.state != OUTPUT_LIMIT_NORMAL && limit.state != OUTPUT_LIMIT_LIMITED) return "output limit alarm";
+
+    bool stopping = g_calib_phase == CALIB_PHASE_WAIT_STOP_OUTPUT || g_calib_phase == CALIB_PHASE_STOP_WAIT;
+    uint8_t target = stopping ? 0 : g_calib_target;
+    if (limit.effective < target) return "limit below target";
+    // With power off the hardware retains the control type of the last nonzero output.
+    if (applied != (float)target || (!stopping && control_type != g_operation_params.fan_control_type)) {
+        if (g_calib_phase != CALIB_PHASE_WAIT_OUTPUT && g_calib_phase != CALIB_PHASE_WAIT_STOP_OUTPUT) {
+            op_calib_dispatch(CALIB_EVENT_OUTPUT_INTERRUPTED);
+            g_calib_output_deadline_us = now_us + OP_OUTPUT_CONFIRM_TIMEOUT_US;
+        }
+        return now_us >= g_calib_output_deadline_us ? "output check timeout" : NULL;
+    }
+    if (g_calib_phase == CALIB_PHASE_WAIT_STOP_OUTPUT) {
+        g_calib_next_check_us = now_us + (g_calib_pending_target ? OP_CALIB_INCREMENT_PAUSE_US : OP_CALIB_STOP_WAIT_US);
+        op_calib_dispatch(CALIB_EVENT_STOP_APPLIED);
+    } else if (g_calib_phase == CALIB_PHASE_WAIT_OUTPUT) {
+        if (target == OP_CALIB_START_SPEED) {
+            g_calib_observe_from_us = now_us + OP_CALIB_BASELINE_WAIT_US;
+            g_calib_next_check_us = g_calib_observe_from_us + OP_CALIB_OBSERVATION_MAX_AGE_US +
+                                    METRICS_TACH_CHANNEL_WINDOW_MS * 1000LL;
+            op_calib_dispatch(CALIB_EVENT_BASELINE_APPLIED);
+        } else {
+            memset(g_calib_rotation, 0, sizeof(g_calib_rotation));
+            g_calib_observe_from_us = now_us + OP_CALIB_STEP_WAIT_US;
+            g_calib_next_check_us = g_calib_observe_from_us + OP_CALIB_ROTATION_TIMEOUT_US;
+            op_calib_dispatch(CALIB_EVENT_STEP_APPLIED);
+        }
+    }
+    return NULL;
+}
+
 static void op_calibration_finish(void) {
-    g_calib_phase = CALIB_PHASE_IDLE;
+    op_calib_dispatch(CALIB_EVENT_FINISHED);
     g_calib_next_check_us = 0;
     g_calib_baseline_rpm = 0.0f;
     g_calib_target = 0;
@@ -302,32 +401,12 @@ static void op_calibration_finish(void) {
 }
 
 static void op_setup_reset(void) {
-    g_setup_phase = SETUP_PHASE_IDLE;
+    op_setup_dispatch(SETUP_EVENT_FINISHED);
     g_setup_next_check_us = 0;
     for (uint8_t ch = 0; ch < METRICS_FAN_CHANNELS; ch++) {
         g_setup_dc_rpm[ch] = 0.0f;
         g_setup_active[ch] = false;
     }
-}
-
-static bool op_setup_read_params(params_t *out, const char **err_text) {
-    if (params_cache_get(out) || params_read(out)) {
-        return true;
-    }
-    if (err_text) *err_text = "params read";
-    return false;
-}
-
-static bool op_setup_apply_params(params_t *params, uint16_t mask, const char **err_text) {
-    if (!params_write(params, mask)) {
-        if (err_text) *err_text = "params write";
-        return false;
-    }
-    if (params_apply(NULL) != PARAM_STATUS_OK) {
-        if (err_text) *err_text = "params apply";
-        return false;
-    }
-    return true;
 }
 
 static bool op_setup_start(const char **err_text) {
@@ -338,8 +417,8 @@ static bool op_setup_start(const char **err_text) {
         if (err_text) *err_text = "fan busy";
         return false;
     }
-    g_setup_phase = SETUP_PHASE_WAIT_DC;
     g_setup_next_check_us = esp_timer_get_time() + OP_SETUP_WAIT_US;
+    op_setup_dispatch(SETUP_EVENT_DC_OUTPUT_SET);
     return true;
 }
 
@@ -361,23 +440,6 @@ static op_step_result_t op_setup_step(int64_t now_us, const char **err_text) {
             return OP_STEP_ERROR;
         }
 
-        params_t current;
-        if (!op_setup_read_params(&current, err_text)) {
-            return OP_STEP_ERROR;
-        }
-        current.fan_monitoring_enabled = g_setup_active[0] ? 1U : 0U;
-        current.fan2_monitoring_enabled = g_setup_active[1] ? 1U : 0U;
-        current.fan3_monitoring_enabled = g_setup_active[2] ? 1U : 0U;
-        current.fan4_monitoring_enabled = g_setup_active[3] ? 1U : 0U;
-        if (!op_setup_apply_params(&current,
-                                   PARAM_MASK_FAN_MONITORING_ENABLED |
-                                       PARAM_MASK_FAN2_MONITORING_ENABLED |
-                                       PARAM_MASK_FAN3_MONITORING_ENABLED |
-                                       PARAM_MASK_FAN4_MONITORING_ENABLED,
-                                   err_text)) {
-            return OP_STEP_ERROR;
-        }
-
         if (!fan_control_override_set_output(OP_TYPE_SETUP_FANS,
                                              PARAM_FAN_CONTROL_PWM,
                                              op_percent_from_control_max(PARAM_FAN_CONTROL_PWM,
@@ -385,8 +447,8 @@ static op_step_result_t op_setup_step(int64_t now_us, const char **err_text) {
             if (err_text) *err_text = "fan busy";
             return OP_STEP_ERROR;
         }
-        g_setup_phase = SETUP_PHASE_WAIT_PWM;
         g_setup_next_check_us = esp_timer_get_time() + OP_SETUP_WAIT_US;
+        op_setup_dispatch(SETUP_EVENT_PWM_OUTPUT_SET);
         return OP_STEP_CONTINUE;
     }
 
@@ -409,22 +471,25 @@ static op_step_result_t op_setup_step(int64_t now_us, const char **err_text) {
         }
 
         params_t current;
-        if (!op_setup_read_params(&current, err_text)) {
+        if (!params_read(&current)) {
+            if (err_text) *err_text = "params read";
             return OP_STEP_ERROR;
         }
         current.fan_control_type = all_active_dropped ? PARAM_FAN_CONTROL_PWM : PARAM_FAN_CONTROL_DC;
-        if (!op_setup_apply_params(&current, PARAM_MASK_FAN_CONTROL_TYPE, err_text)) {
-            return OP_STEP_ERROR;
-        }
+        current.fan_monitoring_enabled = g_setup_active[0];
+        current.fan2_monitoring_enabled = g_setup_active[1];
+        current.fan3_monitoring_enabled = g_setup_active[2];
+        current.fan4_monitoring_enabled = g_setup_active[3];
 
-        fan_control_override_clear(OP_TYPE_SETUP_FANS);
-        op_setup_reset();
-        if (!op_calibration_start(err_text)) {
+        if (!op_calibration_begin(&current, err_text)) {
             return OP_STEP_ERROR;
         }
-        g_active = OP_TYPE_FAN_CALIBRATION;
-        operation_manager_notify_state(OP_STATE_IN_SERVICE);
+        op_setup_dispatch(SETUP_EVENT_CALIBRATION_STARTED);
         return OP_STEP_CONTINUE;
+    }
+
+    if (g_setup_phase == SETUP_PHASE_CALIBRATION) {
+        return op_calibration_step(now_us, err_text);
     }
 
     if (err_text) *err_text = "setup state";
@@ -433,80 +498,117 @@ static op_step_result_t op_setup_step(int64_t now_us, const char **err_text) {
 
 static void op_setup_finish(void) {
     op_setup_reset();
+    op_calibration_finish();
 }
 
 static const op_def_t g_op_defs[] = {
     {
         .type = OP_TYPE_SETUP_FANS,
-        .guard = {
-            .uses_override = true,
-            .override_rpm = 0.0f,
-        },
         .start = op_setup_start,
         .step = op_setup_step,
         .finish = op_setup_finish,
     },
     {
         .type = OP_TYPE_FAN_CALIBRATION,
-        .guard = {
-            .uses_override = true,
-            .override_rpm = 0.0f,
-        },
         .start = op_calibration_start,
         .step = op_calibration_step,
         .finish = op_calibration_finish,
     },
 };
 
-static char g_error_text[OP_ERROR_TEXT_MAX + 1];
-static uint8_t g_error_len = 0;
-static QueueHandle_t g_op_cmd_q = NULL;
-static uint32_t g_status_seq = 0;
 typedef struct {
+    operation_type_t type;
     operation_state_t state;
-    operation_type_t type;
-    uint8_t err_len;
-    char err_text[OP_ERROR_TEXT_MAX];
-} op_status_cache_t;
-static op_status_cache_t g_status_cache = {0};
+    uint8_t text_len;
+    char text[OP_ERROR_TEXT_MAX];
+} operation_status_t;
+
+typedef enum {
+    OP_PHASE_READY = 0,
+    OP_PHASE_QUEUED,
+    OP_PHASE_PREFLIGHT,
+    OP_PHASE_RUNNING,
+    OP_PHASE_WAITING_FOR_OUTPUT_CONFIRMATION,
+    OP_PHASE_WAITING_FOR_OUTPUT_LIMIT,
+    OP_PHASE_CANCELLING,
+    OP_PHASE_COMMITTING,
+} operation_phase_t;
+
+typedef enum {
+    OP_EVENT_START,
+    OP_EVENT_BEGIN_PREFLIGHT,
+    OP_EVENT_PREFLIGHT_PASSED,
+    OP_EVENT_CANCEL,
+    OP_EVENT_OWNER_DISCONNECTED,
+    OP_EVENT_STEPS_SUCCEEDED,
+    OP_EVENT_OUTPUT_LIMIT_ADJUSTING,
+    OP_EVENT_OUTPUT_LIMIT_RESOLVED,
+    OP_EVENT_ROTATION_LOST,
+    OP_EVENT_OUTPUT_CONFIRMED,
+    OP_EVENT_FINISHED,
+} operation_event_t;
 
 typedef struct {
+    operation_phase_t phase;
     operation_type_t type;
-} op_cmd_t;
+    uint16_t owner;
+} operation_context_t;
 
-static void operation_manager_cache_write(operation_type_t type,
-                                          operation_state_t state,
-                                          const char *err_text) {
-    op_status_cache_t snap = {
-        .state = state,
-        .type = type,
-        .err_len = 0,
-        .err_text = {0},
-    };
-    if (err_text && err_text[0] != '\0') {
-        size_t len = strnlen(err_text, OP_ERROR_TEXT_MAX);
-        memcpy(snap.err_text, err_text, len);
-        snap.err_len = (uint8_t)len;
-    }
-    __atomic_fetch_add(&g_status_seq, 1U, __ATOMIC_ACQ_REL);
-    g_status_cache = snap;
-    __atomic_fetch_add(&g_status_seq, 1U, __ATOMIC_ACQ_REL);
-}
+static operation_status_t g_status;
+static operation_context_t g_operation;
 
-static void operation_manager_cache_read(op_status_cache_t *out) {
-    if (!out) return;
-    while (1) {
-        uint32_t seq1 = __atomic_load_n(&g_status_seq, __ATOMIC_ACQUIRE);
-        if (seq1 & 1U) {
-            continue;
-        }
-        op_status_cache_t snap = g_status_cache;
-        uint32_t seq2 = __atomic_load_n(&g_status_seq, __ATOMIC_ACQUIRE);
-        if (seq1 == seq2) {
-            *out = snap;
-            return;
-        }
+// All phase transitions run under state_lock. The fan task owns operation effects.
+static bool operation_dispatch_locked(operation_event_t event, uint16_t owner) {
+    operation_phase_t phase = g_operation.phase;
+    switch (event) {
+        case OP_EVENT_START:
+            if (phase != OP_PHASE_READY) return false;
+            g_operation.phase = OP_PHASE_QUEUED;
+            return true;
+        case OP_EVENT_BEGIN_PREFLIGHT:
+            if (phase != OP_PHASE_QUEUED) return false;
+            g_operation.phase = OP_PHASE_PREFLIGHT;
+            return true;
+        case OP_EVENT_PREFLIGHT_PASSED:
+            if (phase != OP_PHASE_PREFLIGHT) return false;
+            g_operation.phase = OP_PHASE_RUNNING;
+            return true;
+        case OP_EVENT_OWNER_DISCONNECTED:
+        case OP_EVENT_CANCEL:
+            if (phase == OP_PHASE_READY || owner != g_operation.owner ||
+                owner == BLE_HS_CONN_HANDLE_NONE) return true;
+            if (event == OP_EVENT_OWNER_DISCONNECTED) {
+                g_operation.owner = BLE_HS_CONN_HANDLE_NONE;
+            }
+            if (phase == OP_PHASE_COMMITTING) return false;
+            g_operation.phase = OP_PHASE_CANCELLING;
+            return true;
+        case OP_EVENT_STEPS_SUCCEEDED:
+            if (phase != OP_PHASE_RUNNING) return false;
+            g_operation.phase = OP_PHASE_WAITING_FOR_OUTPUT_CONFIRMATION;
+            return true;
+        case OP_EVENT_OUTPUT_LIMIT_ADJUSTING:
+            if (phase != OP_PHASE_WAITING_FOR_OUTPUT_CONFIRMATION) return false;
+            g_operation.phase = OP_PHASE_WAITING_FOR_OUTPUT_LIMIT;
+            return true;
+        case OP_EVENT_OUTPUT_LIMIT_RESOLVED:
+            if (phase != OP_PHASE_WAITING_FOR_OUTPUT_LIMIT) return false;
+            g_operation.phase = OP_PHASE_WAITING_FOR_OUTPUT_CONFIRMATION;
+            return true;
+        case OP_EVENT_ROTATION_LOST:
+            if (phase != OP_PHASE_WAITING_FOR_OUTPUT_CONFIRMATION) return false;
+            g_operation.phase = OP_PHASE_RUNNING;
+            return true;
+        case OP_EVENT_OUTPUT_CONFIRMED:
+            if (phase != OP_PHASE_WAITING_FOR_OUTPUT_CONFIRMATION) return false;
+            g_operation.phase = OP_PHASE_COMMITTING;
+            return true;
+        case OP_EVENT_FINISHED:
+            if (phase == OP_PHASE_READY || phase == OP_PHASE_QUEUED) return false;
+            g_operation = (operation_context_t){.phase = OP_PHASE_READY};
+            return true;
     }
+    return false;
 }
 
 static const op_def_t *operation_manager_get_def(operation_type_t type) {
@@ -518,255 +620,198 @@ static const op_def_t *operation_manager_get_def(operation_type_t type) {
     return NULL;
 }
 
-static void operation_manager_set_error_locked(const char *text) {
-    if (!text) {
-        g_error_len = 0;
-        g_error_text[0] = '\0';
-        return;
-    }
-    size_t len = strnlen(text, OP_ERROR_TEXT_MAX);
-    memcpy(g_error_text, text, len);
-    g_error_text[len] = '\0';
-    g_error_len = (uint8_t)len;
+static operation_status_t operation_manager_status(void) {
+    state_lock();
+    operation_status_t status = g_status;
+    state_unlock();
+    return status;
 }
 
-static void operation_manager_clear_error_locked(void) {
-    g_error_len = 0;
-    g_error_text[0] = '\0';
+static void operation_manager_encode(const operation_status_t *status, uint8_t *out) {
+    out[0] = OP_STATUS_VERSION;
+    out[1] = (uint8_t)status->type;
+    out[2] = (uint8_t)status->state;
+    out[3] = status->text_len;
+    memset(out + 4, 0, OP_ERROR_TEXT_MAX);
+    memcpy(out + 4, status->text, status->text_len);
 }
 
-static void operation_manager_notify_custom(operation_type_t type,
-                                            operation_state_t state,
-                                            const char *err_text) {
+static void operation_manager_notify(const operation_status_t *status, uint16_t owner) {
     uint8_t payload[OP_STATUS_PAYLOAD_LEN];
-    uint8_t err_len = 0;
-
-    if (err_text && err_text[0] != '\0') {
-        err_len = (uint8_t)strnlen(err_text, OP_ERROR_TEXT_MAX);
-    }
-
-    payload[0] = OP_STATUS_VERSION;
-    payload[1] = (uint8_t)type;
-    payload[2] = (uint8_t)state;
-    payload[3] = err_len;
-    memset(payload + 4, 0, OP_ERROR_TEXT_MAX);
-    if (err_len > 0) {
-        memcpy(payload + 4, err_text, err_len);
-    }
-
-    operation_manager_cache_write(type, state, err_text);
-    uint16_t conn = fsm_get_conn_handle();
-    operation_status_notify(conn, payload, sizeof(payload));
+    operation_manager_encode(status, payload);
+    operation_status_notify(owner, payload, sizeof(payload));
 }
 
-static void operation_manager_notify_state(operation_state_t state_override) {
-    operation_type_t type;
-    char err_buf[OP_ERROR_TEXT_MAX + 1];
-
-    type = g_active;
-    if (state_override == OP_STATE_ERROR && g_error_len > 0) {
-        memcpy(err_buf, g_error_text, g_error_len);
-        err_buf[g_error_len] = '\0';
-    } else {
-        err_buf[0] = '\0';
+static operation_status_t operation_manager_report_locked(operation_state_t state, const char *text) {
+    g_status.type = g_operation.type;
+    g_status.state = state;
+    g_status.text_len = text ? (uint8_t)strnlen(text, OP_ERROR_TEXT_MAX) : 0;
+    if (g_status.text_len > 0) {
+        memcpy(g_status.text, text, g_status.text_len);
     }
-    operation_manager_notify_custom(type, state_override, err_buf[0] ? err_buf : NULL);
+    return g_status;
 }
 
-static bool operation_manager_needs_override(operation_type_t type) {
-    const op_def_t *def = operation_manager_get_def(type);
-    return def != NULL && def->guard.uses_override;
+static void operation_manager_publish_progress(const char *text) {
+    state_lock();
+    bool running = g_operation.phase == OP_PHASE_RUNNING;
+    uint16_t owner = g_operation.owner;
+    operation_status_t status = g_status;
+    if (running) {
+        status = operation_manager_report_locked(OP_STATE_IN_SERVICE, text);
+    }
+    state_unlock();
+    if (running) operation_manager_notify(&status, owner);
 }
 
 void operation_manager_init(void) {
-    g_state = OP_STATE_IDLE;
-    g_active = OP_TYPE_NONE;
-    g_preflight_dc_max_percent = 100.0f;
-    g_preflight_pwm_max_percent = 100.0f;
-    g_operation_started = false;
-    g_calib_control_type = PARAM_FAN_CONTROL_DC;
+    g_status = (operation_status_t){.type = OP_TYPE_NONE, .state = OP_STATE_IDLE};
+    g_operation = (operation_context_t){.phase = OP_PHASE_READY};
     operation_preflight_reset();
-    operation_manager_clear_error_locked();
-    if (!g_op_cmd_q) {
-        g_op_cmd_q = xQueueCreate(4, sizeof(op_cmd_t));
-    }
-    operation_manager_cache_write(OP_TYPE_NONE, OP_STATE_IDLE, NULL);
 }
 
 operation_state_t operation_manager_get_state(void) {
-    op_status_cache_t snap;
-    operation_manager_cache_read(&snap);
-    return snap.state;
+    return operation_manager_status().state;
 }
 
 operation_type_t operation_manager_get_active_type(void) {
-    op_status_cache_t snap;
-    operation_manager_cache_read(&snap);
-    return snap.type;
+    operation_status_t status = operation_manager_status();
+    return status.state == OP_STATE_IN_SERVICE ? status.type : OP_TYPE_NONE;
 }
 
-bool operation_manager_is_active(void) {
-    op_status_cache_t snap;
-    operation_manager_cache_read(&snap);
-    return snap.state == OP_STATE_IN_SERVICE;
+bool operation_manager_is_busy(void) {
+    state_lock();
+    bool busy = g_operation.phase != OP_PHASE_READY;
+    state_unlock();
+    return busy;
 }
 
 void operation_manager_get_status_payload(uint8_t *out, size_t len) {
     if (!out || len < OP_STATUS_PAYLOAD_LEN) return;
-    op_status_cache_t snap;
-    operation_manager_cache_read(&snap);
-
-    out[0] = OP_STATUS_VERSION;
-    out[1] = (uint8_t)snap.type;
-    out[2] = (uint8_t)snap.state;
-    out[3] = snap.err_len;
-    memset(out + 4, 0, OP_ERROR_TEXT_MAX);
-    if (snap.err_len > 0) {
-        memcpy(out + 4, snap.err_text, snap.err_len);
-    }
+    operation_status_t status = operation_manager_status();
+    operation_manager_encode(&status, out);
 }
 
-static bool operation_manager_start_impl(operation_type_t type, const char **err_text) {
-    const op_def_t *def = operation_manager_get_def(type);
-    if (!def) return false;
-
-    if (def->guard.uses_override) {
-        if (!fan_control_override_set((uint8_t)type, def->guard.override_rpm)) {
-            if (err_text) *err_text = "fan busy";
-            return false;
-        }
-    }
-
-    if (def->start) {
-        const char *local_err = NULL;
-        if (!def->start(&local_err)) {
-            if (err_text) *err_text = local_err;
-            return false;
-        }
-    }
-
-    return true;
-}
-
-operation_start_result_t operation_manager_start(operation_type_t type) {
-    if (!operation_manager_get_def(type)) {
-        operation_manager_notify_custom(type, OP_STATE_ERROR, "invalid op");
+operation_start_result_t operation_manager_start(operation_type_t type, uint16_t owner) {
+    if (!operation_manager_get_def(type) || owner == BLE_HS_CONN_HANDLE_NONE) {
         return OP_START_INVALID;
     }
-    if (g_op_cmd_q == NULL) {
-        operation_manager_notify_custom(type, OP_STATE_ERROR, "queue");
-        return OP_START_FAILED;
-    }
-    op_status_cache_t snap;
-    operation_manager_cache_read(&snap);
-    if (snap.state == OP_STATE_IN_SERVICE) {
-        operation_manager_notify_custom(type, OP_STATE_ERROR, "busy");
+    if (device_status_has_error_flag(DEVICE_ERROR_OVERHEAT)) return OP_START_OVERHEAT;
+    state_lock();
+    if (!operation_dispatch_locked(OP_EVENT_START, owner)) {
+        state_unlock();
         return OP_START_BUSY;
     }
-    op_cmd_t cmd = {.type = type};
-    if (xQueueSend(g_op_cmd_q, &cmd, 0) != pdTRUE) {
-        operation_manager_notify_custom(type, OP_STATE_ERROR, "busy");
-        return OP_START_BUSY;
-    }
+    g_operation.type = type;
+    g_operation.owner = owner;
+    g_operation_revision = params_reset_revision();
+    state_unlock();
     return OP_START_OK;
 }
 
-void operation_manager_finish_success(operation_type_t type) {
-    bool should_notify = false;
-    bool clear_override = false;
-    bool call_finish = false;
-    if (g_active == type && g_state == OP_STATE_IN_SERVICE) {
-        g_state = OP_STATE_DONE;
-        g_preflight_dc_max_percent = 100.0f;
-        g_preflight_pwm_max_percent = 100.0f;
-        g_operation_started = false;
-        operation_preflight_reset();
-        operation_manager_clear_error_locked();
-        clear_override = operation_manager_needs_override(type);
-        call_finish = true;
-        should_notify = true;
-    }
-    if (call_finish) {
-        const op_def_t *def = operation_manager_get_def(type);
-        if (def && def->finish) {
-            def->finish();
-        }
-    }
-    if (clear_override) {
-        fan_control_override_clear((uint8_t)type);
-    }
-    if (should_notify) {
-        operation_manager_notify_state(OP_STATE_DONE);
-    }
+bool operation_manager_cancel(uint16_t owner) {
+    state_lock();
+    bool accepted = operation_dispatch_locked(OP_EVENT_CANCEL, owner);
+    state_unlock();
+    return accepted;
 }
 
-void operation_manager_finish_error(operation_type_t type, const char *err_text) {
-    bool should_notify = false;
-    bool clear_override = false;
-    bool call_finish = false;
-    if (g_active == type && g_state == OP_STATE_IN_SERVICE) {
-        g_state = OP_STATE_ERROR;
-        g_preflight_dc_max_percent = 100.0f;
-        g_preflight_pwm_max_percent = 100.0f;
-        g_operation_started = false;
-        operation_preflight_reset();
-        operation_manager_set_error_locked(err_text);
-        clear_override = operation_manager_needs_override(type);
-        call_finish = true;
-        should_notify = true;
+void operation_manager_on_disconnect(uint16_t owner) {
+    state_lock();
+    operation_dispatch_locked(OP_EVENT_OWNER_DISCONNECTED, owner);
+    state_unlock();
+}
+
+static bool operation_manager_advance(operation_event_t event) {
+    state_lock();
+    bool accepted = operation_dispatch_locked(event, BLE_HS_CONN_HANDLE_NONE);
+    state_unlock();
+    return accepted;
+}
+
+static const char *operation_manager_commit(operation_type_t type) {
+    if (!operation_manager_advance(OP_EVENT_OUTPUT_CONFIRMED)) return "cancelled";
+
+    uint16_t mask = PARAM_MASK_FAN_MIN_SPEED;
+    if (type == OP_TYPE_SETUP_FANS) {
+        mask |= PARAM_MASK_FAN_CONTROL_TYPE | PARAM_MASK_FAN_MONITORING_ENABLED |
+                PARAM_MASK_FAN2_MONITORING_ENABLED | PARAM_MASK_FAN3_MONITORING_ENABLED |
+                PARAM_MASK_FAN4_MONITORING_ENABLED;
     }
-    if (call_finish) {
-        const op_def_t *def = operation_manager_get_def(type);
-        if (def && def->finish) {
-            def->finish();
-        }
+    uint8_t status = params_apply_operation_result(&g_operation_params, mask, g_operation_revision);
+    if (status == PARAM_STATUS_OK) return NULL;
+    return status == PARAM_STATUS_BUSY ? "factory reset" : "params apply";
+}
+
+static void operation_manager_finish(const op_def_t *def, operation_state_t state,
+                                     const char *text) {
+    operation_preflight_reset();
+    def->finish();
+    g_operation_params = (params_t){0};
+    fan_control_override_clear(def->type);
+
+    state_lock();
+    uint16_t owner = g_operation.owner;
+    bool cancelled = g_operation.phase == OP_PHASE_CANCELLING;
+    if (cancelled) {
+        state = OP_STATE_ERROR;
+        text = "cancelled";
     }
-    if (clear_override) {
-        fan_control_override_clear((uint8_t)type);
-    }
-    if (should_notify) {
-        operation_manager_notify_state(OP_STATE_ERROR);
-    }
+    operation_status_t status = operation_manager_report_locked(state, text);
+    operation_dispatch_locked(OP_EVENT_FINISHED, owner);
+    state_unlock();
+    if (cancelled) output_limit_request_stop();
+    operation_manager_notify(&status, owner);
 }
 
 void operation_manager_tick(int64_t now_us) {
-    (void)now_us;
-    if (g_state != OP_STATE_IN_SERVICE) {
-        op_cmd_t cmd;
-        if (g_op_cmd_q && xQueueReceive(g_op_cmd_q, &cmd, 0) == pdTRUE) {
-            const op_def_t *def = operation_manager_get_def(cmd.type);
-            if (!def) {
-                operation_manager_notify_custom(cmd.type, OP_STATE_ERROR, "invalid op");
-                return;
-            }
-            g_state = OP_STATE_IN_SERVICE;
-            g_active = cmd.type;
-            g_preflight_dc_max_percent = 100.0f;
-            g_preflight_pwm_max_percent = 100.0f;
-            g_operation_started = false;
-            operation_preflight_reset();
-            operation_manager_clear_error_locked();
-            operation_manager_notify_state(OP_STATE_IN_SERVICE);
-            const char *err_text = NULL;
-            if (operation_manager_needs_override(cmd.type)) {
-                if (!operation_preflight_start(cmd.type, now_us, &err_text)) {
-                    operation_manager_finish_error(cmd.type, err_text ? err_text : "preflight start");
-                    return;
-                }
-            }
-        } else {
+    const char *err_text = NULL;
+    state_lock();
+    bool starting = operation_dispatch_locked(OP_EVENT_BEGIN_PREFLIGHT, BLE_HS_CONN_HANDLE_NONE);
+    operation_context_t current = g_operation;
+    operation_status_t status = g_status;
+    if (starting) {
+        status = operation_manager_report_locked(OP_STATE_IN_SERVICE, NULL);
+    }
+    state_unlock();
+
+    if (current.phase == OP_PHASE_READY) return;
+    const op_def_t *def = operation_manager_get_def(current.type);
+    if (current.phase == OP_PHASE_CANCELLING) {
+        operation_manager_finish(def, OP_STATE_ERROR, "cancelled");
+        return;
+    }
+    if (starting) operation_manager_notify(&status, current.owner);
+    operation_type_t type = current.type;
+    if (device_status_has_error_flag(DEVICE_ERROR_OVERHEAT)) {
+        operation_manager_finish(def, OP_STATE_ERROR, "overheat");
+        return;
+    }
+    if (device_status_has_error_flag(DEVICE_ERROR_FAN_OUTPUT)) {
+        operation_manager_finish(def, OP_STATE_ERROR, "fan output fault");
+        return;
+    }
+    if (g_operation_revision != params_reset_revision()) {
+        operation_manager_finish(def, OP_STATE_ERROR, "factory reset");
+        return;
+    }
+    if (current.phase == OP_PHASE_WAITING_FOR_OUTPUT_CONFIRMATION ||
+        current.phase == OP_PHASE_WAITING_FOR_OUTPUT_LIMIT) return;
+    if (starting) {
+        g_preflight_dc_max_percent = 100.0f;
+        g_preflight_pwm_max_percent = 100.0f;
+        if (!operation_preflight_start(type, now_us, &err_text)) {
+            operation_manager_finish(def, OP_STATE_ERROR, err_text ? err_text : "preflight start");
             return;
         }
     }
-
     if (operation_preflight_is_active()) {
-        const char *err_text = NULL;
-        operation_preflight_result_t preflight_res = operation_preflight_step(now_us, &err_text);
-        if (preflight_res == OP_PREFLIGHT_RESULT_CONTINUE) {
+        operation_preflight_result_t result = operation_preflight_step(now_us, &err_text);
+        if (result == OP_PREFLIGHT_RESULT_CONTINUE) {
             return;
         }
-        if (preflight_res == OP_PREFLIGHT_RESULT_ERROR) {
-            operation_manager_finish_error(g_active, err_text ? err_text : "preflight failed");
+        if (result == OP_PREFLIGHT_RESULT_ERROR) {
+            operation_manager_finish(def, OP_STATE_ERROR, err_text ? err_text : "preflight failed");
             return;
         }
         operation_preflight_caps_t caps;
@@ -776,34 +821,99 @@ void operation_manager_tick(int64_t now_us) {
         }
     }
 
-    if (!g_operation_started) {
-        const char *err_text = NULL;
-        bool started = operation_manager_start_impl(g_active, &err_text);
-        if (!started) {
-            operation_manager_finish_error(g_active, err_text ? err_text : "start failed");
+    if (current.phase == OP_PHASE_PREFLIGHT) {
+        if (!operation_manager_advance(OP_EVENT_PREFLIGHT_PASSED)) {
+            operation_manager_finish(def, OP_STATE_ERROR, "cancelled");
             return;
         }
-        g_operation_started = true;
+        if (!def->start(&err_text)) {
+            operation_manager_finish(def, OP_STATE_ERROR, err_text ? err_text : "start failed");
+            return;
+        }
     }
 
-    operation_type_t type = g_active;
-    const op_def_t *def = operation_manager_get_def(type);
-    if (!def) {
-        operation_manager_finish_error(type, "op missing");
+    output_limit_state_t limit = output_limit_get_status().state;
+    if (limit == OUTPUT_LIMIT_FAULT ||
+        limit == OUTPUT_LIMIT_VERIFY_TIMEOUT || limit == OUTPUT_LIMIT_MINIMUM ||
+        limit == OUTPUT_LIMIT_START_BLOCKED) {
+        operation_manager_finish(def, OP_STATE_ERROR, "output limit alarm");
         return;
+    }
+    if (limit != OUTPUT_LIMIT_NORMAL && limit != OUTPUT_LIMIT_LIMITED) return;
+
+    op_step_result_t result = def->step(now_us, &err_text);
+    if (result == OP_STEP_DONE) {
+        if (operation_manager_advance(OP_EVENT_STEPS_SUCCEEDED)) {
+            g_output_confirm_deadline_us = now_us + OP_OUTPUT_CONFIRM_TIMEOUT_US;
+        } else {
+            operation_manager_finish(def, OP_STATE_ERROR, "cancelled");
+        }
+    } else if (result == OP_STEP_ERROR) {
+        operation_manager_finish(def, OP_STATE_ERROR, err_text ? err_text : "op failed");
+    }
+}
+
+void operation_manager_check_output(int64_t now_us, float applied, uint8_t control_type) {
+    state_lock();
+    operation_context_t current = g_operation;
+    state_unlock();
+
+    if (current.phase == OP_PHASE_RUNNING && g_calib_phase != CALIB_PHASE_IDLE) {
+        const char *error = op_calib_check_output(applied, control_type, output_limit_get_status());
+        if (error) operation_manager_finish(operation_manager_get_def(current.type), OP_STATE_ERROR, error);
+        return;
+    }
+    if (current.phase != OP_PHASE_WAITING_FOR_OUTPUT_CONFIRMATION &&
+        current.phase != OP_PHASE_WAITING_FOR_OUTPUT_LIMIT) return;
+
+    const op_def_t *def = operation_manager_get_def(current.type);
+    output_limit_status_t limit = output_limit_get_status();
+    const char *error = NULL;
+    if (device_status_has_error_flag(DEVICE_ERROR_FAN_OUTPUT)) {
+        error = "fan output fault";
+    } else if (output_limit_is_adjusting(limit.state)) {
+        if (g_calib_phase == CALIB_PHASE_ROTATION_CONFIRMED && current.phase == OP_PHASE_WAITING_FOR_OUTPUT_CONFIRMATION) {
+            if (operation_manager_advance(OP_EVENT_ROTATION_LOST)) {
+                op_calib_check_output(applied, control_type, limit);
+            }
+        } else {
+            operation_manager_advance(OP_EVENT_OUTPUT_LIMIT_ADJUSTING);
+        }
+        return;
+    } else if (limit.state != OUTPUT_LIMIT_NORMAL && limit.state != OUTPUT_LIMIT_LIMITED) {
+        error = "output limit alarm";
+    } else if (limit.effective < g_operation_params.fan_min_speed) {
+        error = "limit below target";
     }
 
-    op_step_result_t res = OP_STEP_DONE;
-    const char *err_text = NULL;
-    if (def->step) {
-        res = def->step(now_us, &err_text);
-    }
-    if (res == OP_STEP_CONTINUE) {
+    if (error) {
+        operation_manager_finish(def, OP_STATE_ERROR, error);
         return;
     }
-    if (res == OP_STEP_ERROR) {
-        operation_manager_finish_error(type, err_text ? err_text : "op failed");
+    if (current.phase == OP_PHASE_WAITING_FOR_OUTPUT_LIMIT) {
+        if (!operation_manager_advance(OP_EVENT_OUTPUT_LIMIT_RESOLVED)) return;
+        g_output_confirm_deadline_us = now_us + OP_OUTPUT_CONFIRM_TIMEOUT_US;
+    }
+
+    if (control_type != g_operation_params.fan_control_type ||
+        applied != (float)g_operation_params.fan_min_speed) {
+        error = "output mismatch";
+    }
+    if (error) {
+        operation_manager_finish(def, OP_STATE_ERROR, error);
         return;
     }
-    operation_manager_finish_success(type);
+    if (g_calib_phase == CALIB_PHASE_ROTATION_CONFIRMED && op_calib_rotation_error(esp_timer_get_time())) {
+        if (operation_manager_advance(OP_EVENT_ROTATION_LOST)) op_calib_dispatch(CALIB_EVENT_ROTATION_LOST);
+        return;
+    }
+    if (limit.verified_output) {
+        error = operation_manager_commit(current.type);
+        operation_manager_finish(def, error ? OP_STATE_ERROR : OP_STATE_DONE, error);
+        return;
+    } else if (now_us >= g_output_confirm_deadline_us) {
+        error = "output check timeout";
+    }
+
+    if (error) operation_manager_finish(def, OP_STATE_ERROR, error);
 }

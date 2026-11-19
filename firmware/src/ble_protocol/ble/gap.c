@@ -9,8 +9,9 @@
 #include "conn_guard.h"
 #include "crypto.h"
 #include "gap.h"
+#include "operation_manager.h"
 #include "pair_mode.h"
-#include "pair_state.h"
+#include "params.h"
 #include "state.h"
 #include "uuid.h"
 #include "device_status_ble.h"
@@ -126,7 +127,14 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
     switch (event->type) {
         case BLE_GAP_EVENT_CONNECT:
             if (event->connect.status == 0) {
-                fsm_dispatch(FSM_EVT_CONNECT, event->connect.conn_handle);
+                uint16_t handle = event->connect.conn_handle;
+                if (!fsm_dispatch(FSM_EVT_CONNECT, handle)) {
+                    if (handle != fsm_get_conn_handle()) {
+                        int rc = ble_gap_terminate(handle, BLE_ERR_REM_USER_CONN_TERM);
+                        if (rc != 0) ESP_LOGW(TAG, "Rejecting extra connection failed rc=%d", rc);
+                    }
+                    return 0;
+                }
                 state_lock();
                 clear_session_secrets_locked();
                 state_unlock();
@@ -139,31 +147,30 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
             return 0;
 
         case BLE_GAP_EVENT_DISCONNECT: {
+            uint16_t conn_handle = event->disconnect.conn.conn_handle;
+            operation_manager_on_disconnect(conn_handle);
+            if (!fsm_dispatch(FSM_EVT_DISCONNECT, conn_handle)) {
+                return 0;
+            }
+            params_discard_pending(conn_handle);
             ESP_LOGI(TAG, "Disconnected; restarting adv");
-            bool pair_mode_active = pair_mode_is_active();
-            fsm_dispatch(FSM_EVT_DISCONNECT, BLE_HS_CONN_HANDLE_NONE);
             state_lock();
             clear_session_secrets_locked();
             state_unlock();
             esp_timer_stop(g_term_timer);
             metrics_reset_notify();
             device_status_reset_notify();
+            fan_status_reset_notify();
             operation_status_reset_notify();
-            if (pair_mode_active) {
-                pair_state_full_reset();
-                if (pair_mode_prepare_session()) {
-                    start_advertising();
-                } else {
-                    pair_mode_deactivate();
-                    start_advertising();
-                }
-            } else {
-                start_advertising();
-            }
+            pair_mode_dispatch(PAIR_WINDOW_LINK_CLOSED);
+            start_advertising();
             return 0;
         }
 
         case BLE_GAP_EVENT_SUBSCRIBE:
+            if (event->subscribe.conn_handle != fsm_get_conn_handle()) {
+                return 0;
+            }
             metrics_set_notify(event->subscribe.attr_handle,
                                event->subscribe.cur_notify != 0);
             device_status_set_notify(event->subscribe.attr_handle,

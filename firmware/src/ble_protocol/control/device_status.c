@@ -20,7 +20,7 @@ static device_status_cache_t g_status = {
 static void device_status_notify_current(void) {
     uint8_t payload[DEVICE_STATUS_PAYLOAD_LEN];
     device_status_get_payload(payload, sizeof(payload));
-    device_status_notify(fsm_get_conn_handle(), payload, sizeof(payload));
+    device_status_notify(fsm_get_auth_conn_handle(), payload, sizeof(payload));
 }
 
 static void device_status_refresh_locked(bool *changed) {
@@ -48,20 +48,12 @@ void device_status_init(void) {
     }
 }
 
-void device_status_set_error_flag(device_error_mask_t flag, bool active) {
-    if (flag == DEVICE_ERROR_NONE) return;
-    bool changed = false;
-
+void device_status_update_error_flags(device_error_mask_t update_mask, device_error_mask_t active_mask) {
     state_lock();
-    device_error_mask_t next_mask = g_status.error_mask;
-    if (active) {
-        next_mask |= flag;
-    } else {
-        next_mask &= ~flag;
-    }
-    if (next_mask != g_status.error_mask) {
+    device_error_mask_t next_mask = (g_status.error_mask & ~update_mask) | (active_mask & update_mask);
+    bool changed = next_mask != g_status.error_mask;
+    if (changed) {
         g_status.error_mask = next_mask;
-        changed = true;
         device_status_refresh_locked(&changed);
     }
     state_unlock();
@@ -69,6 +61,10 @@ void device_status_set_error_flag(device_error_mask_t flag, bool active) {
     if (changed) {
         device_status_notify_current();
     }
+}
+
+void device_status_set_error_flag(device_error_mask_t flag, bool active) {
+    device_status_update_error_flags(flag, active ? flag : DEVICE_ERROR_NONE);
 }
 
 bool device_status_is_error(void) {

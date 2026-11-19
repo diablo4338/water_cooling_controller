@@ -19,10 +19,10 @@
 #define STATUS_LED_SLOW_BLINK_MS 2000
 #define STATUS_LED_FAST_BLINK_MS 120
 #define STATUS_LED_FACTORY_BLINK_MS 150
-#define STATUS_LED_FACTORY_BLINK_TOGGLES 4
+#define STATUS_LED_FACTORY_SUCCESS_TOGGLES 4
+#define STATUS_LED_FACTORY_FAILURE_TOGGLES 6
 
-static volatile uint32_t s_factory_blink_remaining = 0;
-static volatile bool s_factory_blink_armed = false;
+static uint32_t s_factory_blink_request;
 
 static void status_led_set_level(int level) {
     gpio_set_level(STATUS_LED_GPIO, level);
@@ -42,6 +42,9 @@ status_led_mode_t status_led_resolve_mode_for_state(bool pairing_active, bool ov
 }
 
 static status_led_mode_t status_led_resolve_mode(void) {
+    if (device_status_has_error_flag(DEVICE_ERROR_OUTPUT_ALARM)) {
+        return STATUS_LED_MODE_BLINK_FAST;
+    }
     return status_led_resolve_mode_for_state(
         pair_mode_is_active(),
         device_status_has_error_flag(DEVICE_ERROR_OVERHEAT),
@@ -61,9 +64,9 @@ void status_led_init(void) {
     status_led_set_level(STATUS_LED_OFF_LEVEL);
 }
 
-void status_led_blink_twice(void) {
-    __atomic_store_n(&s_factory_blink_armed, true, __ATOMIC_RELEASE);
-    __atomic_store_n(&s_factory_blink_remaining, STATUS_LED_FACTORY_BLINK_TOGGLES, __ATOMIC_RELEASE);
+void status_led_report_factory_reset(bool success) {
+    uint32_t toggles = success ? STATUS_LED_FACTORY_SUCCESS_TOGGLES : STATUS_LED_FACTORY_FAILURE_TOGGLES;
+    __atomic_store_n(&s_factory_blink_request, toggles, __ATOMIC_RELEASE);
 }
 
 void status_led_task(void *param) {
@@ -72,25 +75,25 @@ void status_led_task(void *param) {
     TickType_t last_toggle_tick = xTaskGetTickCount();
     status_led_mode_t last_mode = STATUS_LED_MODE_OFF;
     bool output_on = false;
+    uint32_t factory_blink_remaining = 0;
 
     while (1) {
-        if (__atomic_exchange_n(&s_factory_blink_armed, false, __ATOMIC_ACQ_REL)) {
+        uint32_t request = __atomic_exchange_n(&s_factory_blink_request, 0, __ATOMIC_ACQ_REL);
+        if (request > 0) {
+            factory_blink_remaining = request;
             output_on = false;
             last_toggle_tick = xTaskGetTickCount() - pdMS_TO_TICKS(STATUS_LED_FACTORY_BLINK_MS);
         }
 
-        uint32_t factory_blink_remaining = __atomic_load_n(&s_factory_blink_remaining, __ATOMIC_ACQUIRE);
         if (factory_blink_remaining > 0) {
             TickType_t now = xTaskGetTickCount();
             if ((now - last_toggle_tick) >= pdMS_TO_TICKS(STATUS_LED_FACTORY_BLINK_MS)) {
                 output_on = !output_on;
                 last_toggle_tick = now;
-                if (factory_blink_remaining > 0) {
-                    __atomic_fetch_sub(&s_factory_blink_remaining, 1U, __ATOMIC_ACQ_REL);
-                }
+                factory_blink_remaining--;
             }
             status_led_set_level(output_on ? STATUS_LED_ON_LEVEL : STATUS_LED_OFF_LEVEL);
-            if (__atomic_load_n(&s_factory_blink_remaining, __ATOMIC_ACQUIRE) == 0) {
+            if (factory_blink_remaining == 0) {
                 output_on = false;
                 status_led_set_level(STATUS_LED_OFF_LEVEL);
                 last_mode = STATUS_LED_MODE_OFF;

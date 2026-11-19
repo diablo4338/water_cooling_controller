@@ -32,13 +32,14 @@
 #include "operation_manager.h"
 #include "operation_status_ble.h"
 #include "overheat_alarm.h"
-#include "overcurrent_monitor.h"
 #include "pair_mode.h"
 #include "status_led.h"
 
 #ifdef PAIR_RUN_TESTS
 #include "unity_test_runner.h"
 void pair_tests_force_link(void);
+void fsm_tests_force_link(void);
+void storage_tests_force_link(void);
 void conn_guard_tests_force_link(void);
 void metrics_tests_force_link(void);
 #endif
@@ -46,6 +47,8 @@ void metrics_tests_force_link(void);
 void app_main(void) {
 #ifdef PAIR_RUN_TESTS
     pair_tests_force_link();
+    fsm_tests_force_link();
+    storage_tests_force_link();
     conn_guard_tests_force_link();
     metrics_tests_force_link();
     ESP_ERROR_CHECK(nvs_flash_init());
@@ -55,23 +58,24 @@ void app_main(void) {
 
     ESP_ERROR_CHECK(nvs_flash_init());
     fsm_reset();
-    nvs_load_or_empty();
 
     ecdh_init();
-    pair_mode_init();
     status_led_init();
     overheat_alarm_init();
     ESP_ERROR_CHECK(shared_i2c_bus_init());
     metrics_init();
     metrics_ble_init();
     device_status_ble_init();
-    params_init();
     device_status_init();
-    overcurrent_monitor_init();
+    params_init();
     fan_status_ble_init();
     operation_status_ble_init();
     operation_manager_init();
     fan_control_init();
+    while (!app_factory_reset_recover()) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+    nvs_load_or_empty();
 
     esp_timer_create_args_t targs = {
         .callback = term_cb,
@@ -81,14 +85,6 @@ void app_main(void) {
     };
     ESP_ERROR_CHECK(esp_timer_create(&targs, &g_term_timer));
 
-    esp_timer_create_args_t pargs = {
-        .callback = pair_timeout_cb,
-        .arg = NULL,
-        .dispatch_method = ESP_TIMER_TASK,
-        .name = "pair_timeout"
-    };
-    ESP_ERROR_CHECK(esp_timer_create(&pargs, &g_pair_timer));
-
     gpio_config_t io = {
         .pin_bit_mask = 1ULL << PAIR_BTN_GPIO,
         .mode = GPIO_MODE_INPUT,
@@ -97,11 +93,12 @@ void app_main(void) {
         .intr_type = GPIO_INTR_DISABLE
     };
     ESP_ERROR_CHECK(gpio_config(&io));
-    xTaskCreate(button_task, "btn", 4096, NULL, 5, NULL);
 
     gatt_init_uuids_and_services();
 
-    nimble_port_init();
+    ESP_ERROR_CHECK(nimble_port_init());
+    pair_mode_init();
+    app_tasks_init();
     ble_svc_gap_init();
     ble_svc_gatt_init();
 
@@ -120,4 +117,5 @@ void app_main(void) {
     ble_hs_cfg.sync_cb = ble_app_on_sync;
 
     nimble_port_freertos_init(host_task);
+    xTaskCreate(button_task, "btn", 4096, NULL, 5, NULL);
 }
