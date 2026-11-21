@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
 ARG UBUNTU_VERSION=20.04
-FROM ubuntu:${UBUNTU_VERSION} AS desktop
+FROM ubuntu:${UBUNTU_VERSION}
 
 ARG PYTHON_VERSION=3.12.13
 ARG OPENSSL_VERSION=3.2.3
@@ -155,23 +155,13 @@ with urllib.request.urlopen("https://github.com", timeout=30) as response:
     print("HTTPS check:", response.status)
 PY_EOF
 
-ENV OPENSSL_VERSION=${OPENSSL_VERSION}
-ENV PYTHON_VERSION=${PYTHON_VERSION}
-ENV OPENSSL_ROOT_DIR=/opt/openssl-${OPENSSL_VERSION}
-ENV OPENSSL_DIR=/opt/openssl-${OPENSSL_VERSION}
-ENV LD_LIBRARY_PATH=/opt/openssl-${OPENSSL_VERSION}/lib64:/opt/python-${PYTHON_VERSION}/lib
-ENV PATH=/opt/openssl-${OPENSSL_VERSION}/bin:/opt/python-${PYTHON_VERSION}/bin:${PATH}
-ENV PYTHON_BIN=python3.12
-ENV PYTHON=python3.12
-
-WORKDIR /work
-
-FROM desktop AS firmware
-
 ENV IDF_PATH=/opt/esp/idf
 ENV IDF_TOOLS_PATH=/opt/esp/tools
 ENV IDF_CCACHE_ENABLE=1
 ENV CCACHE_DIR=/work/.ccache
+ENV PYTHON_BIN=python3.12
+ENV PYTHON=python3.12
+
 RUN rm -rf "${IDF_PATH}" "${IDF_TOOLS_PATH}" && \
     mkdir -p /opt/esp && \
     git clone \
@@ -188,7 +178,14 @@ RUN rm -rf "${IDF_PATH}" "${IDF_TOOLS_PATH}" && \
 
 RUN bash -lc ". '${IDF_PATH}/export.sh' >/dev/null && idf.py --version && python --version && which idf.py && ls -la '${IDF_TOOLS_PATH}/python_env'"
 
+ENV OPENSSL_VERSION=${OPENSSL_VERSION}
+ENV PYTHON_VERSION=${PYTHON_VERSION}
 ENV ESP_IDF_VERSION=${ESP_IDF_VERSION}
+
+ENV OPENSSL_ROOT_DIR=/opt/openssl-${OPENSSL_VERSION}
+ENV OPENSSL_DIR=/opt/openssl-${OPENSSL_VERSION}
+ENV LD_LIBRARY_PATH=/opt/openssl-${OPENSSL_VERSION}/lib64:/opt/python-${PYTHON_VERSION}/lib
+ENV PATH=/opt/openssl-${OPENSSL_VERSION}/bin:/opt/python-${PYTHON_VERSION}/bin:${PATH}
 
 RUN cat > /usr/local/bin/pcwcc-entrypoint <<'ENTRYPOINT_EOF'
 #!/usr/bin/env bash
@@ -203,6 +200,8 @@ ENTRYPOINT_EOF
 
 RUN chmod +x /usr/local/bin/pcwcc-entrypoint && \
     echo '. "${IDF_PATH}/export.sh" >/dev/null 2>&1 || true' >> /root/.bashrc
+
+WORKDIR /work
 
 RUN python --version && \
     openssl version && \
