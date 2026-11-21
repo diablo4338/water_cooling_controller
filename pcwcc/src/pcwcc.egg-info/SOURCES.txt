@@ -34,6 +34,14 @@ src/pcwcc/gui_logic/window_setup.py
 src/pcwcc/gui_logic/window_updates.py
 src/pcwcc/gui_logic/worker_flows.py
 src/pcwcc/gui_logic/worker_runtime.py
+src/pcwcc/ui/__init__.py
+src/pcwcc/ui/control_style.py
+src/pcwcc/ui/inline_message.py
+src/pcwcc/ui/parameter_controls.py
+src/pcwcc/ui/styles.py
+src/pcwcc/ui/theme.py
+src/pcwcc/ui/tokens.py
+src/pcwcc/ui/window.py
 tests/test_codec_params.py
 tests/test_config.py
 tests/test_integration_ble.py
