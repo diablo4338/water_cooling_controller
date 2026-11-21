@@ -43,7 +43,8 @@ jobs:
 
     env:
       IMAGE_NAME: pcwcc-release-build:ci
-      DOCKER_DEFAULT_PLATFORM: linux/amd64
+      FIRMWARE_IMAGE: pcwcc-firmware-build:ci
+      DESKTOP_PLATFORM: linux/amd64
       PYTHON_VERSION: ${{ github.event.inputs.python_version || '3.12.13' }}
       OPENSSL_VERSION: ${{ github.event.inputs.openssl_version || '3.2.3' }}
       ESP_IDF_VERSION: ${{ github.event.inputs.esp_idf_version || 'v5.4.4' }}
@@ -64,21 +65,37 @@ jobs:
           name: release-builder
           keep-state: ${{ inputs.runner == 'self-hosted' }}
 
-      - name: Build release Docker image
+      - name: Build x86-64 desktop image
         uses: docker/build-push-action@v7
         with:
           context: .
           file: docker/Dockerfile.ubuntu20
-          platforms: ${{ env.DOCKER_DEFAULT_PLATFORM }}
+          target: desktop
+          platforms: ${{ env.DESKTOP_PLATFORM }}
           load: true
           tags: ${{ env.IMAGE_NAME }}
+          build-args: |
+            PYTHON_VERSION=${{ env.PYTHON_VERSION }}
+            OPENSSL_VERSION=${{ env.OPENSSL_VERSION }}
+          provenance: false
+
+      - name: Build native firmware image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: docker/Dockerfile.ubuntu20
+          target: firmware
+          load: true
+          tags: ${{ env.FIRMWARE_IMAGE }}
           build-args: |
             PYTHON_VERSION=${{ env.PYTHON_VERSION }}
             OPENSSL_VERSION=${{ env.OPENSSL_VERSION }}
             ESP_IDF_VERSION=${{ env.ESP_IDF_VERSION }}
           provenance: false
 
-      - name: Run tests
+      - name: Run desktop tests
+        env:
+          DOCKER_DEFAULT_PLATFORM: ${{ env.DESKTOP_PLATFORM }}
         run: ./scripts/run_release_tests.sh
 
       - name: Resolve build version
@@ -89,14 +106,28 @@ jobs:
             echo "VERSION=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
           fi
 
-      - name: Build release artifacts
+      - name: Build firmware and package hardware files
         run: |
+          rm -rf dist
           docker run --rm \
             --user "$(id -u):$(id -g)" \
             -v "$PWD:/work" \
             -w /work \
+            "${FIRMWARE_IMAGE}" \
+            bash -c './scripts/build_firmware.sh "$1" && ./scripts/build_hardware.sh "$1"' _ "${VERSION}"
+
+      - name: Build x86-64 AppImage
+        run: |
+          docker run --rm --platform "${DESKTOP_PLATFORM}" \
+            --user "$(id -u):$(id -g)" \
+            -v "$PWD:/work" \
+            -w /work \
             "${IMAGE_NAME}" \
-            bash -lc './scripts/make_release.sh "${VERSION}"'
+            ./scripts/build_appimage.sh "${VERSION}"
+
+      - name: Create checksums
+        working-directory: dist
+        run: sha256sum * > "pc-water-cooling-controller-${VERSION}-checksums.sha256"
 
       - name: Create prerelease
         if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
