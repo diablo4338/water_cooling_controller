@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from concurrent.futures import Future
 from typing import Optional
 
 from PySide6.QtCore import QThread, Signal, QTimer
@@ -10,17 +11,12 @@ from PySide6.QtWidgets import QApplication, QMainWindow
 from ..config import DEFAULT_CONFIG
 from ..core import (
     BleAppCore,
-    DeviceParams,
     DeviceInfo,
-    DeviceStatus,
-    FanStatus,
     MetricsSnapshot,
-    OperationStatus,
-    ParamsStatus,
     PARAM_STATUS_BUSY,
 )
 from ..presentation import Action, AppModel, ConnState, SelectionSource
-from .constants import APP_TITLE
+from ..ui.window import MainWindowViewMixin
 from .worker_flows import BleWorkerFlowMixin
 from .worker_runtime import BleWorkerRuntimeMixin
 from .window_actions import MainWindowActionMixin
@@ -63,6 +59,7 @@ class BleWorker(BleWorkerRuntimeMixin, BleWorkerFlowMixin, QThread):
 
 
 class MainWindow(
+    MainWindowViewMixin,
     MainWindowSetupMixin,
     MainWindowParamsMixin,
     MainWindowListMixin,
@@ -91,8 +88,8 @@ class MainWindow(
             Action.DISCONNECT: self.worker.config.gui_action_disconnect_timeout_s,
         }
         self.default_action_timeout = self.worker.config.gui_action_default_timeout_s
-        self._action_timers = {}
-        self._action_futures = {}
+        self._action_timers: dict[Action, QTimer] = {}
+        self._action_futures: dict[Action, Future[object]] = {}
         self.metrics_snapshot = MetricsSnapshot.empty()
         self._startup_auto_connect_device: Optional[DeviceInfo] = None
         self._create_widgets()

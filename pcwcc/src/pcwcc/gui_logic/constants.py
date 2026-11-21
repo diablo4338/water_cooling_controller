@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from typing import Literal, NotRequired, TypedDict
+
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QBrush, QColor
 
 from ..core import (
     FAN_CONTROL_DC,
@@ -15,7 +16,6 @@ from ..core import (
 
 APP_TITLE = "BLE Cooling Controller"
 USER_ROLE = Qt.ItemDataRole.UserRole
-PAIRED_HIGHLIGHT_BRUSH = QBrush(QColor(220, 245, 220))
 
 FAN_CONTROL_CHOICES = [
     (FAN_CONTROL_DC, FAN_CONTROL_TYPE_NAMES[FAN_CONTROL_DC]),
@@ -26,7 +26,17 @@ FAN_MODE_CHOICES = [
     (FAN_MODE_TEMP_SENSOR, FAN_MODE_NAMES[FAN_MODE_TEMP_SENSOR]),
     (FAN_MODE_INACTIVE, FAN_MODE_NAMES[FAN_MODE_INACTIVE]),
 ]
-PARAM_FIELDS = [
+class ParameterSpec(TypedDict):
+    key: str
+    label: str
+    kind: Literal["int", "enum", "bool"]
+    group: Literal["fan", "control"]
+    min: NotRequired[int]
+    max: NotRequired[int]
+    choices: NotRequired[list[tuple[int, str]]]
+
+
+PARAM_FIELDS: list[ParameterSpec] = [
     {
         "key": "fan_min_speed",
         "label": "Base fan speed, %",

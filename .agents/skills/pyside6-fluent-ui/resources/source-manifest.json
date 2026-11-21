@@ -1,0 +1,306 @@
+{
+  "project": "pyside6-fluent-ui",
+  "version": "0.7.0-rc.1",
+  "phase": 2,
+  "release_stage": "release-candidate",
+  "status": "PySide6 Fluent UI 0.7.0-rc.1 public release candidate; reusable package validation completed",
+  "created": "2026-07-13",
+  "updated": "2026-07-15",
+  "based_on_phase1": {
+    "project": "pyside6-fluent-ui",
+    "phase": 1,
+    "status": "initial source review completed",
+    "review_date": "2026-07-13",
+    "scope": {
+      "framework": "PySide6 / Qt Widgets",
+      "goal": "refactor existing GUIs toward Fluent 2 principles",
+      "workbench_profile": [
+        "integrated_title_bar",
+        "activity_bar",
+        "primary_sidebar",
+        "main_content",
+        "optional_panel",
+        "status_bar"
+      ],
+      "repository_inspection_performed": false
+    },
+    "authority_order": [
+      "official Qt/PySide runtime and platform documentation",
+      "official Microsoft Fluent 2 documentation and token sources",
+      "official VS Code UX guidance and source for workbench-shell semantics",
+      "reviewed community Fluent skill",
+      "project-specific profile"
+    ],
+    "sources": [
+      {
+        "id": "community_fluent_skill",
+        "kind": "community_skill",
+        "repository": "fefogarcia/approved-skills",
+        "commit": "2da55c784b3341f73c353cda0bc404a19c388fda",
+        "paths": [
+          "skills/fluent2-design-system/SKILL.md",
+          "skills/fluent2-design-system/references/tokens.md",
+          "skills/fluent2-design-system/references/components.md"
+        ],
+        "decision": "translate; do not inherit React/Griffel runtime assumptions"
+      },
+      {
+        "id": "official_fluent_docs",
+        "kind": "official_documentation",
+        "urls": [
+          "https://fluent2.microsoft.design/design-principles",
+          "https://fluent2.microsoft.design/design-tokens",
+          "https://fluent2.microsoft.design/typography",
+          "https://fluent2.microsoft.design/layout",
+          "https://fluent2.microsoft.design/accessibility"
+        ],
+        "decision": "primary visual-design authority"
+      },
+      {
+        "id": "official_fluent_tokens",
+        "kind": "official_source_and_package",
+        "repository": "microsoft/fluentui",
+        "source_commit_cross_check": "bc5035bfcd53277a39075c596b14b9731020d1de",
+        "package": "@fluentui/react-theme",
+        "package_version": "9.2.1",
+        "extracted_at": "2026-07-12",
+        "resolved_tokens_per_theme": 459,
+        "decision": "versioned upstream token source"
+      },
+      {
+        "id": "vscode_ux",
+        "kind": "official_documentation",
+        "urls": [
+          "https://code.visualstudio.com/api/ux-guidelines/overview",
+          "https://code.visualstudio.com/api/ux-guidelines/activity-bar",
+          "https://code.visualstudio.com/api/ux-guidelines/status-bar",
+          "https://code.visualstudio.com/api/references/theme-color"
+        ],
+        "decision": "workbench information architecture and shell semantics"
+      },
+      {
+        "id": "vscode_source",
+        "kind": "official_source",
+        "repository": "microsoft/vscode",
+        "commit": "f390b25a75f0c64c17c8145f286e232838bc3370",
+        "paths": [
+          "src/vs/workbench/browser/parts/activitybar/activitybarPart.ts",
+          "src/vs/workbench/browser/parts/statusbar/statusbarPart.ts",
+          "src/vs/workbench/browser/parts/titlebar/titlebarPart.ts",
+          "src/vs/platform/window/common/window.ts"
+        ],
+        "decision": "reference metrics and behavior only; no pixel clone"
+      },
+      {
+        "id": "qt_docs",
+        "kind": "official_documentation",
+        "urls": [
+          "https://doc.qt.io/qtforpython-6/overviews/qtwidgets-stylesheet.html",
+          "https://doc.qt.io/qtforpython-6/PySide6/QtGui/QPalette.html",
+          "https://doc.qt.io/qtforpython-6/PySide6/QtWidgets/QProxyStyle.html",
+          "https://doc.qt.io/qtforpython-6/PySide6/QtGui/QStyleHints.html",
+          "https://doc.qt.io/qtforpython-6/PySide6/QtGui/QAccessibilityHints.html",
+          "https://doc.qt.io/qtforpython-6/PySide6/QtWidgets/QWidget.html",
+          "https://doc.qt.io/qtforpython-6/PySide6/QtGui/QWindow.html",
+          "https://doc.qt.io/qt-6/qt.html#WindowType-enum"
+        ],
+        "decision": "implementation and native-platform authority"
+      }
+    ],
+    "reference_metrics": {
+      "activity_bar": {
+        "standard_width_px": 48,
+        "standard_item_height_px": 48,
+        "standard_icon_px": 24,
+        "compact_width_px": 36,
+        "compact_item_height_px": 32,
+        "compact_icon_px": 16,
+        "normative": false
+      },
+      "status_bar": {
+        "reference_height_px": 22,
+        "normative": false
+      },
+      "title_bar": {
+        "reference_height_with_command_center_px": 35,
+        "reference_simple_height_px": 30,
+        "normative": false
+      }
+    },
+    "title_bar_policy": {
+      "profile_selection": "requested visual outcome and target-platform behavior",
+      "fallback": "native title bar plus Fluent command/title strip",
+      "frameless": {
+        "use_for_single_row_workbench": true,
+        "baseline_supplied": true,
+        "requirements": [
+          "QWindow.startSystemMove",
+          "QWindow.startSystemResize",
+          "active/inactive states",
+          "visible active/inactive outer boundary",
+          "double-click maximize/restore",
+          "Windows 11 HTMAXBUTTON native-event routing",
+          "deferred non-client maximize/restore activation",
+          "minimum width at or below 500 epx for common Snap Layouts",
+          "system menu where applicable",
+          "multi-monitor and high-DPI tests",
+          "documented platform limitations"
+        ],
+        "windows_snap_layout_adapter": {
+          "capability_gate": "Windows build 22000 or newer",
+          "native_route": "QWidget.nativeEvent through WindowsSnapLayoutWindowMixin",
+          "owned_hit_region": "visible and enabled maximize/restore button only",
+          "owned_hit_result": "HTMAXBUTTON",
+          "resize_policy": "retain client-side startSystemResize handles",
+          "manual_release_gate": "OS hover flyout, Win+Z, zone selection, per-monitor DPI"
+        },
+        "windows_window_frame_adapter": {
+          "capability_gate": "Windows build 22000 or newer",
+          "native_attribute": "DWMWA_BORDER_COLOR",
+          "activation_policy": "application updates active/inactive semantic colors",
+          "maximized_policy": "suppress the restored-state border while maximized or full-screen",
+          "fallback": "generated-QSS semantic client border"
+        }
+      },
+      "expanded_client_area": {
+        "requires": [
+          "Qt.ExpandedClientAreaHint",
+          "Qt.NoTitleBarBackgroundHint",
+          "QWindow.safeAreaMargins"
+        ],
+        "retains_native_caption_content": true,
+        "not_a_single_row_replacement": true
+      }
+    },
+    "qt_architecture": {
+      "QPalette": "broad active/inactive/disabled semantic roles",
+      "QSS": "generated application-wide component visuals and states",
+      "dynamic_properties": "semantic appearances, sizes, and states",
+      "QProxyStyle": "narrow metrics and style-hint overrides",
+      "custom_painting": "last resort with explicit state/accessibility contract"
+    },
+    "next_phase_outputs": [
+      "first complete generic SKILL.md",
+      "Qt-facing token vocabulary",
+      "workbench shell token map",
+      "activity bar contract",
+      "status bar contract",
+      "title bar contract",
+      "isolated widget gallery"
+    ]
+  },
+  "source_additions": [
+    {
+      "repository": "microsoft/fluentui",
+      "commit": "bc5035bfcd53277a39075c596b14b9731020d1de",
+      "path": "packages/react-components/react-button/library/src/components/Button/useButtonStyles.styles.ts",
+      "use": "derive standard 24/32/40 px button/control density and state behavior"
+    },
+    {
+      "repository": "microsoft/fluentui",
+      "commit": "bc5035bfcd53277a39075c596b14b9731020d1de",
+      "path": "packages/react-components/react-spinbutton/library/src/components/SpinButton/useSpinButtonStyles.styles.ts",
+      "use": "derive the 24 px stacked stepper column, standard/compact geometry, and state behavior"
+    },
+    {
+      "repository": "microsoft/fluentui-system-icons",
+      "commit": "32374ae9ccf107e026db0d9aa9c0d631328b8003",
+      "paths": [
+        "assets/Chevron Up/SVG/ic_fluent_chevron_up_16_regular.svg",
+        "assets/Chevron Down/SVG/ic_fluent_chevron_down_16_regular.svg"
+      ],
+      "use": "theme-tinted symbolic source assets for Qt spin-box stepper subcontrols"
+    },
+    {
+      "url": "https://doc.qt.io/qt-6/qt.html#WindowType-enum",
+      "use": "Qt 6.9 ExpandedClientAreaHint and NoTitleBarBackgroundHint"
+    },
+    {
+      "url": "https://doc.qt.io/qtforpython-6/PySide6/QtGui/QWindow.html",
+      "use": "safe area, system move, and system resize behavior"
+    },
+    {
+      "url": "https://doc.qt.io/qtforpython-6/PySide6/QtGui/QStyleHints.html",
+      "use": "system color scheme and hover preference"
+    },
+    {
+      "url": "https://doc.qt.io/qtforpython-6/PySide6/QtGui/QAccessibilityHints.html",
+      "use": "system contrast preference where available"
+    },
+    {
+      "url": "https://learn.microsoft.com/en-us/windows/win32/api/dwmapi/ne-dwmapi-dwmwindowattribute",
+      "use": "Windows 11 frameless border color and corner preference attributes"
+    }
+  ],
+  "deliverables": [
+    "SKILL.md",
+    "14 reference files",
+    "official resolved token snapshot",
+    "Qt semantic token map",
+    "workbench shell token map",
+    "component state matrix",
+    "PySide6 runtime/gallery scaffold",
+    "static audit and validation scripts"
+  ],
+  "runtime_validation": {
+    "static_validation": "executed",
+    "PySide6_runtime_available_in_build_environment": true,
+    "consequence": "application and gallery smoke tests executed with PySide6 6.10.1"
+  },
+  "canonical_template_modules": [
+    "tokens.py",
+    "metrics.py",
+    "style.py",
+    "theme.py",
+    "activity_bar.py",
+    "status_bar.py",
+    "title_bar.py",
+    "windows_title_bar.py",
+    "window_frame.py",
+    "widgets.py",
+    "workbench.py",
+    "fluent.qss.in"
+  ],
+  "validation_results": {
+    "static_validation": "pass",
+    "official_tokens_per_theme": 459,
+    "theme_modes_resolved": [
+      "light",
+      "dark"
+    ],
+    "shell_profiles_resolved": [
+      "fluent-workbench",
+      "fluent-workbench-neutral-status"
+    ],
+    "unique_qss_semantic_aliases_resolved": 123,
+    "symbolic_qss_asset_placeholders_resolved": 6,
+    "contrast_pairs_checked": 80,
+    "contrast_result": "pass",
+    "unit_tests": 29,
+    "unit_test_result": "pass",
+    "static_audit_examples_findings": 0,
+    "static_audit_templates_findings": 0,
+    "pyside6_runtime_available_in_build_environment": true,
+    "runtime_gallery_executed": true,
+    "runtime_gallery_profiles": [
+      "light-standard",
+      "dark-compact",
+      "high-contrast-standard"
+    ],
+    "spin_box_scale_factors": [
+      1,
+      1.25,
+      1.5,
+      2
+    ],
+    "windows_frameless_boundary": "native DWM restored-state border visually verified; maximize suppression and restore verified",
+    "client_boundary_fallback": "offscreen pixel color verified against the active semantic token"
+  },
+  "repository_inspection_performed": false,
+  "next_phase": [
+    "manually verify screen-reader announcements on each claimed target platform",
+    "exercise non-Windows rendering before claiming Linux or macOS parity",
+    "continue component-specific forward testing from real application feedback"
+  ],
+  "skill_name": "pyside6-fluent-ui"
+}

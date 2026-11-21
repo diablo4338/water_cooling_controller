@@ -1,0 +1,998 @@
+{
+  "schema_version": 1,
+  "title": "Qt-facing semantic aliases for Microsoft Fluent 2 Web tokens",
+  "source": {
+    "title": "Microsoft Fluent UI v9 resolved web theme tokens",
+    "package": "@fluentui/react-theme",
+    "packageVersion": "9.2.1",
+    "extractedAt": "2026-07-12",
+    "tokenCountPerTheme": 459,
+    "officialRepository": "microsoft/fluentui",
+    "officialSourcePaths": [
+      "packages/tokens/src/themes/web/lightTheme.ts",
+      "packages/tokens/src/themes/web/darkTheme.ts",
+      "packages/tokens/src/global/brandColors.ts",
+      "packages/tokens/src/alias/lightColor.ts",
+      "packages/tokens/src/alias/darkColor.ts"
+    ],
+    "note": "Resolved values from the latest published official @fluentui/react-theme package available on the extraction date; cross-checked against the current official GitHub source generation paths."
+  },
+  "usage": "Consume semantic aliases in application code and generated QSS. Do not copy resolved values into widgets.",
+  "aliases": {
+    "colors": {
+      "window_background": {
+        "token": "colorNeutralBackground2",
+        "description": "Top-level window and broad workspace background.",
+        "light": "#fafafa",
+        "dark": "#1f1f1f"
+      },
+      "canvas_background": {
+        "token": "colorNeutralBackground1",
+        "description": "Primary content canvas.",
+        "light": "#ffffff",
+        "dark": "#292929"
+      },
+      "surface_background": {
+        "token": "colorNeutralBackground1",
+        "description": "Default control and surface background.",
+        "light": "#ffffff",
+        "dark": "#292929"
+      },
+      "surface_background_hover": {
+        "token": "colorNeutralBackground1Hover",
+        "description": "Default surface hover.",
+        "light": "#f5f5f5",
+        "dark": "#3d3d3d"
+      },
+      "surface_background_pressed": {
+        "token": "colorNeutralBackground1Pressed",
+        "description": "Default surface pressed state.",
+        "light": "#e0e0e0",
+        "dark": "#1f1f1f"
+      },
+      "surface_background_selected": {
+        "token": "colorNeutralBackground1Selected",
+        "description": "Default selected surface.",
+        "light": "#ebebeb",
+        "dark": "#383838"
+      },
+      "surface_secondary": {
+        "token": "colorNeutralBackground2",
+        "description": "Sidebar and secondary surface.",
+        "light": "#fafafa",
+        "dark": "#1f1f1f"
+      },
+      "surface_tertiary": {
+        "token": "colorNeutralBackground3",
+        "description": "Tertiary or inset surface.",
+        "light": "#f5f5f5",
+        "dark": "#141414"
+      },
+      "surface_elevated": {
+        "token": "colorNeutralBackground4",
+        "description": "Floating/elevated surface when a distinct layer is needed.",
+        "light": "#f0f0f0",
+        "dark": "#0a0a0a"
+      },
+      "surface_disabled": {
+        "token": "colorNeutralBackgroundDisabled",
+        "description": "Disabled control background.",
+        "light": "#f0f0f0",
+        "dark": "#141414"
+      },
+      "card_background": {
+        "token": "colorNeutralCardBackground",
+        "description": "Card background.",
+        "light": "#fafafa",
+        "dark": "#333333"
+      },
+      "card_background_hover": {
+        "token": "colorNeutralCardBackgroundHover",
+        "description": "Interactive card hover.",
+        "light": "#ffffff",
+        "dark": "#3d3d3d"
+      },
+      "card_background_pressed": {
+        "token": "colorNeutralCardBackgroundPressed",
+        "description": "Interactive card pressed.",
+        "light": "#f5f5f5",
+        "dark": "#2e2e2e"
+      },
+      "card_background_selected": {
+        "token": "colorNeutralCardBackgroundSelected",
+        "description": "Interactive card selected.",
+        "light": "#ebebeb",
+        "dark": "#383838"
+      },
+      "text_primary": {
+        "token": "colorNeutralForeground1",
+        "description": "Primary text and important icons.",
+        "light": "#242424",
+        "dark": "#ffffff"
+      },
+      "text_secondary": {
+        "token": "colorNeutralForeground2",
+        "description": "Secondary text and ordinary icons.",
+        "light": "#424242",
+        "dark": "#d6d6d6"
+      },
+      "text_tertiary": {
+        "token": "colorNeutralForeground3",
+        "description": "Hints, placeholders, and tertiary labels.",
+        "light": "#616161",
+        "dark": "#adadad"
+      },
+      "text_quaternary": {
+        "token": "colorNeutralForeground4",
+        "description": "Very subtle icons and labels.",
+        "light": "#707070",
+        "dark": "#999999"
+      },
+      "text_disabled": {
+        "token": "colorNeutralForegroundDisabled",
+        "description": "Disabled text.",
+        "light": "#bdbdbd",
+        "dark": "#5c5c5c"
+      },
+      "text_on_brand": {
+        "token": "colorNeutralForegroundOnBrand",
+        "description": "Foreground on a solid brand surface.",
+        "light": "#ffffff",
+        "dark": "#ffffff"
+      },
+      "text_inverted": {
+        "token": "colorNeutralForegroundInverted",
+        "description": "Foreground on an inverted neutral surface.",
+        "light": "#ffffff",
+        "dark": "#242424"
+      },
+      "link": {
+        "token": "colorBrandForegroundLink",
+        "description": "Link at rest.",
+        "light": "#115ea3",
+        "dark": "#479ef5"
+      },
+      "link_hover": {
+        "token": "colorBrandForegroundLinkHover",
+        "description": "Link hover.",
+        "light": "#0f548c",
+        "dark": "#62abf5"
+      },
+      "link_pressed": {
+        "token": "colorBrandForegroundLinkPressed",
+        "description": "Link pressed.",
+        "light": "#0c3b5e",
+        "dark": "#2886de"
+      },
+      "border_primary": {
+        "token": "colorNeutralStroke1",
+        "description": "Primary control border.",
+        "light": "#d1d1d1",
+        "dark": "#666666"
+      },
+      "border_hover": {
+        "token": "colorNeutralStroke1Hover",
+        "description": "Primary control border hover.",
+        "light": "#c7c7c7",
+        "dark": "#757575"
+      },
+      "border_pressed": {
+        "token": "colorNeutralStroke1Pressed",
+        "description": "Primary control border pressed.",
+        "light": "#b3b3b3",
+        "dark": "#6b6b6b"
+      },
+      "border_selected": {
+        "token": "colorNeutralStroke1Selected",
+        "description": "Primary control border selected.",
+        "light": "#bdbdbd",
+        "dark": "#707070"
+      },
+      "border_subtle": {
+        "token": "colorNeutralStroke2",
+        "description": "Subtle divider or container border.",
+        "light": "#e0e0e0",
+        "dark": "#525252"
+      },
+      "border_tertiary": {
+        "token": "colorNeutralStroke3",
+        "description": "Very subtle separator.",
+        "light": "#f0f0f0",
+        "dark": "#3d3d3d"
+      },
+      "border_disabled": {
+        "token": "colorNeutralStrokeDisabled",
+        "description": "Disabled border.",
+        "light": "#e0e0e0",
+        "dark": "#424242"
+      },
+      "border_accessible": {
+        "token": "colorNeutralStrokeAccessible",
+        "description": "Accessible outline with at least non-text contrast intent.",
+        "light": "#616161",
+        "dark": "#adadad"
+      },
+      "focus_border": {
+        "token": "colorStrokeFocus2",
+        "description": "Primary visible focus stroke.",
+        "light": "#000000",
+        "dark": "#ffffff"
+      },
+      "focus_inner": {
+        "token": "colorStrokeFocus1",
+        "description": "Contrasting inner focus stroke where dual focus is possible.",
+        "light": "#ffffff",
+        "dark": "#000000"
+      },
+      "transparent": {
+        "token": "colorTransparentBackground",
+        "description": "Transparent surface.",
+        "light": "transparent",
+        "dark": "transparent"
+      },
+      "subtle_hover": {
+        "token": "colorSubtleBackgroundHover",
+        "description": "Subtle/ghost hover background.",
+        "light": "#f5f5f5",
+        "dark": "#383838"
+      },
+      "subtle_pressed": {
+        "token": "colorSubtleBackgroundPressed",
+        "description": "Subtle/ghost pressed background.",
+        "light": "#e0e0e0",
+        "dark": "#2e2e2e"
+      },
+      "subtle_selected": {
+        "token": "colorSubtleBackgroundSelected",
+        "description": "Subtle/ghost selected background.",
+        "light": "#ebebeb",
+        "dark": "#333333"
+      },
+      "brand_background": {
+        "token": "colorBrandBackground",
+        "description": "Primary brand action background.",
+        "light": "#0f6cbd",
+        "dark": "#115ea3"
+      },
+      "brand_background_hover": {
+        "token": "colorBrandBackgroundHover",
+        "description": "Primary brand hover.",
+        "light": "#115ea3",
+        "dark": "#0f6cbd"
+      },
+      "brand_background_pressed": {
+        "token": "colorBrandBackgroundPressed",
+        "description": "Primary brand pressed.",
+        "light": "#0c3b5e",
+        "dark": "#0c3b5e"
+      },
+      "brand_background_selected": {
+        "token": "colorBrandBackgroundSelected",
+        "description": "Primary brand selected.",
+        "light": "#0f548c",
+        "dark": "#0f548c"
+      },
+      "brand_background_subtle": {
+        "token": "colorBrandBackground2",
+        "description": "Light/subtle brand selection surface.",
+        "light": "#ebf3fc",
+        "dark": "#082338"
+      },
+      "brand_background_subtle_hover": {
+        "token": "colorBrandBackground2Hover",
+        "description": "Subtle brand surface hover.",
+        "light": "#cfe4fa",
+        "dark": "#0c3b5e"
+      },
+      "brand_background_subtle_pressed": {
+        "token": "colorBrandBackground2Pressed",
+        "description": "Subtle brand surface pressed.",
+        "light": "#96c6fa",
+        "dark": "#061724"
+      },
+      "brand_foreground": {
+        "token": "colorBrandForeground1",
+        "description": "Primary brand text/icon.",
+        "light": "#0f6cbd",
+        "dark": "#479ef5"
+      },
+      "brand_foreground_secondary": {
+        "token": "colorBrandForeground2",
+        "description": "Secondary brand text/icon.",
+        "light": "#115ea3",
+        "dark": "#62abf5"
+      },
+      "brand_border": {
+        "token": "colorBrandStroke1",
+        "description": "Primary brand border.",
+        "light": "#0f6cbd",
+        "dark": "#479ef5"
+      },
+      "brand_border_subtle": {
+        "token": "colorBrandStroke2",
+        "description": "Subtle brand border.",
+        "light": "#b4d6fa",
+        "dark": "#0e4775"
+      },
+      "selection_strong_background": {
+        "token": "colorBrandBackground",
+        "description": "Strong selection or active action background.",
+        "light": "#0f6cbd",
+        "dark": "#115ea3"
+      },
+      "selection_strong_foreground": {
+        "token": "colorNeutralForegroundOnBrand",
+        "description": "Foreground on strong selection.",
+        "light": "#ffffff",
+        "dark": "#ffffff"
+      },
+      "selection_subtle_background": {
+        "token": "colorBrandBackground2",
+        "description": "Data row or navigation selection surface.",
+        "light": "#ebf3fc",
+        "dark": "#082338"
+      },
+      "selection_subtle_foreground": {
+        "token": "colorNeutralForeground1",
+        "description": "Foreground on subtle selection.",
+        "light": "#242424",
+        "dark": "#ffffff"
+      },
+      "tooltip_background": {
+        "token": "colorNeutralBackgroundInverted",
+        "description": "Tooltip background.",
+        "light": "#292929",
+        "dark": "#ffffff"
+      },
+      "tooltip_foreground": {
+        "token": "colorNeutralForegroundInverted",
+        "description": "Tooltip foreground.",
+        "light": "#ffffff",
+        "dark": "#242424"
+      },
+      "overlay_background": {
+        "token": "colorBackgroundOverlay",
+        "description": "Modal overlay.",
+        "light": "rgba(0, 0, 0, 0.4)",
+        "dark": "rgba(0, 0, 0, 0.5)"
+      },
+      "scrollbar_overlay": {
+        "token": "colorScrollbarOverlay",
+        "description": "Scrollbar thumb/overlay.",
+        "light": "rgba(0, 0, 0, 0.5)",
+        "dark": "rgba(255, 255, 255, 0.6)"
+      },
+      "success_background": {
+        "token": "colorStatusSuccessBackground1",
+        "description": "Subtle success background.",
+        "light": "#f1faf1",
+        "dark": "#052505"
+      },
+      "success_background_strong": {
+        "token": "colorStatusSuccessBackground3",
+        "description": "Strong success background.",
+        "light": "#107c10",
+        "dark": "#107c10"
+      },
+      "success_foreground": {
+        "token": "colorStatusSuccessForeground1",
+        "description": "Success foreground.",
+        "light": "#0e700e",
+        "dark": "#54b054"
+      },
+      "success_foreground_inverted": {
+        "token": "colorStatusSuccessForegroundInverted",
+        "description": "Success foreground on dark/inverted surfaces.",
+        "light": "#54b054",
+        "dark": "#0e700e"
+      },
+      "success_border": {
+        "token": "colorStatusSuccessBorder1",
+        "description": "Success border.",
+        "light": "#9fd89f",
+        "dark": "#107c10"
+      },
+      "warning_background": {
+        "token": "colorStatusWarningBackground1",
+        "description": "Subtle warning background.",
+        "light": "#fff9f5",
+        "dark": "#4a1e04"
+      },
+      "warning_background_strong": {
+        "token": "colorStatusWarningBackground3",
+        "description": "Strong warning background.",
+        "light": "#f7630c",
+        "dark": "#f7630c"
+      },
+      "warning_foreground": {
+        "token": "colorStatusWarningForeground1",
+        "description": "Warning foreground.",
+        "light": "#bc4b09",
+        "dark": "#faa06b"
+      },
+      "warning_foreground_inverted": {
+        "token": "colorStatusWarningForegroundInverted",
+        "description": "Warning foreground on dark/inverted surfaces.",
+        "light": "#faa06b",
+        "dark": "#bc4b09"
+      },
+      "warning_border": {
+        "token": "colorStatusWarningBorder1",
+        "description": "Warning border.",
+        "light": "#fdcfb4",
+        "dark": "#f7630c"
+      },
+      "danger_background": {
+        "token": "colorStatusDangerBackground1",
+        "description": "Subtle danger background.",
+        "light": "#fdf3f4",
+        "dark": "#3b0509"
+      },
+      "danger_background_strong": {
+        "token": "colorStatusDangerBackground3",
+        "description": "Strong danger background.",
+        "light": "#c50f1f",
+        "dark": "#c50f1f"
+      },
+      "danger_background_strong_hover": {
+        "token": "colorStatusDangerBackground3Hover",
+        "description": "Strong danger hover.",
+        "light": "#b10e1c",
+        "dark": "#b10e1c"
+      },
+      "danger_background_strong_pressed": {
+        "token": "colorStatusDangerBackground3Pressed",
+        "description": "Strong danger pressed.",
+        "light": "#960b18",
+        "dark": "#960b18"
+      },
+      "danger_foreground": {
+        "token": "colorStatusDangerForeground1",
+        "description": "Danger foreground.",
+        "light": "#b10e1c",
+        "dark": "#dc626d"
+      },
+      "danger_foreground_inverted": {
+        "token": "colorStatusDangerForegroundInverted",
+        "description": "Danger foreground on dark/inverted surfaces.",
+        "light": "#dc626d",
+        "dark": "#b10e1c"
+      },
+      "danger_border": {
+        "token": "colorStatusDangerBorder1",
+        "description": "Danger border.",
+        "light": "#eeacb2",
+        "dark": "#c50f1f"
+      },
+      "info_background": {
+        "token": "colorBrandBackground2",
+        "description": "Informational/subtle brand background.",
+        "light": "#ebf3fc",
+        "dark": "#082338"
+      },
+      "info_foreground": {
+        "token": "colorBrandForeground1",
+        "description": "Informational foreground.",
+        "light": "#0f6cbd",
+        "dark": "#479ef5"
+      },
+      "info_border": {
+        "token": "colorBrandStroke2",
+        "description": "Informational border.",
+        "light": "#b4d6fa",
+        "dark": "#0e4775"
+      }
+    },
+    "typography": {
+      "font_family_base": {
+        "token": "fontFamilyBase",
+        "description": "Default UI font family source.",
+        "light": "'Segoe UI', 'Segoe UI Web (West European)', -apple-system, BlinkMacSystemFont, Roboto, 'Helvetica Neue', sans-serif",
+        "dark": "'Segoe UI', 'Segoe UI Web (West European)', -apple-system, BlinkMacSystemFont, Roboto, 'Helvetica Neue', sans-serif"
+      },
+      "font_family_monospace": {
+        "token": "fontFamilyMonospace",
+        "description": "Monospace text.",
+        "light": "Consolas, 'Courier New', Courier, monospace",
+        "dark": "Consolas, 'Courier New', Courier, monospace"
+      },
+      "font_family_numeric": {
+        "token": "fontFamilyNumeric",
+        "description": "Numeric/tabular data.",
+        "light": "Bahnschrift, 'Segoe UI', 'Segoe UI Web (West European)', -apple-system, BlinkMacSystemFont, Roboto, 'Helvetica Neue', sans-serif",
+        "dark": "Bahnschrift, 'Segoe UI', 'Segoe UI Web (West European)', -apple-system, BlinkMacSystemFont, Roboto, 'Helvetica Neue', sans-serif"
+      },
+      "font_caption2_size": {
+        "token": "fontSizeBase100",
+        "description": "Caption 2 size.",
+        "light": "10px",
+        "dark": "10px"
+      },
+      "font_caption1_size": {
+        "token": "fontSizeBase200",
+        "description": "Caption 1 size.",
+        "light": "12px",
+        "dark": "12px"
+      },
+      "font_body_size": {
+        "token": "fontSizeBase300",
+        "description": "Default body size.",
+        "light": "14px",
+        "dark": "14px"
+      },
+      "font_body2_size": {
+        "token": "fontSizeBase400",
+        "description": "Large body size.",
+        "light": "16px",
+        "dark": "16px"
+      },
+      "font_subtitle1_size": {
+        "token": "fontSizeBase500",
+        "description": "Subtitle 1 size.",
+        "light": "20px",
+        "dark": "20px"
+      },
+      "font_title3_size": {
+        "token": "fontSizeBase600",
+        "description": "Title 3 size.",
+        "light": "24px",
+        "dark": "24px"
+      },
+      "font_title2_size": {
+        "token": "fontSizeHero700",
+        "description": "Title 2 size.",
+        "light": "28px",
+        "dark": "28px"
+      },
+      "font_title1_size": {
+        "token": "fontSizeHero800",
+        "description": "Title 1 size.",
+        "light": "32px",
+        "dark": "32px"
+      },
+      "font_large_title_size": {
+        "token": "fontSizeHero900",
+        "description": "Large title size.",
+        "light": "40px",
+        "dark": "40px"
+      },
+      "font_display_size": {
+        "token": "fontSizeHero1000",
+        "description": "Display size.",
+        "light": "68px",
+        "dark": "68px"
+      },
+      "line_caption2": {
+        "token": "lineHeightBase100",
+        "description": "Caption 2 line height.",
+        "light": "14px",
+        "dark": "14px"
+      },
+      "line_caption1": {
+        "token": "lineHeightBase200",
+        "description": "Caption 1 line height.",
+        "light": "16px",
+        "dark": "16px"
+      },
+      "line_body": {
+        "token": "lineHeightBase300",
+        "description": "Body line height.",
+        "light": "20px",
+        "dark": "20px"
+      },
+      "line_body2": {
+        "token": "lineHeightBase400",
+        "description": "Body 2 line height.",
+        "light": "22px",
+        "dark": "22px"
+      },
+      "line_subtitle1": {
+        "token": "lineHeightBase500",
+        "description": "Subtitle 1 line height.",
+        "light": "28px",
+        "dark": "28px"
+      },
+      "line_title3": {
+        "token": "lineHeightBase600",
+        "description": "Title 3 line height.",
+        "light": "32px",
+        "dark": "32px"
+      },
+      "line_title2": {
+        "token": "lineHeightHero700",
+        "description": "Title 2 line height.",
+        "light": "36px",
+        "dark": "36px"
+      },
+      "line_title1": {
+        "token": "lineHeightHero800",
+        "description": "Title 1 line height.",
+        "light": "40px",
+        "dark": "40px"
+      },
+      "line_large_title": {
+        "token": "lineHeightHero900",
+        "description": "Large title line height.",
+        "light": "52px",
+        "dark": "52px"
+      },
+      "line_display": {
+        "token": "lineHeightHero1000",
+        "description": "Display line height.",
+        "light": "92px",
+        "dark": "92px"
+      },
+      "weight_regular": {
+        "token": "fontWeightRegular",
+        "description": "Regular font weight.",
+        "light": 400,
+        "dark": 400
+      },
+      "weight_medium": {
+        "token": "fontWeightMedium",
+        "description": "Medium font weight.",
+        "light": 500,
+        "dark": 500
+      },
+      "weight_semibold": {
+        "token": "fontWeightSemibold",
+        "description": "Semibold font weight.",
+        "light": 600,
+        "dark": 600
+      },
+      "weight_bold": {
+        "token": "fontWeightBold",
+        "description": "Bold font weight.",
+        "light": 700,
+        "dark": 700
+      }
+    },
+    "spacing": {
+      "space_none": {
+        "token": "spacingHorizontalNone",
+        "description": "0 px",
+        "light": "0",
+        "dark": "0"
+      },
+      "space_xxs": {
+        "token": "spacingHorizontalXXS",
+        "description": "2 px",
+        "light": "2px",
+        "dark": "2px"
+      },
+      "space_xs": {
+        "token": "spacingHorizontalXS",
+        "description": "4 px",
+        "light": "4px",
+        "dark": "4px"
+      },
+      "space_s_nudge": {
+        "token": "spacingHorizontalSNudge",
+        "description": "6 px",
+        "light": "6px",
+        "dark": "6px"
+      },
+      "space_s": {
+        "token": "spacingHorizontalS",
+        "description": "8 px",
+        "light": "8px",
+        "dark": "8px"
+      },
+      "space_m_nudge": {
+        "token": "spacingHorizontalMNudge",
+        "description": "10 px",
+        "light": "10px",
+        "dark": "10px"
+      },
+      "space_m": {
+        "token": "spacingHorizontalM",
+        "description": "12 px",
+        "light": "12px",
+        "dark": "12px"
+      },
+      "space_l": {
+        "token": "spacingHorizontalL",
+        "description": "16 px",
+        "light": "16px",
+        "dark": "16px"
+      },
+      "space_xl": {
+        "token": "spacingHorizontalXL",
+        "description": "20 px",
+        "light": "20px",
+        "dark": "20px"
+      },
+      "space_xxl": {
+        "token": "spacingHorizontalXXL",
+        "description": "24 px",
+        "light": "24px",
+        "dark": "24px"
+      },
+      "space_xxxl": {
+        "token": "spacingHorizontalXXXL",
+        "description": "32 px",
+        "light": "32px",
+        "dark": "32px"
+      }
+    },
+    "radii": {
+      "radius_none": {
+        "token": "borderRadiusNone",
+        "description": "No radius.",
+        "light": "0",
+        "dark": "0"
+      },
+      "radius_small": {
+        "token": "borderRadiusSmall",
+        "description": "Small radius.",
+        "light": "2px",
+        "dark": "2px"
+      },
+      "radius_medium": {
+        "token": "borderRadiusMedium",
+        "description": "Default control radius.",
+        "light": "4px",
+        "dark": "4px"
+      },
+      "radius_large": {
+        "token": "borderRadiusLarge",
+        "description": "Card/section radius.",
+        "light": "6px",
+        "dark": "6px"
+      },
+      "radius_xlarge": {
+        "token": "borderRadiusXLarge",
+        "description": "Large surface radius.",
+        "light": "8px",
+        "dark": "8px"
+      },
+      "radius_2xlarge": {
+        "token": "borderRadius2XLarge",
+        "description": "Extra-large surface radius.",
+        "light": "12px",
+        "dark": "12px"
+      },
+      "radius_3xlarge": {
+        "token": "borderRadius3XLarge",
+        "description": "Large overlay radius.",
+        "light": "16px",
+        "dark": "16px"
+      },
+      "radius_circular": {
+        "token": "borderRadiusCircular",
+        "description": "Circular/pill shape.",
+        "light": "10000px",
+        "dark": "10000px"
+      }
+    },
+    "strokes": {
+      "stroke_thin": {
+        "token": "strokeWidthThin",
+        "description": "1 px",
+        "light": "1px",
+        "dark": "1px"
+      },
+      "stroke_thick": {
+        "token": "strokeWidthThick",
+        "description": "2 px",
+        "light": "2px",
+        "dark": "2px"
+      },
+      "stroke_thicker": {
+        "token": "strokeWidthThicker",
+        "description": "3 px",
+        "light": "3px",
+        "dark": "3px"
+      },
+      "stroke_thickest": {
+        "token": "strokeWidthThickest",
+        "description": "4 px",
+        "light": "4px",
+        "dark": "4px"
+      }
+    },
+    "motion": {
+      "duration_ultra_fast": {
+        "token": "durationUltraFast",
+        "description": "50 ms",
+        "light": "50ms",
+        "dark": "50ms"
+      },
+      "duration_faster": {
+        "token": "durationFaster",
+        "description": "100 ms",
+        "light": "100ms",
+        "dark": "100ms"
+      },
+      "duration_fast": {
+        "token": "durationFast",
+        "description": "150 ms",
+        "light": "150ms",
+        "dark": "150ms"
+      },
+      "duration_normal": {
+        "token": "durationNormal",
+        "description": "200 ms",
+        "light": "200ms",
+        "dark": "200ms"
+      },
+      "duration_gentle": {
+        "token": "durationGentle",
+        "description": "250 ms",
+        "light": "250ms",
+        "dark": "250ms"
+      },
+      "duration_slow": {
+        "token": "durationSlow",
+        "description": "300 ms",
+        "light": "300ms",
+        "dark": "300ms"
+      },
+      "duration_slower": {
+        "token": "durationSlower",
+        "description": "400 ms",
+        "light": "400ms",
+        "dark": "400ms"
+      },
+      "duration_ultra_slow": {
+        "token": "durationUltraSlow",
+        "description": "500 ms",
+        "light": "500ms",
+        "dark": "500ms"
+      },
+      "curve_accelerate": {
+        "token": "curveAccelerateMax",
+        "description": "Exit/emphasized acceleration.",
+        "light": "cubic-bezier(0.9,0.1,1,0.2)",
+        "dark": "cubic-bezier(0.9,0.1,1,0.2)"
+      },
+      "curve_decelerate": {
+        "token": "curveDecelerateMax",
+        "description": "Entry/emphasized deceleration.",
+        "light": "cubic-bezier(0.1,0.9,0.2,1)",
+        "dark": "cubic-bezier(0.1,0.9,0.2,1)"
+      },
+      "curve_standard": {
+        "token": "curveEasyEase",
+        "description": "General transition.",
+        "light": "cubic-bezier(0.33,0,0.67,1)",
+        "dark": "cubic-bezier(0.33,0,0.67,1)"
+      },
+      "curve_emphasized": {
+        "token": "curveEasyEaseMax",
+        "description": "Emphasized transition.",
+        "light": "cubic-bezier(0.8,0,0.2,1)",
+        "dark": "cubic-bezier(0.8,0,0.2,1)"
+      },
+      "curve_linear": {
+        "token": "curveLinear",
+        "description": "Linear transition.",
+        "light": "cubic-bezier(0,0,1,1)",
+        "dark": "cubic-bezier(0,0,1,1)"
+      }
+    },
+    "elevation": {
+      "shadow_2": {
+        "token": "shadow2",
+        "description": "Minimal elevation.",
+        "light": "0 0 2px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.14)",
+        "dark": "0 0 2px rgba(0,0,0,0.24), 0 1px 2px rgba(0,0,0,0.28)"
+      },
+      "shadow_4": {
+        "token": "shadow4",
+        "description": "Cards and low elevation.",
+        "light": "0 0 2px rgba(0,0,0,0.12), 0 2px 4px rgba(0,0,0,0.14)",
+        "dark": "0 0 2px rgba(0,0,0,0.24), 0 2px 4px rgba(0,0,0,0.28)"
+      },
+      "shadow_8": {
+        "token": "shadow8",
+        "description": "Dropdowns and popovers.",
+        "light": "0 0 2px rgba(0,0,0,0.12), 0 4px 8px rgba(0,0,0,0.14)",
+        "dark": "0 0 2px rgba(0,0,0,0.24), 0 4px 8px rgba(0,0,0,0.28)"
+      },
+      "shadow_16": {
+        "token": "shadow16",
+        "description": "Dialogs.",
+        "light": "0 0 2px rgba(0,0,0,0.12), 0 8px 16px rgba(0,0,0,0.14)",
+        "dark": "0 0 2px rgba(0,0,0,0.24), 0 8px 16px rgba(0,0,0,0.28)"
+      },
+      "shadow_28": {
+        "token": "shadow28",
+        "description": "Modal overlays.",
+        "light": "0 0 8px rgba(0,0,0,0.12), 0 14px 28px rgba(0,0,0,0.14)",
+        "dark": "0 0 8px rgba(0,0,0,0.24), 0 14px 28px rgba(0,0,0,0.28)"
+      },
+      "shadow_64": {
+        "token": "shadow64",
+        "description": "Highest elevation.",
+        "light": "0 0 8px rgba(0,0,0,0.12), 0 32px 64px rgba(0,0,0,0.14)",
+        "dark": "0 0 8px rgba(0,0,0,0.24), 0 32px 64px rgba(0,0,0,0.28)"
+      }
+    },
+    "metrics": {
+      "control_height_small": {
+        "value": "24px",
+        "description": "Derived from official Fluent v9 small Button line-height, padding, and stroke.",
+        "source": "Qt/Fluent adaptation"
+      },
+      "control_height_medium": {
+        "value": "32px",
+        "description": "Derived from official Fluent v9 medium Button line-height, padding, and stroke.",
+        "source": "Qt/Fluent adaptation"
+      },
+      "control_height_large": {
+        "value": "40px",
+        "description": "Derived from official Fluent v9 large Button line-height, padding, and stroke.",
+        "source": "Qt/Fluent adaptation"
+      },
+      "icon_size_small": {
+        "value": "16px",
+        "description": "Small command/icon size.",
+        "source": "Qt/Fluent adaptation"
+      },
+      "icon_size_medium": {
+        "value": "20px",
+        "description": "Default Fluent button icon size.",
+        "source": "Qt/Fluent adaptation"
+      },
+      "icon_size_large": {
+        "value": "24px",
+        "description": "Prominent/workbench icon size.",
+        "source": "Qt/Fluent adaptation"
+      },
+      "touch_target_minimum": {
+        "value": "44px",
+        "description": "Minimum target when touch is a supported primary input.",
+        "source": "Qt/Fluent adaptation"
+      },
+      "page_margin_compact": {
+        "value": "16px",
+        "description": "Compact desktop page margin.",
+        "source": "Qt/Fluent adaptation"
+      },
+      "page_margin_standard": {
+        "value": "24px",
+        "description": "Standard desktop page margin.",
+        "source": "Qt/Fluent adaptation"
+      },
+      "section_gap": {
+        "value": "24px",
+        "description": "Default gap between page sections.",
+        "source": "Qt/Fluent adaptation"
+      },
+      "field_gap": {
+        "value": "12px",
+        "description": "Default gap between related fields.",
+        "source": "Qt/Fluent adaptation"
+      },
+      "label_control_gap": {
+        "value": "4px",
+        "description": "Label-to-control gap.",
+        "source": "Qt/Fluent adaptation"
+      }
+    }
+  },
+  "high_contrast_strategy": {
+    "description": "Start with the effective light/dark theme, then override semantic aliases from the current system QPalette. Do not use fixed high-contrast hex values.",
+    "palette_roles": {
+      "window_background": "QPalette.Window",
+      "canvas_background": "QPalette.Base",
+      "surface_background": "QPalette.Button",
+      "surface_secondary": "QPalette.Window",
+      "surface_tertiary": "QPalette.Base",
+      "text_primary": "QPalette.WindowText",
+      "text_secondary": "QPalette.Text",
+      "text_tertiary": "QPalette.PlaceholderText",
+      "text_disabled": "QPalette.Disabled/QPalette.Text",
+      "border_primary": "QPalette.Mid",
+      "border_subtle": "QPalette.Midlight",
+      "focus_border": "QPalette.Highlight",
+      "brand_background": "QPalette.Highlight",
+      "brand_background_hover": "QPalette.Highlight",
+      "brand_background_pressed": "QPalette.Highlight",
+      "text_on_brand": "QPalette.HighlightedText",
+      "selection_strong_background": "QPalette.Highlight",
+      "selection_strong_foreground": "QPalette.HighlightedText"
+    }
+  }
+}

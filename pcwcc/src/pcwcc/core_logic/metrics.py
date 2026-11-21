@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Callable, Optional
+from typing import Callable, Optional, TYPE_CHECKING
 
 from .codec import decode_fan_speed, decode_power_metric, decode_temp_value
 from .models import MetricsSnapshot
@@ -14,8 +14,12 @@ from .protocol import (
 )
 
 
+if TYPE_CHECKING:
+    from .api import BleAppCore
+
+
 class BleCoreMetricsMixin:
-    async def _read_temperatures_once(self, timeout: float) -> tuple[float, float, float, float]:
+    async def _read_temperatures_once(self: BleAppCore, timeout: float) -> tuple[float, float, float, float]:
         if not self.client:
             raise RuntimeError("Not connected")
         values: list[float] = []
@@ -27,7 +31,7 @@ class BleCoreMetricsMixin:
             values.append(value)
         return values[0], values[1], values[2], values[3]
 
-    async def _read_fan_speeds(self, timeout: Optional[float] = None) -> tuple[float, float, float, float]:
+    async def _read_fan_speeds(self: BleAppCore, timeout: Optional[float] = None) -> tuple[float, float, float, float]:
         if not self.client:
             raise RuntimeError("Not connected")
         if timeout is None:
@@ -41,7 +45,7 @@ class BleCoreMetricsMixin:
             values.append(value)
         return values[0], values[1], values[2], values[3]
 
-    async def _read_power_metrics(self, timeout: Optional[float] = None) -> tuple[float | None, float | None]:
+    async def _read_power_metrics(self: BleAppCore, timeout: Optional[float] = None) -> tuple[float | None, float | None]:
         if not self.client:
             raise RuntimeError("Not connected")
         if timeout is None:
@@ -59,7 +63,7 @@ class BleCoreMetricsMixin:
             return None, None
         return voltage, current
 
-    async def _read_fan_percent(self, timeout: Optional[float] = None) -> float | None:
+    async def _read_fan_percent(self: BleAppCore, timeout: Optional[float] = None) -> float | None:
         if not self.client:
             raise RuntimeError("Not connected")
         if timeout is None:
@@ -76,7 +80,7 @@ class BleCoreMetricsMixin:
         return value
 
     async def read_metrics_snapshot(
-        self, timeout: Optional[float] = None, retries: Optional[int] = None
+        self: BleAppCore, timeout: Optional[float] = None, retries: Optional[int] = None
     ) -> MetricsSnapshot:
         if not self.client:
             raise RuntimeError("Not connected")
@@ -99,7 +103,7 @@ class BleCoreMetricsMixin:
         assert last_exc is not None
         raise last_exc
 
-    async def _read_metrics_snapshot_once(self, timeout: float) -> MetricsSnapshot:
+    async def _read_metrics_snapshot_once(self: BleAppCore, timeout: float) -> MetricsSnapshot:
         temperatures = await self._read_temperatures_once(timeout)
         fan_speeds = await self._read_fan_speeds(timeout=timeout)
         voltage, current = await self._read_power_metrics(timeout=timeout)
@@ -112,7 +116,7 @@ class BleCoreMetricsMixin:
             fan_percent=fan_percent,
         )
 
-    async def _reconnect_for_metrics(self, timeout: float) -> None:
+    async def _reconnect_for_metrics(self: BleAppCore, timeout: float) -> None:
         self._emit_conn("metrics reconnect: start")
         try:
             await self.disconnect()
@@ -136,7 +140,7 @@ class BleCoreMetricsMixin:
         self._emit_conn("metrics reconnect: completed")
 
     async def start_metrics_notify(
-        self,
+        self: BleAppCore,
         callback: Callable[[MetricsSnapshot], None],
         initial_snapshot: Optional[MetricsSnapshot] = None,
     ) -> None:
@@ -178,7 +182,7 @@ class BleCoreMetricsMixin:
         except Exception as exc:
             self._emit(f"Fan percent notify unavailable: {exc}")
 
-    async def stop_metrics_notify(self) -> None:
+    async def stop_metrics_notify(self: BleAppCore) -> None:
         if not self.client:
             raise RuntimeError("Not connected")
         for uuid in TEMP_CHAR_UUIDS:

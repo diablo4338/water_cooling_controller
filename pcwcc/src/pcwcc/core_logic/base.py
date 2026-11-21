@@ -3,15 +3,20 @@ from __future__ import annotations
 import asyncio
 import sys
 import time
-from typing import Any, Awaitable, Callable, Optional
+from typing import Any, Awaitable, Callable, Optional, TypeVar
 
 from bleak import BleakClient
 from bleak import BleakScanner
+from bleak.backends.characteristic import BleakGATTCharacteristic
+from bleak.backends.device import BLEDevice
 
 from ..config import BleConfig, DEFAULT_CONFIG
 from .crypto import load_or_create_host_key
 from .models import DeviceInfo, OutputLimitStatus
 from .protocol import UUID_LABELS
+
+
+_Result = TypeVar("_Result")
 
 
 class BleCoreBaseMixin:
@@ -75,10 +80,10 @@ class BleCoreBaseMixin:
     async def _run_step(
         self,
         label: str,
-        awaitable: Awaitable[Any],
+        awaitable: Awaitable[_Result],
         *,
         timeout: Optional[float] = None,
-    ) -> Any:
+    ) -> _Result:
         started_at = time.monotonic()
         self._emit_conn(f"{label}: start (timeout={self._format_timeout(timeout)})")
         try:
@@ -96,7 +101,7 @@ class BleCoreBaseMixin:
 
     def _make_client(
         self,
-        target: Any,
+        target: BLEDevice | str,
         *,
         connect_timeout: float,
         services: Optional[list[str]] = None,
@@ -124,7 +129,7 @@ class BleCoreBaseMixin:
         device: DeviceInfo,
         *,
         timeout: Optional[float] = None,
-    ) -> Any:
+    ) -> BLEDevice | str:
         if device.ble_device is not None:
             self._emit_conn(f"resolve {self._format_device(device)}: reusing cached BLEDevice")
             return device.ble_device
@@ -152,10 +157,11 @@ class BleCoreBaseMixin:
         return ble_device
 
     async def _read_char(self, uuid: str, *, timeout: float, label: Optional[str] = None) -> bytearray:
-        if not self.client:
+        client = self.client
+        if client is None:
             raise RuntimeError("Not connected")
         step_label = label or f"read {self._uuid_label(uuid)}"
-        data = await self._run_step(step_label, self.client.read_gatt_char(uuid), timeout=timeout)
+        data = await self._run_step(step_label, client.read_gatt_char(uuid), timeout=timeout)
         self._emit_conn(f"{step_label}: received {len(data)} bytes")
         return data
 
@@ -168,7 +174,8 @@ class BleCoreBaseMixin:
         timeout: float,
         label: Optional[str] = None,
     ) -> None:
-        if not self.client:
+        client = self.client
+        if client is None:
             raise RuntimeError("Not connected")
         step_label = label or f"write {self._uuid_label(uuid)}"
         self._emit_conn(
@@ -176,29 +183,31 @@ class BleCoreBaseMixin:
         )
         await self._run_step(
             step_label,
-            self.client.write_gatt_char(uuid, data, response=response),
+            client.write_gatt_char(uuid, data, response=response),
             timeout=timeout,
         )
 
     async def _start_notify(
         self,
         uuid: str,
-        callback: Callable[[Any, bytearray], None],
+        callback: Callable[[BleakGATTCharacteristic, bytearray], None],
         *,
         label: Optional[str] = None,
     ) -> None:
-        if not self.client:
+        client = self.client
+        if client is None:
             raise RuntimeError("Not connected")
         step_label = label or f"start notify {self._uuid_label(uuid)}"
-        await self._run_step(step_label, self.client.start_notify(uuid, callback), timeout=3.0)
+        await self._run_step(step_label, client.start_notify(uuid, callback), timeout=3.0)
 
     async def _stop_notify(self, uuid: str, *, label: Optional[str] = None) -> None:
-        if not self.client:
+        client = self.client
+        if client is None:
             raise RuntimeError("Not connected")
         step_label = label or f"stop notify {self._uuid_label(uuid)}"
-        await self._run_step(step_label, self.client.stop_notify(uuid), timeout=3.0)
+        await self._run_step(step_label, client.stop_notify(uuid), timeout=3.0)
 
-    def _scanner_kwargs(self) -> dict:
+    def _scanner_kwargs(self) -> BleakScanner.ExtraArgs:
         if self._adapter:
-            return {"bluez": {"adapter": self._adapter}}
+            return {"adapter": self._adapter}
         return {}

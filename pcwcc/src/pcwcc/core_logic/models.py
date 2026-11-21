@@ -2,15 +2,13 @@ from __future__ import annotations
 
 from enum import IntEnum
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from .protocol import (
-    DEVICE_STATE_NAMES,
     FAN_CONTROL_DC,
     FAN_MODE_CONTINUOUS,
     FAN_STATE_IDLE,
     FAN_STATE_NAMES,
-    OP_TYPE_NAMES,
 )
 
 
@@ -30,10 +28,13 @@ class DeviceParams:
     protocol_version: int = 6
 
 
+MetricChannels = tuple[float | None, float | None, float | None, float | None]
+
+
 @dataclass(frozen=True)
 class MetricsSnapshot:
-    temperatures: tuple[Optional[float], Optional[float], Optional[float], Optional[float]]
-    fan_speeds: tuple[Optional[float], Optional[float], Optional[float], Optional[float]]
+    temperatures: MetricChannels
+    fan_speeds: MetricChannels
     voltage_v: Optional[float] = None
     current_ma: Optional[float] = None
     fan_percent: Optional[float] = None
@@ -43,14 +44,16 @@ class MetricsSnapshot:
             return self
         temperatures = list(self.temperatures)
         temperatures[channel] = value
-        return MetricsSnapshot(tuple(temperatures), self.fan_speeds, self.voltage_v, self.current_ma, self.fan_percent)
+        return MetricsSnapshot(cast(MetricChannels, tuple(temperatures)), self.fan_speeds,
+                               self.voltage_v, self.current_ma, self.fan_percent)
 
     def with_fan_speed(self, channel: int, value: Optional[float]) -> "MetricsSnapshot":
         if channel < 0 or channel >= len(self.fan_speeds):
             return self
         fan_speeds = list(self.fan_speeds)
         fan_speeds[channel] = value
-        return MetricsSnapshot(self.temperatures, tuple(fan_speeds), self.voltage_v, self.current_ma, self.fan_percent)
+        return MetricsSnapshot(self.temperatures, cast(MetricChannels, tuple(fan_speeds)),
+                               self.voltage_v, self.current_ma, self.fan_percent)
 
     def with_voltage(self, value: Optional[float]) -> "MetricsSnapshot":
         return MetricsSnapshot(self.temperatures, self.fan_speeds, value, self.current_ma, self.fan_percent)

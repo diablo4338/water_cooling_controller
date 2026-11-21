@@ -91,8 +91,11 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 
 
 @pytest.fixture(scope="session")
-def ble_address(pytestconfig: pytest.Config) -> Optional[str]:
-    return pytestconfig.getoption("--ble-address")
+def ble_address(pytestconfig: pytest.Config) -> str:
+    address = pytestconfig.getoption("--ble-address")
+    if not isinstance(address, str) or not address.strip():
+        pytest.fail("A BLE address is required for this test.")
+    return address
 
 
 @pytest.fixture(scope="session")

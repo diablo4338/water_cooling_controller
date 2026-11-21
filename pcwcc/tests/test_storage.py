@@ -1,10 +1,12 @@
 from pathlib import Path
 
+import pytest
+
 from pcwcc.core import load_paired_records, rename_paired_record, save_paired_records
 from pcwcc.core_logic import storage
 
 
-def test_rename_paired_record_updates_name(tmp_path: Path, monkeypatch) -> None:
+def test_rename_paired_record_updates_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     db_path = tmp_path / "paired_devices.json"
     monkeypatch.setattr(storage, "PAIRED_DB", str(db_path))
     save_paired_records(
@@ -22,7 +24,7 @@ def test_rename_paired_record_updates_name(tmp_path: Path, monkeypatch) -> None:
     ]
 
 
-def test_rename_paired_record_rejects_blank_name(tmp_path: Path, monkeypatch) -> None:
+def test_rename_paired_record_rejects_blank_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     db_path = tmp_path / "paired_devices.json"
     monkeypatch.setattr(storage, "PAIRED_DB", str(db_path))
     save_paired_records(

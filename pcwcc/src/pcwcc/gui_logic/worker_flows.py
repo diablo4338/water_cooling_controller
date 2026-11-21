@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 
+from typing import Optional, TYPE_CHECKING, TypeVar
+
 from bleak.exc import BleakCharacteristicNotFoundError
-from typing import Optional
+from PySide6.QtCore import SignalInstance
 
 from ..core import (
     DeviceInfo,
@@ -25,6 +28,13 @@ from ..core import (
 from ..presentation import ConnEvent, ConnEventKind
 
 
+if TYPE_CHECKING:
+    from .app import BleWorker
+
+
+_Status = TypeVar("_Status")
+
+
 class BleWorkerFlowMixin:
     @staticmethod
     def _conn_message(message: str) -> str:
@@ -39,7 +49,7 @@ class BleWorkerFlowMixin:
             return text
         return f"{type(exc).__name__}: {exc!r}"
 
-    async def scan(self) -> None:
+    async def scan(self: BleWorker) -> None:
         self.log.emit("Scanning for devices in pairing mode...")
         try:
             devices = await self.core.scan_pairing(timeout=self.config.scan_timeout_s)
@@ -50,7 +60,7 @@ class BleWorkerFlowMixin:
         self.scan_results.emit(devices)
         self.log.emit(f"Pairing-ready devices found: {len(devices)}")
 
-    async def auto_connect_saved(self, stop_event: asyncio.Event) -> None:
+    async def auto_connect_saved(self: BleWorker, stop_event: asyncio.Event) -> None:
         stop = asyncio.create_task(stop_event.wait())
         try:
             while not stop_event.is_set():
@@ -104,14 +114,21 @@ class BleWorkerFlowMixin:
                 devices.append(DeviceInfo(name=item.get("name", "Unknown"), address=address))
         return devices
 
-    async def _subscribe_runtime_status(self, name, subscribe, read, signal, connection_id) -> None:
+    async def _subscribe_runtime_status(
+        self: BleWorker,
+        name: str,
+        subscribe: Callable[[Callable[[_Status], None]], Awaitable[None]],
+        read: Callable[..., Awaitable[_Status]],
+        signal: SignalInstance,
+        connection_id: object,
+    ) -> None:
         notification_count = 0
 
-        def on_notify(status) -> None:
+        def on_notify(update: _Status) -> None:
             nonlocal notification_count
             if self._connection_id is connection_id:
                 notification_count += 1
-                signal.emit(status, connection_id)
+                signal.emit(update, connection_id)
 
         try:
             await self._with_timeout(subscribe(on_notify), f"start {name} notify", timeout=3.0)
@@ -127,19 +144,20 @@ class BleWorkerFlowMixin:
             if status is not None and before_read == notification_count and self._connection_id is connection_id:
                 signal.emit(status, connection_id)
 
-    async def connect_device(self, device: DeviceInfo, connection_id: object) -> bool:
+    async def connect_device(self: BleWorker, device: DeviceInfo, connection_id: object) -> bool:
         async with self._connection_lock:
             await self._disconnect_device(notify=False)
             self.connection_event.emit(ConnEvent(ConnEventKind.OLD_SESSION_CLOSED, connection_id))
             self._connection_id = connection_id
-            self._disconnect_evt = asyncio.Event()
+            disconnect_event = asyncio.Event()
+            self._disconnect_evt = disconnect_event
             self.log.emit(self._conn_message(f"Connecting to {device.name} ({device.address})..."))
             try:
                 loop = asyncio.get_running_loop()
                 await self.core.connect_raw(
                     device, connect_timeout=self.config.connect_timeout_s,
-                    disconnected_callback=lambda client: loop.call_soon_threadsafe(
-                        self._on_disconnected, connection_id, client
+                    disconnected_callback=lambda disconnected: loop.call_soon_threadsafe(
+                        self._on_disconnected, connection_id, disconnected
                     ),
                 )
                 client = self.core.client
@@ -147,7 +165,7 @@ class BleWorkerFlowMixin:
                     raise RuntimeError("BLE client unavailable")
                 self.log.emit(self._conn_message("Connected, starting AUTH..."))
                 await self._do_auth()
-                if self._disconnect_evt.is_set() or not client.is_connected:
+                if disconnect_event.is_set() or not client.is_connected:
                     raise RuntimeError("Connection closed during authorization")
                 self.log.emit(self._conn_message("AUTH ok, reading initial PARAMS..."))
                 try:
@@ -218,7 +236,7 @@ class BleWorkerFlowMixin:
                 try:
                     await self._with_timeout(
                         self.core.start_operation_status_notify(
-                            lambda status: self._on_operation_status(status, connection_id)
+                            lambda update: self._on_operation_status(update, connection_id)
                         ),
                         "start_operation_status_notify",
                         timeout=3.0,
@@ -234,7 +252,7 @@ class BleWorkerFlowMixin:
                     "fan mode", self.core.start_fan_mode_status_notify, self.core.read_fan_mode_status,
                     self.fan_mode_status_received, connection_id,
                 )
-                if self._disconnect_evt.is_set() or not client.is_connected:
+                if disconnect_event.is_set() or not client.is_connected:
                     raise RuntimeError("Connection closed during setup")
                 self.device = device
                 self.connection_event.emit(ConnEvent(ConnEventKind.CONNECT_SUCCEEDED, connection_id, device))
@@ -249,12 +267,12 @@ class BleWorkerFlowMixin:
                 self.connection_event.emit(ConnEvent(ConnEventKind.CONNECT_FAILED, connection_id, error=error))
                 return False
 
-    async def disconnect_device(self, connection_id: object | None = None, *, fast: bool = False) -> None:
+    async def disconnect_device(self: BleWorker, connection_id: object | None = None, *, fast: bool = False) -> None:
         async with self._connection_lock:
             if connection_id is None or self._connection_id is connection_id:
                 await self._disconnect_device(fast=fast)
 
-    async def _disconnect_device(self, *, notify: bool = True, fast: bool = False) -> None:
+    async def _disconnect_device(self: BleWorker, *, notify: bool = True, fast: bool = False) -> None:
         connection_id = self._connection_id
         disconnected = self._disconnect_evt
         self._connection_id = None
@@ -283,17 +301,17 @@ class BleWorkerFlowMixin:
         if notify and connection_id is not None:
             self.connection_event.emit(ConnEvent(ConnEventKind.LINK_CLOSED, connection_id))
 
-    async def pair(self, device: DeviceInfo) -> None:
+    async def pair(self: BleWorker, device: DeviceInfo) -> None:
         result = await self.core.pair(device)
         if result.ok:
             self.pairing_result.emit(True, "Device paired", device, result.k_hex)
             return
         self.pairing_result.emit(False, f"Pairing error: {result.message}", device, None)
 
-    async def _do_auth(self) -> None:
+    async def _do_auth(self: BleWorker) -> None:
         await self.core.auth(timeout=self.config.auth_timeout_s)
 
-    async def write_params(self, params: DeviceParams) -> None:
+    async def write_params(self: BleWorker, params: DeviceParams) -> None:
         try:
             await self._with_timeout(
                 self.core.write_params(params, timeout=self.config.metrics_timeout_s),
@@ -303,7 +321,7 @@ class BleWorkerFlowMixin:
         except Exception as exc:
             self.log.emit(f"Failed to send parameters: {exc}")
 
-    async def _run_params_command(self, command_id: object, command) -> None:
+    async def _run_params_command(self: BleWorker, command_id: object, command: Callable[[], Awaitable[None]]) -> None:
         try:
             await command()
             status = await self._with_timeout(
@@ -317,14 +335,14 @@ class BleWorkerFlowMixin:
         else:
             self.params_command_done.emit(command_id, status, "")
 
-    async def apply_params(self, params: DeviceParams, command_id: object) -> None:
-        async def apply():
+    async def apply_params(self: BleWorker, params: DeviceParams, command_id: object) -> None:
+        async def apply() -> None:
             await self.core.write_params(params, timeout=self.config.metrics_timeout_s)
             await self.core.apply_params(timeout=self.config.metrics_timeout_s)
 
         await self._run_params_command(command_id, apply)
 
-    async def start_fan_calibration(self) -> None:
+    async def start_fan_calibration(self: BleWorker) -> None:
         try:
             await self._with_timeout(
                 self.core.start_fan_calibration(timeout=self.config.metrics_timeout_s),
@@ -335,7 +353,7 @@ class BleWorkerFlowMixin:
         except Exception as exc:
             self.operation_start_failed.emit(OP_TYPE_FAN_CALIBRATION, self._format_error(exc))
 
-    async def start_setup_fans(self) -> None:
+    async def start_setup_fans(self: BleWorker) -> None:
         try:
             await self._with_timeout(
                 self.core.start_setup_fans(timeout=self.config.metrics_timeout_s),
@@ -346,7 +364,7 @@ class BleWorkerFlowMixin:
         except Exception as exc:
             self.operation_start_failed.emit(OP_TYPE_SETUP_FANS, self._format_error(exc))
 
-    async def change_output_limit(self, command_id: object, maximum: Optional[int]) -> None:
+    async def change_output_limit(self: BleWorker, command_id: object, maximum: Optional[int]) -> None:
         timeout = self.config.metrics_timeout_s
         connection_id = self._connection_id
         try:
@@ -369,7 +387,7 @@ class BleWorkerFlowMixin:
                     await self.read_params_snapshot()
             self.output_limit_command_done.emit(command_id, "")
 
-    async def read_operation_status(self) -> None:
+    async def read_operation_status(self: BleWorker) -> None:
         connection_id = self._connection_id
         try:
             status = await self._with_timeout(
@@ -382,7 +400,7 @@ class BleWorkerFlowMixin:
         except Exception as exc:
             self.log.emit(f"Failed to read OP status: {exc}")
 
-    async def read_params_snapshot(self) -> None:
+    async def read_params_snapshot(self: BleWorker) -> None:
         connection_id = self._connection_id
         try:
             params = await self._with_timeout(
@@ -396,7 +414,7 @@ class BleWorkerFlowMixin:
         except Exception as exc:
             self.log.emit(f"Failed to read parameters after operation: {exc}")
 
-    async def read_profiles(self) -> None:
+    async def read_profiles(self: BleWorker) -> None:
         try:
             slots = await self._with_timeout(
                 self.core.read_profile_slots(timeout=self.config.metrics_timeout_s),
@@ -415,7 +433,7 @@ class BleWorkerFlowMixin:
         except Exception as exc:
             self.log.emit(f"Failed to read profiles: {exc}")
 
-    async def _run_profile_action(self, action: int, slot: int) -> None:
+    async def _run_profile_action(self: BleWorker, action: int, slot: int) -> None:
         try:
             if action == PROFILE_ACTION_SAVE_CURRENT:
                 await self._with_timeout(
@@ -438,10 +456,10 @@ class BleWorkerFlowMixin:
             self.log.emit(error)
             self.profile_action_done.emit(action, slot, False, error)
 
-    async def save_profile(self, slot: int) -> None:
+    async def save_profile(self: BleWorker, slot: int) -> None:
         await self._run_profile_action(PROFILE_ACTION_SAVE_CURRENT, slot)
 
-    async def apply_profile(self, slot: int, command_id: object) -> None:
+    async def apply_profile(self: BleWorker, slot: int, command_id: object) -> None:
         timeout = self.config.metrics_timeout_s
         try:
             await self.core.apply_profile(slot, timeout=timeout)
@@ -454,11 +472,11 @@ class BleWorkerFlowMixin:
         else:
             self.params_command_done.emit(command_id, result, "")
 
-    async def clear_profile(self, slot: int) -> None:
+    async def clear_profile(self: BleWorker, slot: int) -> None:
         await self._run_profile_action(PROFILE_ACTION_CLEAR, slot)
 
     async def save_profile_metadata(
-        self, slot: int, title: str, description: str
+        self: BleWorker, slot: int, title: str, description: str
     ) -> None:
         try:
             await self._with_timeout(
@@ -477,14 +495,14 @@ class BleWorkerFlowMixin:
             self.log.emit(error)
             self.profile_metadata_done.emit(slot, {}, False, error)
 
-    def _on_metrics_snapshot(self, snapshot: MetricsSnapshot) -> None:
+    def _on_metrics_snapshot(self: BleWorker, snapshot: MetricsSnapshot) -> None:
         self._set_metrics_snapshot(snapshot)
 
-    def _on_fan_status(self, status: FanStatus) -> None:
+    def _on_fan_status(self: BleWorker, status: FanStatus) -> None:
         self.fan_status_received.emit(status)
 
-    def _on_device_status(self, status: DeviceStatus) -> None:
+    def _on_device_status(self: BleWorker, status: DeviceStatus) -> None:
         self.device_status_received.emit(status)
 
-    def _on_operation_status(self, status: OperationStatus, connection_id: object) -> None:
+    def _on_operation_status(self: BleWorker, status: OperationStatus, connection_id: object) -> None:
         self.operation_status_received.emit(status, connection_id)

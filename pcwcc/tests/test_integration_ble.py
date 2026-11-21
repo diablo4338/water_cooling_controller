@@ -75,7 +75,7 @@ def _press(
 
 async def _pair_device(
     core: BleAppCore,
-    ble_address: Optional[str],
+    ble_address: str,
     scan_timeout_s: float,
 ) -> DeviceInfo:
     device = await core.resolve_device(ble_address, timeout=scan_timeout_s)
@@ -125,7 +125,7 @@ def _reset_pairing(
 @pytest.fixture(scope="function")
 def paired_device(
     core: BleAppCore,
-    ble_address: Optional[str],
+    ble_address: str,
     scan_timeout_s: float,
 ) -> DeviceInfo:
     return asyncio.run(_pair_device(core, ble_address, scan_timeout_s))
@@ -136,7 +136,7 @@ def paired_device(
 @pytest.mark.usefixtures("_reset_pairing")
 async def test_pair_button_advertises_pairing_service(
     core: BleAppCore,
-    ble_address: Optional[str],
+    ble_address: str,
 ) -> None:
     assert await core._probe_pairing(DeviceInfo(name="Test", address=ble_address))
 
@@ -150,7 +150,7 @@ async def test_pairing_succeeds(paired_device: DeviceInfo) -> None:
 
 @pytest.mark.asyncio
 async def test_unauthorize_read_metrics_snapshot(
-    core: BleAppCore, ble_address: Optional[str]
+    core: BleAppCore, ble_address: str
 ) -> None:
     await core.connect_raw(DeviceInfo(name="Test", address=ble_address))
     with pytest.raises(RuntimeError):

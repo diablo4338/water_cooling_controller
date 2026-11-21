@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import pytest
+
 from pcwcc.config import load_config
 
 
-def test_load_config_parses_windows_ble_overrides(monkeypatch) -> None:
+def test_load_config_parses_windows_ble_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("BLE_RESOLVE_BEFORE_CONNECT", "1")
     monkeypatch.setenv("BLE_USE_SERVICE_FILTER", "0")
     monkeypatch.setenv("BLE_WINRT_USE_CACHED_SERVICES", "true")
@@ -17,7 +19,7 @@ def test_load_config_parses_windows_ble_overrides(monkeypatch) -> None:
     assert config.winrt_address_type == "random"
 
 
-def test_load_config_ignores_invalid_optional_bool(monkeypatch) -> None:
+def test_load_config_ignores_invalid_optional_bool(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("BLE_WINRT_USE_CACHED_SERVICES", "maybe")
 
     config = load_config()
@@ -25,7 +27,7 @@ def test_load_config_ignores_invalid_optional_bool(monkeypatch) -> None:
     assert config.winrt_use_cached_services is False
 
 
-def test_load_config_uses_safe_windows_ble_defaults(monkeypatch) -> None:
+def test_load_config_uses_safe_windows_ble_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("BLE_USE_SERVICE_FILTER", raising=False)
     monkeypatch.delenv("BLE_WINRT_USE_CACHED_SERVICES", raising=False)
     monkeypatch.setattr("pcwcc.config.os.name", "nt")

@@ -1,0 +1,325 @@
+{
+  "schema_version": 1,
+  "title": "Fluent workbench shell token map",
+  "description": "Fluent semantic colors applied to a VS Code-inspired desktop workbench structure. This is not a VS Code theme clone.",
+  "aliases": {
+    "shell_workbench_background": {
+      "token": "colorNeutralBackground1",
+      "description": "Main workbench background.",
+      "light": "#ffffff",
+      "dark": "#292929"
+    },
+    "shell_window_border_active": {
+      "token": "colorNeutralStroke1",
+      "description": "Visible outer boundary for an active frameless workbench window.",
+      "light": "#d1d1d1",
+      "dark": "#666666"
+    },
+    "shell_window_border_inactive": {
+      "token": "colorNeutralStroke2",
+      "description": "Visible outer boundary for an inactive frameless workbench window.",
+      "light": "#e0e0e0",
+      "dark": "#525252"
+    },
+    "shell_sidebar_background": {
+      "token": "colorNeutralBackground2",
+      "description": "Primary sidebar background.",
+      "light": "#fafafa",
+      "dark": "#1f1f1f"
+    },
+    "shell_sidebar_border": {
+      "token": "colorNeutralStroke2",
+      "description": "Primary sidebar border.",
+      "light": "#e0e0e0",
+      "dark": "#525252"
+    },
+    "shell_panel_background": {
+      "token": "colorNeutralBackground1",
+      "description": "Bottom/secondary panel background.",
+      "light": "#ffffff",
+      "dark": "#292929"
+    },
+    "shell_panel_border": {
+      "token": "colorNeutralStroke2",
+      "description": "Panel border.",
+      "light": "#e0e0e0",
+      "dark": "#525252"
+    },
+    "shell_title_background_active": {
+      "token": "colorNeutralBackground2",
+      "description": "Active integrated title/command surface.",
+      "light": "#fafafa",
+      "dark": "#1f1f1f"
+    },
+    "shell_title_foreground_active": {
+      "token": "colorNeutralForeground1",
+      "description": "Active title foreground.",
+      "light": "#242424",
+      "dark": "#ffffff"
+    },
+    "shell_title_background_inactive": {
+      "token": "colorNeutralBackground3",
+      "description": "Inactive title background.",
+      "light": "#f5f5f5",
+      "dark": "#141414"
+    },
+    "shell_title_foreground_inactive": {
+      "token": "colorNeutralForeground3",
+      "description": "Inactive title foreground.",
+      "light": "#616161",
+      "dark": "#adadad"
+    },
+    "shell_title_border": {
+      "token": "colorNeutralStroke2",
+      "description": "Title bar lower divider.",
+      "light": "#e0e0e0",
+      "dark": "#525252"
+    },
+    "shell_title_command_background": {
+      "token": "colorNeutralBackground1",
+      "description": "Command/search center background.",
+      "light": "#ffffff",
+      "dark": "#292929"
+    },
+    "shell_title_command_hover": {
+      "token": "colorNeutralBackground1Hover",
+      "description": "Command/search center hover.",
+      "light": "#f5f5f5",
+      "dark": "#3d3d3d"
+    },
+    "shell_title_command_pressed": {
+      "token": "colorNeutralBackground1Pressed",
+      "description": "Command/search center pressed.",
+      "light": "#e0e0e0",
+      "dark": "#1f1f1f"
+    },
+    "shell_title_command_focus": {
+      "token": "colorStrokeFocus2",
+      "description": "Command/search center focus.",
+      "light": "#000000",
+      "dark": "#ffffff"
+    },
+    "shell_activity_background": {
+      "token": "colorNeutralBackground3",
+      "description": "Activity Bar background.",
+      "light": "#f5f5f5",
+      "dark": "#141414"
+    },
+    "shell_activity_foreground": {
+      "token": "colorNeutralForeground1",
+      "description": "Selected Activity Bar foreground.",
+      "light": "#242424",
+      "dark": "#ffffff"
+    },
+    "shell_activity_foreground_inactive": {
+      "token": "colorNeutralForeground3",
+      "description": "Inactive Activity Bar foreground.",
+      "light": "#616161",
+      "dark": "#adadad"
+    },
+    "shell_activity_border": {
+      "token": "colorNeutralStroke2",
+      "description": "Activity Bar divider.",
+      "light": "#e0e0e0",
+      "dark": "#525252"
+    },
+    "shell_activity_indicator": {
+      "token": "colorBrandForeground1",
+      "description": "Selected Activity item indicator with sufficient contrast in both themes.",
+      "light": "#0f6cbd",
+      "dark": "#479ef5"
+    },
+    "shell_activity_indicator_focus": {
+      "token": "colorStrokeFocus2",
+      "description": "Activity item keyboard focus.",
+      "light": "#000000",
+      "dark": "#ffffff"
+    },
+    "shell_activity_hover": {
+      "token": "colorSubtleBackgroundHover",
+      "description": "Activity item hover.",
+      "light": "#f5f5f5",
+      "dark": "#383838"
+    },
+    "shell_activity_pressed": {
+      "token": "colorSubtleBackgroundPressed",
+      "description": "Activity item pressed.",
+      "light": "#e0e0e0",
+      "dark": "#2e2e2e"
+    },
+    "shell_activity_badge_background": {
+      "token": "colorBrandBackground",
+      "description": "Activity badge background.",
+      "light": "#0f6cbd",
+      "dark": "#115ea3"
+    },
+    "shell_activity_badge_foreground": {
+      "token": "colorNeutralForegroundOnBrand",
+      "description": "Activity badge foreground.",
+      "light": "#ffffff",
+      "dark": "#ffffff"
+    },
+    "shell_status_background": {
+      "token": "colorBrandBackground",
+      "description": "Brand Status Bar background.",
+      "light": "#0f6cbd",
+      "dark": "#115ea3"
+    },
+    "shell_status_foreground": {
+      "token": "colorNeutralForegroundOnBrand",
+      "description": "Status Bar foreground.",
+      "light": "#ffffff",
+      "dark": "#ffffff"
+    },
+    "shell_status_border": {
+      "token": "colorBrandStroke1",
+      "description": "Status Bar upper border.",
+      "light": "#0f6cbd",
+      "dark": "#479ef5"
+    },
+    "shell_status_item_hover": {
+      "token": "colorBrandBackgroundHover",
+      "description": "Status item hover.",
+      "light": "#115ea3",
+      "dark": "#0f6cbd"
+    },
+    "shell_status_item_pressed": {
+      "token": "colorBrandBackgroundPressed",
+      "description": "Status item pressed.",
+      "light": "#0c3b5e",
+      "dark": "#0c3b5e"
+    },
+    "shell_status_item_focus": {
+      "token": "colorNeutralForegroundOnBrand",
+      "description": "Status item focus stroke.",
+      "light": "#ffffff",
+      "dark": "#ffffff"
+    },
+    "shell_status_warning_background": {
+      "token": "colorStatusWarningBackground3",
+      "description": "Exceptional warning Status Bar item.",
+      "light": "#f7630c",
+      "dark": "#f7630c"
+    },
+    "shell_status_warning_foreground": {
+      "token": "colorNeutralForeground1Static",
+      "description": "High-contrast foreground on the strong warning Status Bar surface.",
+      "light": "#242424",
+      "dark": "#242424"
+    },
+    "shell_status_danger_background": {
+      "token": "colorStatusDangerBackground3",
+      "description": "Exceptional danger Status Bar item.",
+      "light": "#c50f1f",
+      "dark": "#c50f1f"
+    },
+    "shell_status_danger_hover": {
+      "token": "colorStatusDangerBackground3Hover",
+      "description": "Danger item hover.",
+      "light": "#b10e1c",
+      "dark": "#b10e1c"
+    },
+    "shell_status_danger_pressed": {
+      "token": "colorStatusDangerBackground3Pressed",
+      "description": "Danger item pressed.",
+      "light": "#960b18",
+      "dark": "#960b18"
+    },
+    "shell_status_danger_foreground": {
+      "token": "colorNeutralForegroundOnBrand",
+      "description": "Danger Status Bar foreground.",
+      "light": "#ffffff",
+      "dark": "#ffffff"
+    },
+    "shell_status_progress_foreground": {
+      "token": "colorNeutralForegroundOnBrand",
+      "description": "Status progress foreground.",
+      "light": "#ffffff",
+      "dark": "#ffffff"
+    }
+  },
+  "metrics": {
+    "shell_title_height": {
+      "value": "35px",
+      "compact": "30px",
+      "source": "VS Code reference; final Qt size must honor font metrics and safe-area margins.",
+      "normative": false
+    },
+    "shell_activity_width": {
+      "value": "48px",
+      "compact": "36px",
+      "source": "VS Code reference.",
+      "normative": false
+    },
+    "shell_activity_item_height": {
+      "value": "48px",
+      "compact": "32px",
+      "source": "VS Code reference.",
+      "normative": false
+    },
+    "shell_activity_icon_size": {
+      "value": "24px",
+      "source": "VS Code standard reference.",
+      "normative": false
+    },
+    "shell_status_height": {
+      "value": "22px",
+      "source": "VS Code compact reference; effective Qt minimum is font-dependent.",
+      "normative": false
+    },
+    "shell_sidebar_preferred_width": {
+      "value": "280px",
+      "minimum": "180px",
+      "maximum": "480px",
+      "source": "Qt workbench adaptation.",
+      "normative": false
+    },
+    "shell_title_height_compact": {
+      "value": "30px",
+      "source": "VS Code simple title reference.",
+      "normative": false
+    },
+    "shell_activity_width_compact": {
+      "value": "36px",
+      "source": "VS Code compact reference.",
+      "normative": false
+    },
+    "shell_activity_item_height_compact": {
+      "value": "32px",
+      "source": "VS Code compact reference.",
+      "normative": false
+    },
+    "shell_activity_icon_size_compact": {
+      "value": "16px",
+      "source": "VS Code compact reference.",
+      "normative": false
+    },
+    "shell_snap_layout_minimum_width": {
+      "value": "500px",
+      "source": "Microsoft Windows 11 common Snap Layout compatibility guidance.",
+      "normative": false
+    },
+    "shell_workbench_minimum_height": {
+      "value": "420px",
+      "source": "Qt workbench adaptation validated with the responsive shell profile.",
+      "normative": false
+    }
+  },
+  "profiles": {
+    "fluent-workbench": {
+      "status_bar_appearance": "brand",
+      "activity_bar_appearance": "neutral-tertiary",
+      "title_bar_appearance": "neutral-secondary"
+    },
+    "fluent-workbench-neutral-status": {
+      "status_bar_overrides": {
+        "shell_status_background": "colorNeutralBackground2",
+        "shell_status_foreground": "colorNeutralForeground1",
+        "shell_status_border": "colorNeutralStroke2",
+        "shell_status_item_hover": "colorSubtleBackgroundHover",
+        "shell_status_item_pressed": "colorSubtleBackgroundPressed",
+        "shell_status_item_focus": "colorStrokeFocus2"
+      }
+    }
+  }
+}

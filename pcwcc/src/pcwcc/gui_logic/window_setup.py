@@ -1,143 +1,43 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtWidgets import (
-    QButtonGroup,
-    QCheckBox,
-    QComboBox,
-    QDoubleSpinBox,
-    QFrame,
-    QGridLayout,
-    QGroupBox,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QListWidget,
-    QPushButton,
-    QScrollArea,
-    QSpinBox,
-    QTextEdit,
-    QVBoxLayout,
-    QWidget,
-)
+from typing import TYPE_CHECKING
 
-from ..core import PROFILE_COUNT
-from .constants import APP_TITLE, PARAM_FIELDS
-from .metrics_chart import MetricsHistoryChart
+from PySide6.QtGui import QCloseEvent
+from PySide6.QtWidgets import QCheckBox, QFrame, QLineEdit
+
+from ..core import DeviceParams
+from ..ui.parameter_controls import ParameterField
+
+
+if TYPE_CHECKING:
+    from .app import MainWindow
 
 
 class MainWindowSetupMixin:
-    _MIN_INPUT_HEIGHT = 26
-    _METRIC_FIELD_WIDTH = 40
-    _METRIC_ROW_SPACING = 10
-
-    def _create_widgets(self) -> None:
-        self.setWindowTitle(APP_TITLE)
-        if self.debug_enabled:
-            self.resize(1360, 820)
-        else:
-            self.resize(1024, 760)
-        self.scan_button = QPushButton("Scan")
-        self.pair_button = QPushButton("Pair")
-        self.connect_button = QPushButton("Connect")
-        self.disconnect_button = QPushButton("Disconnect")
-        self.delete_button = QPushButton("Delete saved")
-        self.rename_button = QPushButton("Rename saved")
-        self.auto_checkbox = QCheckBox("Auto-connect (saved)")
-        self.apply_button = QPushButton("Apply")
-        self.discard_button = QPushButton("Discard")
-        self.clear_profile_button = QPushButton("Clear")
-        self.clear_profile_button.setToolTip("Remove the saved settings from the selected profile")
-        self.clear_profile_button.clicked.connect(self.on_clear_profile)
-        self.profile_button_group = QButtonGroup(self)
-        self.profile_button_group.setExclusive(False)
-        self.profile_buttons = []
-        self.profile_status_bars = []
-        self.profile_button_cells = []
-        for index in range(1, PROFILE_COUNT + 1):
-            button = QPushButton(f"P{index}")
-            button.setCheckable(True)
-            button.setFixedSize(75, 31)
-            button.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-            button.setStyleSheet(
-                "QPushButton:checked { background-color:#2563eb; color:#ffffff; }"
-            )
-            button.clicked.connect(
-                lambda checked=False, profile_index=index: self.on_profile_clicked(
-                    profile_index, checked
-                )
-            )
-            button.customContextMenuRequested.connect(
-                lambda position, profile_index=index, profile_button=button: self._show_profile_menu(
-                    profile_index, profile_button.mapToGlobal(position)
-                )
-            )
-            self.profile_button_group.addButton(button, index)
-            self.profile_buttons.append(button)
-            status_bar = QFrame()
-            status_bar.setFixedHeight(4)
-            status_bar.setStyleSheet("background:#9ca3af;")
-            self.profile_status_bars.append(status_bar)
-            cell = QWidget()
-            cell_layout = QVBoxLayout(cell)
-            cell_layout.setContentsMargins(0, 0, 0, 0)
-            cell_layout.setSpacing(3)
-            cell_layout.addWidget(button)
-            cell_layout.addWidget(status_bar)
-            self.profile_button_cells.append(cell)
-        self.calibrate_button = QPushButton("Fan calibration")
-        self.setup_fans_button = QPushButton("Setup fans")
-        self.found_list = QListWidget()
-        self.paired_list = QListWidget()
-        self.data_view = QTextEdit()
-        self.data_view.setReadOnly(True)
-        self.op_log_view = QTextEdit()
-        self.op_log_view.setReadOnly(True)
-        self.debug_log_view = QTextEdit()
-        self.debug_log_view.setReadOnly(True)
-        self.clear_op_log_button = QPushButton("Clear")
-        self.clear_debug_log_button = QPushButton("Clear")
-        self.clear_data_log_button = QPushButton("Clear")
-        self.metrics_chart = MetricsHistoryChart()
-        self.metrics_history_mode_label = QLabel("OFFLINE")
-        self.metrics_history_mode_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.metrics_history_mode_label.setStyleSheet(
-            "background:#6b7280; color:#ffffff; padding:2px 8px; border-radius:4px;"
-        )
-        self.status_label = QLabel(self.model.state.status)
-        self.apply_status_label = QLabel("")
-        self.apply_status_label.setWordWrap(True)
-        self.apply_status_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
-        self.apply_status_label.setStyleSheet("color:#6b7280;")
-        self.apply_status_label.hide()
-        self._apply_status_timer = QTimer(self)
-        self._apply_status_timer.setSingleShot(True)
-        self._apply_status_timer.timeout.connect(self._clear_apply_status)
-
-    def _init_view_state(self) -> None:
-        self.temp_fields = []
-        self.temp_indicators = []
-        self.temp_values = [None] * 4
-        self._temp_is_nc = [None] * 4
-        self.fan_fields = []
-        self.fan_percent_field = None
-        self._fan_is_nc = [None] * 4
-        self.fan_status_indicators = []
-        self.fan_monitor_checkboxes = []
-        self.voltage_field = None
-        self.current_field = None
-        self.device_status_field = None
-        self.device_status_indicator = None
-        self.param_fields = []
+    def _init_view_state(self: MainWindow) -> None:
+        self.temp_fields: list[QLineEdit] = []
+        self.temp_indicators: list[QFrame] = []
+        self.temp_values: list[float | None] = [None] * 4
+        self._temp_is_nc: list[bool | None] = [None] * 4
+        self.fan_fields: list[QLineEdit] = []
+        self.fan_percent_field: QLineEdit | None = None
+        self._fan_is_nc: list[bool | None] = [None] * 4
+        self.fan_status_indicators: list[QFrame] = []
+        self.fan_monitor_checkboxes: list[QCheckBox] = []
+        self.voltage_field: QLineEdit | None = None
+        self.current_field: QLineEdit | None = None
+        self.device_status_field: QLineEdit | None = None
+        self.device_status_indicator: QFrame | None = None
+        self.param_fields: list[ParameterField] = []
         self._params_update_lock = False
-        self._device_params_snapshot = None
-        self._selected_profile_index = None
-        self._device_profile_slots = set()
-        self._device_profile_metadata = {}
+        self._device_params_snapshot: DeviceParams | None = None
+        self._selected_profile_index: int | None = None
+        self._device_profile_slots: set[int] = set()
+        self._device_profile_metadata: dict[int, dict[str, str]] = {}
         self._apply_status_kind = "idle"
         self._apply_status_text = ""
 
-    def _configure_action_properties(self) -> None:
+    def _configure_action_properties(self: MainWindow) -> None:
         for widget, action in (
             (self.scan_button, self.Action.SCAN),
             (self.pair_button, self.Action.PAIR),
@@ -152,74 +52,7 @@ class MainWindowSetupMixin:
         ):
             widget.setProperty("actionId", action.name)
 
-    def _build_window(self) -> None:
-        buttons = QHBoxLayout()
-        buttons.setSpacing(6)
-        buttons.addWidget(self.scan_button)
-        buttons.addWidget(self.pair_button)
-        buttons.addWidget(self.connect_button)
-        buttons.addWidget(self.disconnect_button)
-        buttons.addWidget(self.delete_button)
-        buttons.addWidget(self.rename_button)
-        buttons.addStretch(1)
-        buttons.addWidget(self.auto_checkbox)
-
-        lists_layout = QHBoxLayout()
-        lists_layout.setSpacing(6)
-        lists_layout.addWidget(self._wrap_section("Devices for pairing", self.found_list))
-        lists_layout.addWidget(self._wrap_section("Paired devices", self.paired_list))
-
-        main_content_layout = QVBoxLayout()
-        main_content_layout.setContentsMargins(0, 0, 0, 0)
-        main_content_layout.setSpacing(6)
-        main_content_layout.addLayout(buttons)
-        main_content_layout.addLayout(lists_layout)
-        main_content_layout.addWidget(QLabel("Device parameters"))
-        main_content_layout.addWidget(self._build_params_layout())
-
-        sensors_layout = QHBoxLayout()
-        sensors_layout.setSpacing(6)
-        sensors_layout.addWidget(self._wrap_section("Temperatures", self._build_temp_widget()))
-        sensors_layout.addWidget(self._wrap_section("Fan speed", self._build_fan_widget()))
-        main_content_layout.addLayout(sensors_layout)
-
-        main_content_layout.addWidget(QLabel("Power"))
-        main_content_layout.addLayout(self._build_power_layout())
-        main_content_layout.addWidget(self._build_device_status_widget())
-        main_content_layout.addLayout(self._build_operation_buttons_layout())
-        history_header = QHBoxLayout()
-        history_header.addWidget(QLabel("History"))
-        history_header.addWidget(self.metrics_history_mode_label)
-        history_header.addStretch(1)
-        main_content_layout.addLayout(history_header)
-        main_content_layout.addWidget(self.metrics_chart)
-
-        main_content_widget = QWidget()
-        main_content_widget.setLayout(main_content_layout)
-
-        main_scroll = QScrollArea()
-        main_scroll.setWidgetResizable(True)
-        main_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        main_scroll.setWidget(main_content_widget)
-
-        body_layout = QHBoxLayout()
-        body_layout.setContentsMargins(0, 0, 0, 0)
-        body_layout.setSpacing(8)
-        body_layout.addWidget(main_scroll, 3)
-        if self.debug_enabled:
-            body_layout.addWidget(self._build_debug_panel(), 2)
-
-        root_layout = QVBoxLayout()
-        root_layout.setContentsMargins(8, 8, 8, 8)
-        root_layout.setSpacing(6)
-        root_layout.addLayout(body_layout)
-        root_layout.addWidget(self.status_label)
-
-        container = QWidget()
-        container.setLayout(root_layout)
-        self.setCentralWidget(container)
-
-    def _connect_signals(self) -> None:
+    def _connect_signals(self: MainWindow) -> None:
         self.scan_button.clicked.connect(self.on_scan)
         self.pair_button.clicked.connect(self.on_pair)
         self.connect_button.clicked.connect(self.on_connect)
@@ -227,7 +60,7 @@ class MainWindowSetupMixin:
         self.delete_button.clicked.connect(self.on_delete_paired_clicked)
         self.rename_button.clicked.connect(self.on_rename_paired_clicked)
         self.auto_checkbox.toggled.connect(self.on_auto_toggled)
-        self.apply_button.clicked.connect(self.on_apply)
+        self.apply_button.clicked.connect(self._apply_settings_in_place)
         self.discard_button.clicked.connect(self.on_discard)
         self.calibrate_button.clicked.connect(self.on_calibrate)
         self.setup_fans_button.clicked.connect(self.on_setup_fans)
@@ -258,7 +91,7 @@ class MainWindowSetupMixin:
         self.paired_list.itemSelectionChanged.connect(self._on_paired_selected)
         self.paired_list.itemChanged.connect(self._on_paired_item_changed)
 
-    def closeEvent(self, event) -> None:
+    def closeEvent(self: MainWindow, event: QCloseEvent) -> None:
         stop_event = self.model.state.auto_run_id
         if stop_event is not None:
             self.worker.stop_auto(stop_event)
@@ -278,307 +111,3 @@ class MainWindowSetupMixin:
         self.worker.stop()
         self.worker.wait(3000)
         super().closeEvent(event)
-
-    @staticmethod
-    def _wrap_section(title: str, widget: QWidget, action_button: QPushButton | None = None) -> QWidget:
-        wrapper = QWidget()
-        layout = QVBoxLayout()
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
-        layout.addWidget(QLabel(title))
-        if action_button is not None:
-            action_row = QHBoxLayout()
-            action_row.addStretch(1)
-            action_row.addWidget(action_button)
-            layout.addLayout(action_row)
-        layout.addWidget(widget)
-        wrapper.setLayout(layout)
-        return wrapper
-
-    def _build_temp_widget(self) -> QWidget:
-        wrapper = QWidget()
-        wrapper.setLayout(self._build_temp_layout())
-        return wrapper
-
-    def _build_fan_widget(self) -> QWidget:
-        wrapper = QWidget()
-        wrapper.setLayout(self._build_fan_layout())
-        return wrapper
-
-    def _build_debug_panel(self) -> QWidget:
-        wrapper = QWidget()
-        layout = QVBoxLayout()
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
-        layout.addWidget(self._wrap_section("Operations (log)", self.op_log_view, self.clear_op_log_button))
-        layout.addWidget(self._wrap_section("Debug log", self.debug_log_view, self.clear_debug_log_button))
-        layout.addWidget(self._wrap_section("Real-time data", self.data_view, self.clear_data_log_button))
-        wrapper.setLayout(layout)
-        return wrapper
-
-    def _build_params_layout(self) -> QWidget:
-        wrapper = QWidget()
-        layout = QVBoxLayout()
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
-        limit_layout = QHBoxLayout()
-        limit_layout.addWidget(QLabel("Maximum output"))
-        self.output_max_input = QSpinBox()
-        self.output_max_input.setRange(0, 100)
-        self.output_max_input.setSpecialValueText("Unavailable")
-        self.output_max_input.setValue(100)
-        self.output_max_input.setSuffix("%")
-        limit_layout.addWidget(self.output_max_input)
-        self.output_max_save = QPushButton("Save maximum")
-        self.output_max_save.clicked.connect(lambda: self.on_change_output_limit(self.output_max_input.value()))
-        self.output_max_input.valueChanged.connect(self._update_output_max_save)
-        limit_layout.addWidget(self.output_max_save)
-        self.output_limit_label = QLabel("Current limit unavailable")
-        self.output_limit_label.setWordWrap(True)
-        limit_layout.addWidget(self.output_limit_label, 1)
-        self.output_limit_reset = QPushButton("Reset overload")
-        self.output_limit_reset.setToolTip("Clear the temporary output limit and the overload alarm.")
-        self.output_limit_reset.clicked.connect(lambda: self.on_change_output_limit(None))
-        limit_layout.addWidget(self.output_limit_reset)
-        layout.addLayout(limit_layout)
-        self.effective_fan_mode_label = QLabel("Current fan mode unavailable")
-        self.effective_fan_mode_label.setWordWrap(True)
-        layout.addWidget(self.effective_fan_mode_label)
-        groups_layout = QHBoxLayout()
-        groups_layout.setSpacing(6)
-        self.param_fields.clear()
-        for group_key, group_title in (("control", "Control"), ("fan", "Fan")):
-            box = QGroupBox(group_title)
-            grid = QGridLayout()
-            grid.setVerticalSpacing(4)
-            grid.setHorizontalSpacing(6)
-            row = 0
-            for spec in PARAM_FIELDS:
-                if spec.get("group") != group_key:
-                    continue
-                grid.addWidget(QLabel(spec["label"]), row, 0)
-                kind = spec["kind"]
-                if kind == "float":
-                    field = QDoubleSpinBox()
-                    field.setRange(-1_000_000.0, 1_000_000.0)
-                    field.setDecimals(2)
-                    field.setSingleStep(0.5)
-                    field.setAlignment(Qt.AlignmentFlag.AlignRight)
-                    field.setKeyboardTracking(False)
-                    field.valueChanged.connect(self._on_params_changed)
-                    field.setValue(spec.get("min", 0.0))
-                elif kind == "int":
-                    field = QSpinBox()
-                    field.setRange(spec.get("min", -1_000_000), spec.get("max", 1_000_000))
-                    field.setSingleStep(1)
-                    field.setAlignment(Qt.AlignmentFlag.AlignRight)
-                    field.setKeyboardTracking(False)
-                    field.valueChanged.connect(self._on_params_changed)
-                    field.setValue(spec.get("min", -1_000_000))
-                elif kind == "enum":
-                    field = QComboBox()
-                    for value, label in spec.get("choices", []):
-                        field.addItem(label, value)
-                    field.currentIndexChanged.connect(self._on_params_changed)
-                    field.setCurrentIndex(0)
-                elif kind == "bool":
-                    field = QCheckBox()
-                    field.stateChanged.connect(self._on_params_changed)
-                    field.setChecked(True)
-                else:
-                    continue
-                self._apply_input_sizing(field)
-                field.setEnabled(False)
-                grid.addWidget(field, row, 1)
-                self.param_fields.append({"spec": spec, "widget": field})
-                row += 1
-            box.setLayout(grid)
-            groups_layout.addWidget(box)
-
-        layout.addLayout(groups_layout)
-
-        button_row = QHBoxLayout()
-        button_row.setSpacing(6)
-        button_row.addWidget(QLabel("Profiles:"))
-        for cell in self.profile_button_cells:
-            button_row.addWidget(cell)
-        button_row.addWidget(self.clear_profile_button)
-        button_row.addStretch(1)
-        button_row.addWidget(self.apply_button)
-        button_row.addWidget(self.discard_button)
-        layout.addLayout(button_row)
-        layout.addWidget(self.apply_status_label)
-        wrapper.setLayout(layout)
-        return wrapper
-
-    def _build_temp_layout(self) -> QGridLayout:
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(6)
-        grid.setVerticalSpacing(4)
-        self.temp_fields.clear()
-        self.temp_indicators.clear()
-        self.temp_values = [None] * 4
-        self._temp_is_nc = [None] * 4
-        for idx in range(4):
-            label = QLabel(f"Temp {idx + 1}")
-            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            field = QLineEdit("—")
-            field.setReadOnly(True)
-            field.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-            field.setCursor(Qt.CursorShape.ArrowCursor)
-            field.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-            field.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self._apply_input_sizing(field)
-            field.setMaximumWidth(self._METRIC_FIELD_WIDTH)
-            indicator = QFrame()
-            indicator.setFixedSize(16, 16)
-            indicator.setStyleSheet("background:#6b7280; border:1px solid #111827;")
-            indicator.setToolTip("—")
-            value_row = QHBoxLayout()
-            value_row.setSpacing(self._METRIC_ROW_SPACING)
-            value_row.addWidget(field)
-            value_row.addWidget(indicator)
-
-            column = QVBoxLayout()
-            column.addWidget(label)
-            column.addLayout(value_row)
-            grid.addLayout(column, 0, idx)
-            self.temp_fields.append(field)
-            self.temp_indicators.append(indicator)
-        return grid
-
-    def _build_power_layout(self) -> QGridLayout:
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(6)
-        grid.setVerticalSpacing(4)
-
-        voltage_field = QLineEdit("â€”")
-        voltage_field.setReadOnly(True)
-        voltage_field.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        voltage_field.setCursor(Qt.CursorShape.ArrowCursor)
-        voltage_field.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        voltage_field.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self._apply_input_sizing(voltage_field)
-
-        current_field = QLineEdit("â€”")
-        current_field.setReadOnly(True)
-        current_field.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        current_field.setCursor(Qt.CursorShape.ArrowCursor)
-        current_field.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        current_field.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self._apply_input_sizing(current_field)
-
-        grid.addWidget(QLabel("Voltage, V"), 0, 0)
-        grid.addWidget(voltage_field, 0, 1)
-        grid.addWidget(QLabel("Current, mA"), 0, 2)
-        grid.addWidget(current_field, 0, 3)
-
-        self.voltage_field = voltage_field
-        self.current_field = current_field
-        return grid
-
-    def _build_operation_buttons_layout(self) -> QHBoxLayout:
-        layout = QHBoxLayout()
-        layout.setSpacing(6)
-        layout.addWidget(self.setup_fans_button)
-        layout.addWidget(self.calibrate_button)
-        layout.addStretch(1)
-        return layout
-
-    def _build_device_status_widget(self) -> QWidget:
-        wrapper = QWidget()
-        layout = QVBoxLayout()
-
-        device_status_label = QLabel("Device status")
-
-        device_status_field = QLineEdit("â€”")
-        device_status_field.setReadOnly(True)
-        device_status_field.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        device_status_field.setCursor(Qt.CursorShape.ArrowCursor)
-        device_status_field.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        device_status_field.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._apply_input_sizing(device_status_field)
-        self.device_status_field = device_status_field
-
-        device_indicator = QFrame()
-        device_indicator.setFixedSize(16, 16)
-        device_indicator.setStyleSheet("background:#6b7280; border:1px solid #111827;")
-        self.device_status_indicator = device_indicator
-
-        value_row = QHBoxLayout()
-        value_row.addWidget(device_status_label)
-        value_row.addWidget(device_status_field)
-        value_row.addWidget(device_indicator)
-        value_row.addStretch(1)
-
-        layout.addLayout(value_row)
-        self.ina_warning_label = QLabel(
-            "INA226 unavailable. Load monitoring is unavailable. Adjust the output at your own risk."
-        )
-        self.ina_warning_label.setWordWrap(True)
-        self.ina_warning_label.hide()
-        layout.addWidget(self.ina_warning_label)
-        wrapper.setLayout(layout)
-        return wrapper
-
-    def _build_fan_layout(self) -> QGridLayout:
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(6)
-        grid.setVerticalSpacing(4)
-        self.fan_fields = []
-        self.fan_percent_field = None
-        self.fan_status_indicators = []
-        self.fan_monitor_checkboxes = []
-        for idx in range(4):
-            label = QLabel(f"Fan{idx + 1}")
-            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            rpm_field = QLineEdit("—")
-            rpm_field.setReadOnly(True)
-            rpm_field.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-            rpm_field.setCursor(Qt.CursorShape.ArrowCursor)
-            rpm_field.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-            rpm_field.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self._apply_input_sizing(rpm_field)
-            rpm_field.setMaximumWidth(self._METRIC_FIELD_WIDTH)
-            indicator = QFrame()
-            indicator.setFixedSize(16, 16)
-            indicator.setStyleSheet("background:#6b7280; border:1px solid #111827;")
-            indicator.setToolTip("—")
-            monitor = QCheckBox()
-            monitor.setToolTip("Monitor faults")
-            monitor.setEnabled(False)
-            if idx > 0:
-                monitor.stateChanged.connect(self._on_params_changed)
-            value_row = QHBoxLayout()
-            value_row.setSpacing(self._METRIC_ROW_SPACING)
-            value_row.addWidget(rpm_field)
-            value_row.addWidget(indicator)
-            value_row.addWidget(monitor)
-
-            column = QVBoxLayout()
-            column.addWidget(label)
-            column.addLayout(value_row)
-            grid.addLayout(column, 0, idx)
-            self.fan_fields.append(rpm_field)
-            self.fan_status_indicators.append(indicator)
-            self.fan_monitor_checkboxes.append(monitor)
-        label = QLabel("Speed(%)")
-        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        percent_field = QLineEdit("â€”")
-        percent_field.setReadOnly(True)
-        percent_field.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        percent_field.setCursor(Qt.CursorShape.ArrowCursor)
-        percent_field.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        percent_field.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._apply_input_sizing(percent_field)
-        percent_field.setMaximumWidth(self._METRIC_FIELD_WIDTH)
-        column = QVBoxLayout()
-        column.addWidget(label)
-        column.addWidget(percent_field)
-        grid.addLayout(column, 0, 4)
-        self.fan_percent_field = percent_field
-        self._fan_is_nc = [None] * 4
-        return grid
-
-    def _apply_input_sizing(self, widget: QWidget) -> None:
-        widget.setMinimumHeight(self._MIN_INPUT_HEIGHT)

@@ -1,0 +1,207 @@
+{
+  "schema_version": 1,
+  "states": [
+    "rest",
+    "hover",
+    "pressed",
+    "focus",
+    "selected_or_checked",
+    "disabled",
+    "invalid",
+    "read_only",
+    "busy"
+  ],
+  "components": {
+    "button": {
+      "required": [
+        "rest",
+        "hover",
+        "pressed",
+        "focus",
+        "disabled"
+      ],
+      "conditional": [
+        "selected_or_checked",
+        "busy",
+        "invalid"
+      ]
+    },
+    "tool_button": {
+      "required": [
+        "rest",
+        "hover",
+        "pressed",
+        "focus",
+        "disabled"
+      ],
+      "conditional": [
+        "selected_or_checked",
+        "busy"
+      ]
+    },
+    "line_edit": {
+      "required": [
+        "rest",
+        "hover",
+        "focus",
+        "disabled",
+        "invalid",
+        "read_only"
+      ],
+      "conditional": [
+        "busy"
+      ]
+    },
+    "combo_box": {
+      "required": [
+        "rest",
+        "hover",
+        "pressed",
+        "focus",
+        "disabled",
+        "invalid",
+        "read_only"
+      ],
+      "conditional": [
+        "busy"
+      ]
+    },
+    "spin_box": {
+      "required": [
+        "rest",
+        "hover",
+        "pressed",
+        "focus",
+        "disabled",
+        "invalid",
+        "read_only"
+      ],
+      "conditional": [
+        "busy"
+      ]
+    },
+    "check_box": {
+      "required": [
+        "rest",
+        "hover",
+        "pressed",
+        "focus",
+        "selected_or_checked",
+        "disabled"
+      ],
+      "conditional": [
+        "invalid",
+        "read_only"
+      ]
+    },
+    "radio_button": {
+      "required": [
+        "rest",
+        "hover",
+        "pressed",
+        "focus",
+        "selected_or_checked",
+        "disabled"
+      ],
+      "conditional": [
+        "invalid",
+        "read_only"
+      ]
+    },
+    "navigation_item": {
+      "required": [
+        "rest",
+        "hover",
+        "pressed",
+        "focus",
+        "selected_or_checked",
+        "disabled"
+      ],
+      "conditional": [
+        "busy"
+      ]
+    },
+    "activity_item": {
+      "required": [
+        "rest",
+        "hover",
+        "pressed",
+        "focus",
+        "selected_or_checked",
+        "disabled"
+      ],
+      "conditional": [
+        "busy"
+      ]
+    },
+    "status_item": {
+      "required": [
+        "rest",
+        "hover",
+        "pressed",
+        "focus",
+        "disabled"
+      ],
+      "conditional": [
+        "busy",
+        "invalid"
+      ]
+    },
+    "table_row": {
+      "required": [
+        "rest",
+        "hover",
+        "focus",
+        "selected_or_checked",
+        "disabled"
+      ],
+      "conditional": [
+        "invalid",
+        "busy"
+      ]
+    },
+    "card": {
+      "required": [
+        "rest"
+      ],
+      "conditional": [
+        "hover",
+        "pressed",
+        "focus",
+        "selected_or_checked",
+        "disabled",
+        "busy"
+      ]
+    },
+    "dialog": {
+      "required": [
+        "rest",
+        "focus"
+      ],
+      "conditional": [
+        "busy",
+        "invalid"
+      ]
+    },
+    "title_bar": {
+      "required": [
+        "rest",
+        "focus"
+      ],
+      "conditional": [
+        "disabled"
+      ],
+      "additional": [
+        "active_window",
+        "inactive_window"
+      ]
+    }
+  },
+  "rules": [
+    "Focus must be visible independently of hover.",
+    "Selected state must not rely only on color when ambiguity is possible.",
+    "Disabled content remains legible and is not interactive.",
+    "Invalid state includes text or accessible description, not color alone.",
+    "Busy state prevents duplicate actions and exposes progress or status text."
+  ]
+}

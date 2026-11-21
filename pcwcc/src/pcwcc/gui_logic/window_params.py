@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import math
+from collections.abc import Callable, Coroutine, Iterable, Mapping
 from dataclasses import fields, replace
 
-from PySide6.QtWidgets import QInputDialog, QMenu
+from PySide6.QtCore import QPoint
+from PySide6.QtWidgets import QCheckBox, QInputDialog, QMenu
 
 from ..core import (
     DeviceParams,
@@ -11,7 +15,12 @@ from ..core import (
     FAN_MODE_CONTINUOUS,
     load_device_params,
 )
+from ..ui.theme import describe, set_visual
 from .constants import FAN_MONITORING_KEYS, PARAM_FIELDS
+
+
+if TYPE_CHECKING:
+    from .app import MainWindow
 
 
 class MainWindowParamsMixin:
@@ -32,30 +41,24 @@ class MainWindowParamsMixin:
             protocol_version=6,
         )
 
-    def _set_fan_status_indicator(self, channel: int, color: str) -> None:
+    def _set_fan_status_indicator(self: MainWindow, channel: int, severity: str) -> None:
         if channel < len(self.fan_status_indicators):
-            self.fan_status_indicators[channel].setStyleSheet(
-                f"background:{color}; border:1px solid #111827;"
-            )
+            set_visual(self.fan_status_indicators[channel], "fluentSeverity", severity)
 
-    def _set_fan_status_tooltip(self, channel: int, text: str) -> None:
+    def _set_fan_status_tooltip(self: MainWindow, channel: int, text: str) -> None:
         if channel < len(self.fan_status_indicators):
-            self.fan_status_indicators[channel].setToolTip(text)
+            describe(self.fan_status_indicators[channel], text)
 
-    def _set_device_status_indicator(self, color: str) -> None:
+    def _set_device_status_indicator(self: MainWindow, severity: str) -> None:
         if self.device_status_indicator is not None:
-            self.device_status_indicator.setStyleSheet(
-                f"background:{color}; border:1px solid #111827;"
-            )
+            set_visual(self.device_status_indicator, "fluentSeverity", severity)
 
-    def _set_temp_indicator(self, channel: int, color: str, text: str) -> None:
+    def _set_temp_indicator(self: MainWindow, channel: int, severity: str, text: str) -> None:
         if channel < len(self.temp_indicators):
-            self.temp_indicators[channel].setStyleSheet(
-                f"background:{color}; border:1px solid #111827;"
-            )
-            self.temp_indicators[channel].setToolTip(text)
+            set_visual(self.temp_indicators[channel], "fluentSeverity", severity)
+            describe(self.temp_indicators[channel], text)
 
-    def _device_params_for_metrics(self) -> DeviceParams:
+    def _device_params_for_metrics(self: MainWindow) -> DeviceParams:
         if self._device_params_snapshot is not None:
             return self._device_params_snapshot
         device = self.model.state.connected_device
@@ -63,21 +66,21 @@ class MainWindowParamsMixin:
             return load_device_params(device.address)
         return self._default_device_params()
 
-    def _refresh_temp_indicators(self) -> None:
+    def _refresh_temp_indicators(self: MainWindow) -> None:
         max_temp = float(self._device_params_for_metrics().fan_max_temp)
         for channel, value in enumerate(self.temp_values):
             if value is None or not math.isfinite(value):
-                self._set_temp_indicator(channel, "#6b7280", "NC")
+                self._set_temp_indicator(channel, "neutral", "NC")
                 continue
             delta = max_temp - value
             if delta > 5.0:
-                self._set_temp_indicator(channel, "#22c55e", f"{delta:.2f}C below max")
+                self._set_temp_indicator(channel, "success", f"{delta:.2f}C below max")
             elif value < max_temp:
-                self._set_temp_indicator(channel, "#eab308", f"{delta:.2f}C below max")
+                self._set_temp_indicator(channel, "warning", f"{delta:.2f}C below max")
             else:
-                self._set_temp_indicator(channel, "#ef4444", "At or above max")
+                self._set_temp_indicator(channel, "danger", "At or above max")
 
-    def _reset_params_fields(self) -> None:
+    def _reset_params_fields(self: MainWindow) -> None:
         params = self._default_device_params()
         self._device_params_snapshot = None
         self._params_update_lock = True
@@ -86,10 +89,7 @@ class MainWindowParamsMixin:
                 spec = item["spec"]
                 widget = item["widget"]
                 value = getattr(params, spec["key"])
-                if spec["kind"] == "enum":
-                    idx = widget.findData(int(value))
-                    widget.setCurrentIndex(idx if idx >= 0 else 0)
-                elif spec["kind"] == "bool":
+                if isinstance(widget, QCheckBox):
                     widget.setChecked(bool(value))
                 else:
                     widget.setValue(value)
@@ -102,7 +102,7 @@ class MainWindowParamsMixin:
         self._clear_apply_status()
 
     def _set_params_fields(
-        self,
+        self: MainWindow,
         params: DeviceParams,
         save: bool = True,
         apply_status: str | None = None,
@@ -128,10 +128,7 @@ class MainWindowParamsMixin:
                 spec = item["spec"]
                 widget = item["widget"]
                 value = getattr(displayed, spec["key"])
-                if spec["kind"] == "enum":
-                    idx = widget.findData(int(value))
-                    widget.setCurrentIndex(idx if idx >= 0 else 0)
-                elif spec["kind"] == "bool":
+                if isinstance(widget, QCheckBox):
                     widget.setChecked(bool(value))
                 else:
                     widget.setValue(value)
@@ -154,17 +151,15 @@ class MainWindowParamsMixin:
             self._set_apply_status(apply_status, apply_status_text)
         self._refresh_temp_indicators()
 
-    def _current_params(self) -> DeviceParams:
+    def _current_params(self: MainWindow) -> DeviceParams:
         if len(self.param_fields) != len(PARAM_FIELDS) or len(self.fan_monitor_checkboxes) != 4:
             device = self.model.state.connected_device
             return load_device_params(device.address) if device else self._device_params_for_metrics()
-        values: dict[str, object] = {}
+        values: dict[str, int | bool] = {}
         for item in self.param_fields:
             spec = item["spec"]
             widget = item["widget"]
-            if spec["kind"] == "enum":
-                value = int(widget.currentData())
-            elif spec["kind"] == "bool":
+            if isinstance(widget, QCheckBox):
                 value = widget.isChecked()
             else:
                 value = int(widget.value())
@@ -190,7 +185,7 @@ class MainWindowParamsMixin:
             ),
         )
 
-    def _refresh_profile_buttons(self) -> None:
+    def _refresh_profile_buttons(self: MainWindow) -> None:
         for index, button in enumerate(self.profile_buttons, start=1):
             exists = index in self._device_profile_slots
             metadata = self._device_profile_metadata.get(index, {})
@@ -204,34 +199,38 @@ class MainWindowParamsMixin:
                 )
             )
             status_bar = self.profile_status_bars[index - 1]
-            color = "#22c55e" if exists else "#9ca3af"
-            status_bar.setStyleSheet(f"background:{color};")
+            severity = "success" if exists else "neutral"
+            set_visual(status_bar, "fluentSeverity", severity)
             status_bar.setToolTip("Profile has saved settings" if exists else "Profile is empty")
         self._apply_ui()
 
-    def _reset_profile_selection(self) -> None:
+    def _reset_profile_selection(self: MainWindow) -> None:
         self._selected_profile_index = None
         for button in self.profile_buttons:
             button.setChecked(False)
 
-    def _reset_profiles_for_device(self) -> None:
+    def _reset_profiles_for_device(self: MainWindow) -> None:
         self._device_profile_metadata = {}
         self._device_profile_slots = set()
         self._reset_profile_selection()
         self._refresh_profile_buttons()
 
-    def on_profiles_received(self, slots) -> None:
+    def on_profiles_received(self: MainWindow, slots: Iterable[int]) -> None:
         self._device_profile_slots = set(slots)
         self._refresh_profile_buttons()
 
-    def on_profile_metadata_received(self, metadata) -> None:
+    def on_profile_metadata_received(self: MainWindow, metadata: Mapping[int, dict[str, str]]) -> None:
         self._device_profile_metadata = dict(metadata)
         self._refresh_profile_buttons()
 
-    def _submit_profile_action(self, action) -> None:
-        self._start_action(self.model.state.active_action, action())
+    def _submit_profile_action(
+        self: MainWindow, action: Callable[[], Coroutine[object, object, None]]
+    ) -> None:
+        active_action = self.model.state.active_action
+        if active_action is not None:
+            self._start_action(active_action, action())
 
-    def on_profile_clicked(self, index: int, checked: bool) -> None:
+    def on_profile_clicked(self: MainWindow, index: int, checked: bool) -> None:
         if self.Action.APPLY_PROFILE not in self.model.ui.enabled_actions:
             return
         if not checked:
@@ -254,7 +253,7 @@ class MainWindowParamsMixin:
         self._apply_ui()
         self._submit_profile_action(lambda: self.worker.apply_profile(index, self.model.state.command_id))
 
-    def _save_profile_metadata(self, index: int, title: str, description: str) -> None:
+    def _save_profile_metadata(self: MainWindow, index: int, title: str, description: str) -> None:
         if self.model.dispatch(self.Action.EDIT_PROFILE, slot=index) is None:
             return
         self._apply_ui()
@@ -262,7 +261,7 @@ class MainWindowParamsMixin:
             lambda: self.worker.save_profile_metadata(index, title.strip(), description.strip())
         )
 
-    def _show_profile_menu(self, index: int, global_position) -> None:
+    def _show_profile_menu(self: MainWindow, index: int, global_position: QPoint) -> None:
         if self.Action.EDIT_PROFILE not in self.model.ui.enabled_actions:
             return
         metadata = self._device_profile_metadata.get(index, {})
@@ -301,7 +300,7 @@ class MainWindowParamsMixin:
                     description,
                 )
 
-    def on_clear_profile(self) -> None:
+    def on_clear_profile(self: MainWindow) -> None:
         index = self._selected_profile_index
         if index not in self._device_profile_slots:
             return
@@ -310,7 +309,7 @@ class MainWindowParamsMixin:
         self._apply_ui()
         self._submit_profile_action(lambda: self.worker.clear_profile(index))
 
-    def _on_params_changed(self, _) -> None:
+    def _on_params_changed(self: MainWindow, _: int) -> None:
         if self._params_update_lock:
             return
         device = self.model.state.connected_device
@@ -320,28 +319,27 @@ class MainWindowParamsMixin:
         self._apply_ui()
         self._refresh_temp_indicators()
 
-    def _set_apply_status(self, kind: str, text: str) -> None:
+    def _set_apply_status(self: MainWindow, kind: str, text: str) -> None:
         self._apply_status_kind = kind
         self._apply_status_text = text
-        color = {
-            "idle": "#6b7280",
-            "ok": "#16a34a",
-            "error": "#dc2626",
-        }.get(kind, "#6b7280")
+        severity = {
+            "idle": "neutral",
+            "ok": "success",
+            "error": "danger",
+        }.get(kind, "neutral")
         if self.apply_status_label is not None:
-            self.apply_status_label.setStyleSheet(f"color:{color};")
-            self.apply_status_label.setText(text)
+            set_visual(self.apply_status_label, "fluentSeverity", severity)
             self.apply_status_label.setToolTip(text)
-            self.apply_status_label.setVisible(bool(text))
+            self.apply_status_message.set_message(text)
 
-    def _show_apply_result(self, kind: str, text: str) -> None:
+    def _show_apply_result(self: MainWindow, kind: str, text: str) -> None:
         self._set_apply_status(kind, text)
         if hasattr(self, "_apply_status_timer") and self._apply_status_timer is not None:
             self._apply_status_timer.stop()
         self._apply_status_timer.start(5000)
         self._apply_ui()
 
-    def _clear_apply_status(self) -> None:
+    def _clear_apply_status(self: MainWindow) -> None:
         if hasattr(self, "_apply_status_timer") and self._apply_status_timer is not None:
             self._apply_status_timer.stop()
         self._set_apply_status("idle", "")

@@ -4,6 +4,7 @@ import json
 import os
 import re
 import time
+from collections.abc import Iterable
 from typing import Optional
 
 from platformdirs import user_config_dir
@@ -36,7 +37,7 @@ def metrics_history_path(address: str) -> str:
 
 
 def _filter_metric_points(
-    points: list[dict],
+    points: Iterable[object],
     now: Optional[float] = None,
     window_seconds: int = METRICS_HISTORY_WINDOW_SECONDS,
 ) -> list[dict]:

@@ -1,18 +1,23 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Optional
+from collections.abc import Coroutine
+from typing import Optional, TYPE_CHECKING
 
 from PySide6.QtCore import QTimer
 
-from ..presentation import ConnEvent, ConnEventKind
+from ..presentation import Action, ConnEvent, ConnEventKind
+
+
+if TYPE_CHECKING:
+    from .app import MainWindow
 
 
 class MainWindowActionMixin:
     def _start_action(
-        self,
-        action,
-        coro,
+        self: MainWindow,
+        action: Action,
+        coro: Coroutine[object, object, object],
         timeout_override: Optional[float] = None,
         use_timeout: bool = True,
     ) -> None:
@@ -47,7 +52,7 @@ class MainWindowActionMixin:
             return
         self._action_futures[action] = fut
 
-    def _action_timeout(self, action) -> None:
+    def _action_timeout(self: MainWindow, action: Action) -> None:
         fut = self._action_futures.get(action)
         if fut and not fut.done():
             fut.cancel()
@@ -56,7 +61,7 @@ class MainWindowActionMixin:
             self._show_apply_result("error", "Error: apply timed out")
         self._finish_action(action)
 
-    def _finish_action(self, action) -> None:
+    def _finish_action(self: MainWindow, action: Action) -> None:
         timer = self._action_timers.pop(action, None)
         if timer:
             timer.stop()
@@ -64,7 +69,7 @@ class MainWindowActionMixin:
         self.model.finish_action(action)
         self._apply_ui()
 
-    def _dispatch_action(self, action) -> None:
+    def _dispatch_action(self: MainWindow, action: Action) -> None:
         if action == self.Action.APPLY:
             command = self.model.dispatch(action, slot=self._selected_profile_index)
         else:
@@ -103,39 +108,39 @@ class MainWindowActionMixin:
         elif command.action == self.Action.DELETE_PAIRED:
             self._delete_selected_paired()
 
-    def on_scan(self) -> None:
+    def on_scan(self: MainWindow) -> None:
         self._dispatch_action(self.Action.SCAN)
 
-    def on_pair(self) -> None:
+    def on_pair(self: MainWindow) -> None:
         self._dispatch_action(self.Action.PAIR)
 
-    def on_connect(self) -> None:
+    def on_connect(self: MainWindow) -> None:
         self._dispatch_action(self.Action.CONNECT)
 
-    def on_disconnect(self) -> None:
+    def on_disconnect(self: MainWindow) -> None:
         self._dispatch_action(self.Action.DISCONNECT)
 
-    def on_apply(self) -> None:
+    def on_apply(self: MainWindow) -> None:
         self._dispatch_action(self.Action.APPLY)
 
-    def on_discard(self) -> None:
+    def on_discard(self: MainWindow) -> None:
         self._dispatch_action(self.Action.DISCARD)
 
-    def on_calibrate(self) -> None:
+    def on_calibrate(self: MainWindow) -> None:
         self._clear_op_log()
         self._dispatch_action(self.Action.CALIBRATE)
 
-    def on_setup_fans(self) -> None:
+    def on_setup_fans(self: MainWindow) -> None:
         self._clear_op_log()
         self._dispatch_action(self.Action.SETUP_FANS)
 
-    def on_delete_paired_clicked(self) -> None:
+    def on_delete_paired_clicked(self: MainWindow) -> None:
         self._dispatch_action(self.Action.DELETE_PAIRED)
 
-    def on_rename_paired_clicked(self) -> None:
+    def on_rename_paired_clicked(self: MainWindow) -> None:
         self._rename_selected_paired()
 
-    def on_auto_toggled(self, enabled: bool) -> None:
+    def on_auto_toggled(self: MainWindow, enabled: bool) -> None:
         if enabled:
             stop_event = asyncio.Event()
             if self.model.start_auto(stop_event):
@@ -158,7 +163,7 @@ class MainWindowActionMixin:
         self._apply_ui()
 
 
-    def on_change_output_limit(self, maximum: Optional[int]) -> None:
+    def on_change_output_limit(self: MainWindow, maximum: Optional[int]) -> None:
         action = self.Action.RESET_OUTPUT_LIMIT if maximum is None else self.Action.SET_OUTPUT_MAX
         if self.model.dispatch(action) is None:
             return

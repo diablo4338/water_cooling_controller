@@ -1,0 +1,4 @@
+'interface':
+  display_name: 'PySide6 Fluent UI'
+  short_description: 'Build Fluent PySide6 workbenches and widgets'
+  default_prompt: 'Use $pyside6-fluent-ui to build or refactor this PySide6/Qt Widgets interface with semantic Fluent tokens, accessible states, and the requested native or single-row workbench shell.'

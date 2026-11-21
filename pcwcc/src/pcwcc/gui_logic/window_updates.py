@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from datetime import datetime
 import math
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from PySide6.QtCore import Slot
-from PySide6.QtWidgets import QListWidgetItem
+from PySide6.QtWidgets import QLineEdit, QListWidgetItem
 
 from ..core import (
     DEVICE_ERROR_NONE,
@@ -19,7 +19,6 @@ from ..core import (
     OP_STATE_DONE,
     OP_STATE_ERROR,
     OP_STATE_IDLE,
-    OP_STATE_IN_SERVICE,
     OP_STATE_NAMES,
     OP_TYPE_NAMES,
     OP_TYPE_NONE,
@@ -39,9 +38,10 @@ from ..core import (
     save_metrics_history,
     update_paired_last_connected,
 )
+from ..ui.theme import set_visual
 from .constants import PARAM_ERROR_MESSAGES, PARAM_LABELS_BY_ID, USER_ROLE
 
-from ..core_logic.models import FanModeStatus, OutputLimitState, ProfileApplyResult, ProfileSkipReason
+from ..core_logic.models import FanModeStatus, OutputLimitState, OutputLimitStatus, ProfileApplyResult, ProfileSkipReason
 from ..core_logic.protocol import (
     DEVICE_ERROR_INA_OFFLINE,
     PARAM_FIELD_FAN_MIN_SPEED,
@@ -52,8 +52,12 @@ from ..core_logic.protocol import (
 from ..presentation import ConnEvent, ConnEventKind, PROFILE_COMMANDS, operation_running
 
 
+if TYPE_CHECKING:
+    from .app import MainWindow
+
+
 class MainWindowUpdateMixin:
-    def _set_status_message(self, message: str) -> None:
+    def _set_status_message(self: MainWindow, message: str) -> None:
         self.model.set_status(message)
         self._apply_ui()
 
@@ -61,7 +65,7 @@ class MainWindowUpdateMixin:
     def _timestamp() -> str:
         return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    def _format_log_entry(self, message: str) -> str:
+    def _format_log_entry(self: MainWindow, message: str) -> str:
         return f"[{self._timestamp()}] {message}"
 
     @staticmethod
@@ -74,30 +78,28 @@ class MainWindowUpdateMixin:
             return True
         return previous != current
 
-    def _clear_op_log(self) -> None:
+    def _clear_op_log(self: MainWindow) -> None:
         if self.op_log_view is not None:
             self.op_log_view.clear()
 
-    def _clear_debug_log(self) -> None:
+    def _clear_debug_log(self: MainWindow) -> None:
         if self.debug_log_view is not None:
             self.debug_log_view.clear()
 
-    def _clear_data_log(self) -> None:
+    def _clear_data_log(self: MainWindow) -> None:
         if self.data_view is not None:
             self.data_view.clear()
 
-    def _set_metrics_history_mode(self, mode: str) -> None:
+    def _set_metrics_history_mode(self: MainWindow, mode: str) -> None:
         if mode == "ONLINE":
-            color = "#16a34a"
+            severity = "success"
         else:
             mode = "OFFLINE"
-            color = "#6b7280"
+            severity = "neutral"
         self.metrics_history_mode_label.setText(mode)
-        self.metrics_history_mode_label.setStyleSheet(
-            f"background:{color}; color:#ffffff; padding:2px 8px; border-radius:4px;"
-        )
+        set_visual(self.metrics_history_mode_label, "fluentSeverity", severity)
 
-    def _save_metrics_chart_history(self, device: Optional[DeviceInfo] = None) -> None:
+    def _save_metrics_chart_history(self: MainWindow, device: Optional[DeviceInfo] = None) -> None:
         target = device or self.model.state.connected_device
         if target is None:
             return
@@ -106,7 +108,7 @@ class MainWindowUpdateMixin:
         except Exception as exc:
             self.on_log(f"Metrics history save failed: {exc}")
 
-    def _load_metrics_chart_history(self, device: DeviceInfo) -> None:
+    def _load_metrics_chart_history(self: MainWindow, device: DeviceInfo) -> None:
         try:
             self.metrics_chart.set_online_mode()
             self._set_metrics_history_mode("ONLINE")
@@ -115,7 +117,7 @@ class MainWindowUpdateMixin:
             self.metrics_chart.clear()
             self.on_log(f"Metrics history load failed: {exc}")
 
-    def _load_offline_metrics_chart_history(self, device: DeviceInfo) -> None:
+    def _load_offline_metrics_chart_history(self: MainWindow, device: DeviceInfo) -> None:
         try:
             self.metrics_chart.set_offline_mode()
             self._set_metrics_history_mode("OFFLINE")
@@ -137,7 +139,7 @@ class MainWindowUpdateMixin:
         return any(value is not None and math.isfinite(value) for value in values)
 
     @Slot(list)
-    def on_scan_results(self, devices: list) -> None:
+    def on_scan_results(self: MainWindow, devices: list[DeviceInfo]) -> None:
         if self.model.state.active_action != self.Action.SCAN:
             return
         self.found_list.clear()
@@ -151,13 +153,13 @@ class MainWindowUpdateMixin:
         self._finish_action(self.Action.SCAN)
 
     @Slot(str)
-    def on_log(self, message: str) -> None:
+    def on_log(self: MainWindow, message: str) -> None:
         self._set_status_message(message)
         if self.debug_enabled and self.debug_log_view is not None:
             self.debug_log_view.append(self._format_log_entry(message))
         print(self._format_log_entry(message), flush=True)
 
-    def _apply_temp_value(self, channel: int, value: Optional[float], append_data: bool) -> None:
+    def _apply_temp_value(self: MainWindow, channel: int, value: Optional[float], append_data: bool) -> None:
         if not (0 <= channel < len(self.temp_fields)):
             return
         is_nc = value is None or not math.isfinite(value)
@@ -171,7 +173,7 @@ class MainWindowUpdateMixin:
         if append_data:
             self.data_view.append(self._format_log_entry(f"Temp {channel + 1}: {text}"))
 
-    def _apply_fan_value(self, channel: int, value: Optional[float], append_data: bool) -> None:
+    def _apply_fan_value(self: MainWindow, channel: int, value: Optional[float], append_data: bool) -> None:
         if channel >= len(self.fan_fields):
             return
         is_nc = value is None or (not math.isfinite(value)) or value <= 0.0
@@ -183,26 +185,26 @@ class MainWindowUpdateMixin:
         if append_data:
             self.data_view.append(self._format_log_entry(f"Fan {channel + 1}: {text}"))
 
-    def _apply_fan_percent_value(self, value: Optional[float]) -> None:
+    def _apply_fan_percent_value(self: MainWindow, value: Optional[float]) -> None:
         if self.fan_percent_field is None:
             return
         is_nc = value is None or not math.isfinite(value)
         if not is_nc and value is not None:
             value = min(100.0, max(0.0, value))
-        text = "NC" if is_nc else f"{value:.0f}%"
+        text = "NC" if is_nc or value is None else f"{value:.0f}%"
         self.fan_percent_field.setText(text)
 
-    def _apply_power_value(self, field, label: str, value: Optional[float], unit: str, decimals: int, append_data: bool) -> None:
+    def _apply_power_value(self: MainWindow, field: QLineEdit | None, label: str, value: Optional[float], unit: str, decimals: int, append_data: bool) -> None:
         if field is None:
             return
         is_nc = value is None or not math.isfinite(value)
-        text = "—" if is_nc else f"{value:.{decimals}f}"
+        text = "—" if is_nc or value is None else f"{value:.{decimals}f}"
         field.setText(text)
         if append_data:
             self.data_view.append(self._format_log_entry(f"{label}: {text} {unit}"))
 
     @Slot(object)
-    def on_metrics_received(self, snapshot: MetricsSnapshot) -> None:
+    def on_metrics_received(self: MainWindow, snapshot: MetricsSnapshot) -> None:
         prev_snapshot = self.metrics_snapshot
         self.metrics_snapshot = snapshot
         for channel, value in enumerate(snapshot.temperatures):
@@ -240,7 +242,7 @@ class MainWindowUpdateMixin:
         self._refresh_temp_indicators()
 
     @Slot(object)
-    def on_params_received(self, params: DeviceParams) -> None:
+    def on_params_received(self: MainWindow, params: DeviceParams) -> None:
         saving_maximum = self.model.state.active_action == self.Action.SET_OUTPUT_MAX
         previous = self._device_params_snapshot
         self._set_params_fields(params, save=True, preserve_edits=saving_maximum)
@@ -250,7 +252,7 @@ class MainWindowUpdateMixin:
             self._finish_action(self.Action.DISCARD)
 
     @Slot(object, object, str)
-    def on_params_command_done(self, command_id: object, status: Optional[ParamsStatus | ProfileApplyResult], error: str) -> None:
+    def on_params_command_done(self: MainWindow, command_id: object, status: Optional[ParamsStatus | ProfileApplyResult], error: str) -> None:
         action = self.model.handle_params_result(status is not None and status.ok, command_id)
         if action is None:
             return
@@ -327,12 +329,12 @@ class MainWindowUpdateMixin:
         self._show_apply_result("error", message)
 
     @Slot(object, object)
-    def on_fan_mode_status(self, status: FanModeStatus, connection_id: object) -> None:
+    def on_fan_mode_status(self: MainWindow, status: FanModeStatus, connection_id: object) -> None:
         if self.model.handle_fan_mode_status(status, connection_id):
             self._apply_ui()
 
     @Slot(object, object)
-    def on_output_limit(self, status, connection_id: object) -> None:
+    def on_output_limit(self: MainWindow, status: OutputLimitStatus, connection_id: object) -> None:
         previous = self.model.state.output_limit
         if self.model.handle_output_limit(status, connection_id):
             if status.state == OutputLimitState.SENSOR_ERROR:
@@ -343,7 +345,7 @@ class MainWindowUpdateMixin:
             self._apply_ui()
 
     @Slot(object, str)
-    def on_output_limit_command_done(self, command_id: object, error: str) -> None:
+    def on_output_limit_command_done(self: MainWindow, command_id: object, error: str) -> None:
         if self.model.state.command_id is not command_id:
             return
         action = self.model.state.active_action
@@ -355,49 +357,51 @@ class MainWindowUpdateMixin:
             self._show_apply_result("error", error)
 
     @Slot(object)
-    def on_fan_status(self, status: FanStatus) -> None:
+    def on_fan_status(self: MainWindow, status: FanStatus) -> None:
         for channel, state in enumerate(status.states):
             if channel >= len(self.fan_status_indicators):
                 continue
             if state == FAN_STATE_IDLE:
-                self._set_fan_status_indicator(channel, "#22c55e")
+                self._set_fan_status_indicator(channel, "success")
                 self._set_fan_status_tooltip(channel, "IDLE")
             elif state == FAN_STATE_STARTING:
-                self._set_fan_status_indicator(channel, "#eab308")
+                self._set_fan_status_indicator(channel, "warning")
                 self._set_fan_status_tooltip(channel, "STARTING")
             elif state == FAN_STATE_RUNNING:
-                self._set_fan_status_indicator(channel, "#eab308")
+                self._set_fan_status_indicator(channel, "warning")
                 self._set_fan_status_tooltip(channel, "RUNNING")
             elif state == FAN_STATE_STALL:
-                self._set_fan_status_indicator(channel, "#ef4444")
+                self._set_fan_status_indicator(channel, "danger")
                 self._set_fan_status_tooltip(channel, "STALL")
             elif state == FAN_STATE_IN_SERVICE:
                 tooltip = f"IN_SERVICE ({status.op_label})" if status.op_type != OP_TYPE_NONE else "IN_SERVICE"
                 self._set_fan_status_tooltip(channel, tooltip)
-                self._set_fan_status_indicator(channel, "#3b82f6")
+                self._set_fan_status_indicator(channel, "info")
         self._apply_ui()
 
     @Slot(object)
-    def on_device_status(self, status: DeviceStatus) -> None:
+    def on_device_status(self: MainWindow, status: DeviceStatus) -> None:
         if self.device_status_field is None:
             return
-        self.ina_warning_label.setVisible(bool(status.error_mask & DEVICE_ERROR_INA_OFFLINE))
+        self.ina_warning_message.set_message(
+            self._ina_warning_text if status.error_mask & DEVICE_ERROR_INA_OFFLINE else ""
+        )
         if status.state == DEVICE_STATE_OK:
             self.device_status_field.setText("OK")
-            self._set_device_status_indicator("#22c55e")
+            self._set_device_status_indicator("success")
         elif status.state == DEVICE_STATE_ERROR:
             if status.error_mask == DEVICE_ERROR_NONE:
                 self.device_status_field.setText("ERROR")
             else:
                 self.device_status_field.setText(f"ERROR ({', '.join(status.error_labels)})")
-            self._set_device_status_indicator("#ef4444")
+            self._set_device_status_indicator("danger")
         else:
             self.device_status_field.setText(status.label)
-            self._set_device_status_indicator("#6b7280")
+            self._set_device_status_indicator("neutral")
         self._apply_ui()
 
     @Slot(int, str)
-    def on_operation_start_failed(self, op_type: int, error: str) -> None:
+    def on_operation_start_failed(self: MainWindow, op_type: int, error: str) -> None:
         action = self.model.handle_operation_start_failure(op_type)
         if action is None:
             return
@@ -406,7 +410,7 @@ class MainWindowUpdateMixin:
         self._finish_action(action)
 
     @Slot(object, object)
-    def on_operation_status(self, status: OperationStatus, connection_id: object) -> None:
+    def on_operation_status(self: MainWindow, status: OperationStatus, connection_id: object) -> None:
         previous = self.model.state.operation_status
         completed = self.model.handle_operation_status(status, connection_id)
         if (self.model.state.operation_status is not status
@@ -435,7 +439,7 @@ class MainWindowUpdateMixin:
         self._apply_ui()
 
     @Slot(int, int, bool, str)
-    def on_profile_action_done(self, action: int, slot: int, ok: bool, error: str) -> None:
+    def on_profile_action_done(self: MainWindow, action: int, slot: int, ok: bool, error: str) -> None:
         command = PROFILE_COMMANDS.get(action)
         if command is None or not self.model.handle_profile_result(command, slot):
             return
@@ -452,12 +456,12 @@ class MainWindowUpdateMixin:
 
     @Slot(int, object, bool, str)
     def on_profile_metadata_done(
-        self, slot: int, metadata: object, ok: bool, error: str
+        self: MainWindow, slot: int, metadata: dict[str, str] | None, ok: bool, error: str
     ) -> None:
         if not self.model.handle_profile_result(self.Action.EDIT_PROFILE, slot):
             return
         self._finish_action(self.Action.EDIT_PROFILE)
-        if ok:
+        if ok and metadata is not None:
             self._device_profile_metadata[slot] = dict(metadata)
             self.on_log(f"Updated profile {slot} metadata on controller")
         else:
@@ -465,7 +469,7 @@ class MainWindowUpdateMixin:
         self._refresh_profile_buttons()
 
     @Slot(bool, str, object, object)
-    def on_pairing_result(self, ok: bool, message: str, device: DeviceInfo, k_hex: Optional[str]) -> None:
+    def on_pairing_result(self: MainWindow, ok: bool, message: str, device: DeviceInfo, k_hex: Optional[str]) -> None:
         if ok:
             if k_hex:
                 self._add_paired(device, k_hex)
@@ -477,7 +481,7 @@ class MainWindowUpdateMixin:
             self._finish_action(self.Action.PAIR)
 
     @Slot(object)
-    def on_connection_event(self, event: ConnEvent) -> None:
+    def on_connection_event(self: MainWindow, event: ConnEvent) -> None:
         previous = self.model.state
         if not self.model.handle_connection_event(event):
             return
@@ -539,13 +543,13 @@ class MainWindowUpdateMixin:
         if disconnected_device is not None:
             self.on_log("Disconnected")
 
-    def _reset_temp_fields(self) -> None:
+    def _reset_temp_fields(self: MainWindow) -> None:
         self.metrics_snapshot = self.MetricsSnapshot.empty()
         for field in self.temp_fields:
             field.setText("—")
         self.temp_values = [None] * len(self.temp_fields)
         for channel in range(len(self.temp_indicators)):
-            self._set_temp_indicator(channel, "#6b7280", "—")
+            self._set_temp_indicator(channel, "neutral", "—")
         self._temp_is_nc = [None] * len(self.temp_fields)
         for field in self.fan_fields:
             field.setText("—")
@@ -557,12 +561,12 @@ class MainWindowUpdateMixin:
             self.current_field.setText("—")
         self._fan_is_nc = [None] * len(self.fan_fields)
         for channel in range(len(self.fan_status_indicators)):
-            self._set_fan_status_indicator(channel, "#6b7280")
+            self._set_fan_status_indicator(channel, "neutral")
             self._set_fan_status_tooltip(channel, "—")
         if self.device_status_field is not None:
             self.device_status_field.setText("—")
-            self.ina_warning_label.hide()
-        self._set_device_status_indicator("#6b7280")
+            self.ina_warning_message.set_message("")
+        self._set_device_status_indicator("neutral")
         self.metrics_chart.clear()
         self.metrics_chart.set_offline_mode()
         self._set_metrics_history_mode("OFFLINE")

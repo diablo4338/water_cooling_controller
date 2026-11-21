@@ -1,12 +1,13 @@
 import asyncio
 import struct
+from collections.abc import Callable
 from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from datetime import datetime
 
 import pytest
-from PySide6.QtWidgets import QApplication, QHBoxLayout, QVBoxLayout
+from PySide6.QtWidgets import QApplication
 
 from pcwcc.core import (
     BleAppCore,
@@ -47,7 +48,7 @@ from pcwcc.gui_logic import window_updates as window_updates_module
 from pcwcc.presentation import Action, AppModel, ConnEvent, ConnEventKind, ConnState, SelectionSource
 
 
-def _connected_event(model, device: DeviceInfo) -> ConnEvent:
+def _connected_event(model: AppModel, device: DeviceInfo) -> ConnEvent:
     model.set_selection(SelectionSource.PAIRED, device)
     command = model.dispatch(Action.CONNECT)
     assert command is not None
@@ -57,6 +58,7 @@ def _connected_event(model, device: DeviceInfo) -> ConnEvent:
 class _FakeClient:
     def __init__(self, payloads: dict[str, bytes]) -> None:
         self._payloads = payloads
+        self._write: tuple[str, bytes, bool] | None = None
 
     async def read_gatt_char(self, uuid: str) -> bytes:
         return self._payloads[uuid]
@@ -204,7 +206,7 @@ def test_temp_indicator_uses_device_params_snapshot_while_form_is_dirty(
         )
     )
 
-    assert "#eab308" in window.temp_indicators[0].styleSheet()
+    assert window.temp_indicators[0].property("fluentSeverity") == "warning"
     assert window.voltage_field.text() == "12.00"
     assert window.current_field.text() == "100.0"
 
@@ -213,7 +215,7 @@ def test_temp_indicator_uses_device_params_snapshot_while_form_is_dirty(
     )
     fan_max_temp.setValue(30)
 
-    assert "#eab308" in window.temp_indicators[0].styleSheet()
+    assert window.temp_indicators[0].property("fluentSeverity") == "warning"
 
     window.close()
     app.processEvents()
@@ -483,10 +485,8 @@ def test_profile_metadata_is_saved_on_device_and_preserved_when_cleared(
     )
     window._device_profile_slots = {1}
     window._refresh_profile_buttons()
-    assert window.profile_status_bars[0].styleSheet() == "background:#22c55e;"
-    assert window.profile_status_bars[1].styleSheet() == "background:#9ca3af;"
-    assert window.profile_buttons[0].size().width() == 75
-    assert window.profile_buttons[0].size().height() == 31
+    assert window.profile_status_bars[0].property("fluentSeverity") == "success"
+    assert window.profile_status_bars[1].property("fluentSeverity") == "neutral"
 
     window._save_profile_metadata(1, "Quiet", "Low noise setup")
     assert saved_metadata == [(1, "Quiet", "Low noise setup")]
@@ -507,13 +507,13 @@ def test_profile_metadata_is_saved_on_device_and_preserved_when_cleared(
     assert 1 not in window._device_profile_slots
     assert window._selected_profile_index is None
     assert window.profile_buttons[0].text() == "Quiet"
-    assert window.profile_status_bars[0].styleSheet() == "background:#9ca3af;"
+    assert window.profile_status_bars[0].property("fluentSeverity") == "neutral"
 
     window.close()
     app.processEvents()
 
 
-def test_debug_panels_are_rendered_in_right_column(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_debug_logs_are_available_from_diagnostics_navigation(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("pcwcc.core.load_or_create_host_key", lambda: object())
     monkeypatch.setattr(gui_module.BleWorker, "start", lambda self: None)
     monkeypatch.setattr(gui_module.BleWorker, "stop", lambda self: None)
@@ -527,28 +527,17 @@ def test_debug_panels_are_rendered_in_right_column(monkeypatch: pytest.MonkeyPat
     app = QApplication.instance() or QApplication([])
     window = gui_module.MainWindow(debug=True)
 
-    container = window.centralWidget()
-    root_layout = container.layout()
-    assert isinstance(root_layout, QVBoxLayout)
+    diagnostics = next(button for button in window.navigation.buttons() if button.accessibleName() == "Diagnostics")
+    window.show()
+    app.processEvents()
+    assert not window.debug_log_view.isVisible()
 
-    body_layout = root_layout.itemAt(0).layout()
-    assert isinstance(body_layout, QHBoxLayout)
-    assert body_layout.count() == 2
-
-    debug_panel = body_layout.itemAt(1).widget()
-    assert debug_panel is not None
-
-    debug_layout = debug_panel.layout()
-    assert isinstance(debug_layout, QVBoxLayout)
-    assert debug_layout.count() == 3
-
-    titles = []
-    for index in range(debug_layout.count()):
-        section = debug_layout.itemAt(index).widget()
-        section_layout = section.layout()
-        titles.append(section_layout.itemAt(0).widget().text())
-
-    assert titles == ["Operations (log)", "Debug log", "Real-time data"]
+    diagnostics.click()
+    app.processEvents()
+    assert diagnostics.isChecked()
+    for log in (window.op_log_view, window.debug_log_view, window.data_view):
+        assert log.isVisible()
+        assert log.isReadOnly()
 
     window.close()
     app.processEvents()
@@ -634,7 +623,9 @@ def test_logs_include_timestamp_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
     app.processEvents()
 
 
-def _worker_with_ble_stub(monkeypatch):
+def _worker_with_ble_stub(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[gui_module.BleWorker, list[tuple[Callable[[SimpleNamespace], None], SimpleNamespace]]]:
     worker = gui_module.BleWorker()
     backend = SimpleNamespace(client=None, output_limit_notifications_active=False)
     callbacks = []
@@ -666,7 +657,7 @@ def _worker_with_ble_stub(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_worker_scopes_backend_disconnect_to_its_session(monkeypatch) -> None:
+async def test_worker_scopes_backend_disconnect_to_its_session(monkeypatch: pytest.MonkeyPatch) -> None:
     worker, callbacks = _worker_with_ble_stub(monkeypatch)
     model = AppModel()
     device = DeviceInfo(name="Fan", address="AA:BB")
@@ -705,7 +696,7 @@ async def test_worker_scopes_backend_disconnect_to_its_session(monkeypatch) -> N
 
 
 @pytest.mark.asyncio
-async def test_connect_reads_runtime_status_once_and_keeps_newer_notification(monkeypatch) -> None:
+async def test_connect_reads_runtime_status_once_and_keeps_newer_notification(monkeypatch: pytest.MonkeyPatch) -> None:
     worker, _ = _worker_with_ble_stub(monkeypatch)
     model = AppModel()
     device = DeviceInfo(name="Fan", address="AA:BB")
@@ -735,7 +726,7 @@ async def test_connect_reads_runtime_status_once_and_keeps_newer_notification(mo
 
 
 @pytest.mark.asyncio
-async def test_auto_stop_during_authorization_cleans_up_before_unlock(monkeypatch) -> None:
+async def test_auto_stop_during_authorization_cleans_up_before_unlock(monkeypatch: pytest.MonkeyPatch) -> None:
     worker, _ = _worker_with_ble_stub(monkeypatch)
     model = AppModel()
     device = DeviceInfo(name="Fan", address="AA:BB")
@@ -769,7 +760,7 @@ async def test_auto_stop_during_authorization_cleans_up_before_unlock(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_worker_reads_params_result_after_acknowledged_apply(monkeypatch) -> None:
+async def test_worker_reads_params_result_after_acknowledged_apply(monkeypatch: pytest.MonkeyPatch) -> None:
     worker, _ = _worker_with_ble_stub(monkeypatch)
     order = []
     status = ParamsStatus(ok=True, status=0, field_id=None)
@@ -794,7 +785,7 @@ async def test_worker_reads_params_result_after_acknowledged_apply(monkeypatch) 
 
 
 @pytest.mark.asyncio
-async def test_save_maximum_refreshes_both_values_from_controller(monkeypatch) -> None:
+async def test_save_maximum_refreshes_both_values_from_controller(monkeypatch: pytest.MonkeyPatch) -> None:
     worker, _ = _worker_with_ble_stub(monkeypatch)
     order = []
     worker.output_limit_received.connect(lambda status, _: order.append(status.configured))
@@ -814,7 +805,7 @@ async def test_save_maximum_refreshes_both_values_from_controller(monkeypatch) -
 
 
 @pytest.mark.asyncio
-async def test_fast_disconnect_cancels_operation_before_closing_link(monkeypatch) -> None:
+async def test_fast_disconnect_cancels_operation_before_closing_link(monkeypatch: pytest.MonkeyPatch) -> None:
     worker, _ = _worker_with_ble_stub(monkeypatch)
     device = DeviceInfo(name="Fan", address="AA:BB")
     assert await worker.connect_device(device, object())
@@ -837,7 +828,7 @@ async def test_fast_disconnect_cancels_operation_before_closing_link(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_output_limit_ble_read_and_save(monkeypatch) -> None:
+async def test_output_limit_ble_read_and_save(monkeypatch: pytest.MonkeyPatch) -> None:
     core = BleAppCore()
     read = AsyncMock(return_value=bytes((1, 60, 40, 5)))
     write = AsyncMock()
@@ -856,7 +847,7 @@ async def test_output_limit_ble_read_and_save(monkeypatch) -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("result", [2, 3])
-async def test_output_limit_reset_uses_matching_terminal_notification(monkeypatch, result) -> None:
+async def test_output_limit_reset_uses_matching_terminal_notification(monkeypatch: pytest.MonkeyPatch, result: int) -> None:
     from pcwcc.core_logic.protocol import UUID_CONFIG_OUTPUT_LIMIT, UUID_CONFIG_OUTPUT_RANGE
 
     core = BleAppCore()
@@ -891,7 +882,7 @@ async def test_output_limit_reset_uses_matching_terminal_notification(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_output_range_reads_confirmed_minimum_and_preserves_legacy_status(monkeypatch) -> None:
+async def test_output_range_reads_confirmed_minimum_and_preserves_legacy_status(monkeypatch: pytest.MonkeyPatch) -> None:
     from bleak.exc import BleakCharacteristicNotFoundError
     from pcwcc.core_logic.protocol import UUID_CONFIG_OUTPUT_LIMIT, UUID_CONFIG_OUTPUT_RANGE
 
@@ -914,7 +905,7 @@ async def test_output_range_reads_confirmed_minimum_and_preserves_legacy_status(
 
 
 @pytest.mark.asyncio
-async def test_missing_saved_output_limit_can_be_repaired_from_window(monkeypatch) -> None:
+async def test_missing_saved_output_limit_can_be_repaired_from_window(monkeypatch: pytest.MonkeyPatch) -> None:
     core = BleAppCore()
     monkeypatch.setattr(core, "_read_char", AsyncMock(return_value=bytes((2, 0, 0, 0, 0, 0))))
     status = await core.read_output_limit(timeout=1.0)
@@ -929,7 +920,7 @@ async def test_missing_saved_output_limit_can_be_repaired_from_window(monkeypatc
     window.on_output_limit(status, window.model.state.connection_id)
 
     assert "saved limit unavailable" in window.output_limit_label.text()
-    assert window.output_max_input.text() == "Unavailable"
+    assert window.output_max_input.input.text() == "Unavailable"
     assert not window.output_max_save.isEnabled()
     window.output_max_input.setValue(60)
     assert window.output_max_save.isEnabled()
@@ -937,7 +928,7 @@ async def test_missing_saved_output_limit_can_be_repaired_from_window(monkeypatc
     app.processEvents()
 
 
-def test_conflicting_limits_are_sent_to_controller_and_rejection_is_displayed(monkeypatch) -> None:
+def test_conflicting_limits_are_sent_to_controller_and_rejection_is_displayed(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(gui_module.BleWorker, "start", lambda self: None)
     monkeypatch.setattr(gui_module.BleWorker, "stop", lambda self: None)
     app = QApplication.instance() or QApplication([])
@@ -980,7 +971,7 @@ def test_conflicting_limits_are_sent_to_controller_and_rejection_is_displayed(mo
     app.processEvents()
 
 
-def test_capped_profile_field_is_reported_as_applied(monkeypatch) -> None:
+def test_capped_profile_field_is_reported_as_applied(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(gui_module.BleWorker, "start", lambda self: None)
     monkeypatch.setattr(gui_module.BleWorker, "stop", lambda self: None)
     app = QApplication.instance() or QApplication([])
@@ -990,8 +981,16 @@ def test_capped_profile_field_is_reported_as_applied(monkeypatch) -> None:
     )
     window._set_params_fields(DEFAULT_PARAMS, save=False)
     window.on_output_limit(OutputLimitStatus(70, 70, OutputLimitState.NORMAL), window.model.state.connection_id)
-    window.output_max_input.setValue(80)
-    assert "Saved maximum: 70%" in window.output_limit_label.text()
+    assert window.output_max_input.value() == window.output_max_input.slider.value() == 70
+    window.output_max_input.slider.setValue(80)
+    assert window.output_max_input.value() == 80
+    assert window.output_limit_label.isHidden()
+    window.on_output_limit(OutputLimitStatus(70, 60, OutputLimitState.LIMITED), window.model.state.connection_id)
+    assert not window.output_limit_label.isHidden()
+    assert "reduced to 60% (saved maximum 70%)" in window.output_limit_label.text()
+    assert window.output_max_input.value() == 80
+    window.on_output_limit(OutputLimitStatus(70, 70, OutputLimitState.NORMAL), window.model.state.connection_id)
+    assert window.output_limit_label.isHidden()
 
     monkeypatch.setattr(window.worker, "submit", lambda coro: coro.close())
     command = window.model.dispatch(Action.APPLY_PROFILE, slot=1)
@@ -1007,7 +1006,7 @@ def test_capped_profile_field_is_reported_as_applied(monkeypatch) -> None:
     app.processEvents()
 
 
-def test_maximum_save_refreshes_working_minimum_and_preserves_other_draft_fields(monkeypatch) -> None:
+def test_maximum_save_refreshes_working_minimum_and_preserves_other_draft_fields(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(gui_module.BleWorker, "start", lambda self: None)
     monkeypatch.setattr(gui_module.BleWorker, "stop", lambda self: None)
     monkeypatch.setattr(gui_module, "save_device_params", lambda *_: None)
@@ -1034,7 +1033,7 @@ def test_maximum_save_refreshes_working_minimum_and_preserves_other_draft_fields
 
 
 @pytest.mark.asyncio
-async def test_set_output_max_reports_controller_validation_failure(monkeypatch) -> None:
+async def test_set_output_max_reports_controller_validation_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     core = BleAppCore()
     write = AsyncMock(side_effect=RuntimeError("BLE write rejected"))
     read_status = AsyncMock(return_value=ParamsStatus(ok=False, status=PARAM_STATUS_INVALID, field_id=None))
@@ -1048,7 +1047,7 @@ async def test_set_output_max_reports_controller_validation_failure(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_fan_mode_status_and_partial_profile_result(monkeypatch) -> None:
+async def test_fan_mode_status_and_partial_profile_result(monkeypatch: pytest.MonkeyPatch) -> None:
     from pcwcc.core_logic.models import ProfileSkipReason, ThermalInputState
     from pcwcc.core_logic.protocol import UUID_CONFIG_FAN_MODE_STATUS, UUID_CONFIG_PROFILE_RESULT
 
@@ -1069,7 +1068,7 @@ async def test_fan_mode_status_and_partial_profile_result(monkeypatch) -> None:
     ]
 
 
-def test_fan_mode_display_is_scoped_to_current_connection(monkeypatch) -> None:
+def test_fan_mode_display_is_scoped_to_current_connection(monkeypatch: pytest.MonkeyPatch) -> None:
     from pcwcc.core_logic.models import FanModeStatus, ThermalInputState
 
     monkeypatch.setattr(gui_module.BleWorker, "start", lambda self: None)
@@ -1081,6 +1080,7 @@ def test_fan_mode_display_is_scoped_to_current_connection(monkeypatch) -> None:
     )
     connection_id = window.model.state.connection_id
     window.on_fan_mode_status(FanModeStatus(1, 0, ThermalInputState.NTC_UNAVAILABLE), connection_id)
+    assert not window.effective_fan_mode_label.isHidden()
     assert "Always on" in window.effective_fan_mode_label.text()
     assert "control thermistor unavailable" in window.effective_fan_mode_label.text()
     window.on_fan_mode_status(FanModeStatus(1, 0, ThermalInputState.ADC_OFFLINE), connection_id)
@@ -1088,7 +1088,8 @@ def test_fan_mode_display_is_scoped_to_current_connection(monkeypatch) -> None:
     window.on_fan_mode_status(FanModeStatus(1, 1, ThermalInputState.READY), object())
     assert "ADS1115 unavailable" in window.effective_fan_mode_label.text()
     window.on_fan_mode_status(FanModeStatus(1, 1, ThermalInputState.READY), connection_id)
-    assert "Current fan mode: By temperature sensor" == window.effective_fan_mode_label.text()
+    assert window.effective_fan_mode_label.isHidden()
+    assert window.effective_fan_mode_label.text() == ""
     window.close()
     app.processEvents()
 

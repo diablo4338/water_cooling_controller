@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QBrush
 from PySide6.QtWidgets import QInputDialog, QListWidget, QListWidgetItem
@@ -14,20 +16,27 @@ from ..core import (
     set_paired_auto_connect,
     save_paired_records,
 )
-from ..core_logic.models import OutputLimitState, ThermalInputState
-from .constants import PAIRED_HIGHLIGHT_BRUSH, USER_ROLE
+from ..core_logic.models import OutputLimitState, OutputLimitStatus, ThermalInputState
+from ..presentation import SelectionSource
+from ..ui.theme import theme_color
+from .constants import USER_ROLE
+
+
+if TYPE_CHECKING:
+    from .app import MainWindow
 
 
 class MainWindowListMixin:
-    def _update_output_max_save(self) -> None:
+    def _update_output_max_save(self: MainWindow) -> None:
         self.output_max_save.setEnabled(self.output_max_input.isEnabled() and self.output_max_input.value() > 0)
 
-    def _apply_ui(self) -> None:
+    def _apply_ui(self: MainWindow) -> None:
         ui = self.model.ui
         status = ui.status_text
         if self.model.state.connected_device:
             status = f"{status} | {self.model.state.connected_device.name}"
         self.status_label.setText(status)
+        self.status_label.setToolTip(status)
 
         for widget, action in (
             (self.scan_button, self.Action.SCAN),
@@ -53,20 +62,19 @@ class MainWindowListMixin:
         self.rename_button.setEnabled(can_rename_paired)
 
         mode = self.model.state.fan_mode_status
-        if mode is None:
-            self.effective_fan_mode_label.setText("Current fan mode unavailable")
-        else:
+        mode_message = ""
+        if mode is not None and mode.selected != mode.effective:
             effective = "Service operation" if mode.effective == 3 else FAN_MODE_NAMES[mode.effective]
-            detail = {
+            reason = {
                 ThermalInputState.ADC_INITIALIZING: "waiting for ADS1115 readings",
-                ThermalInputState.ADC_OFFLINE: "ADS1115 unavailable: I?C error or recovery",
+                ThermalInputState.ADC_OFFLINE: "ADS1115 unavailable: I\u00b2C error or recovery",
                 ThermalInputState.NTC_UNAVAILABLE: "control thermistor unavailable: no valid temperature",
             }.get(mode.thermal_input)
-            if mode.selected != mode.effective:
-                detail = f"selected: {FAN_MODE_NAMES[mode.selected]}" + (f"; {detail}" if detail else "")
-            self.effective_fan_mode_label.setText(
-                f"Current fan mode: {effective}" + (f" ({detail})" if detail else "")
-            )
+            detail = f"selected: {FAN_MODE_NAMES[mode.selected]}"
+            if reason:
+                detail += f"; {reason}"
+            mode_message = f"Current fan mode: {effective} ({detail})"
+        self.effective_fan_mode_message.set_message(mode_message)
 
         limit = self.model.state.output_limit
         self.output_max_input.setEnabled(self.Action.SET_OUTPUT_MAX in ui.enabled_actions)
@@ -75,36 +83,10 @@ class MainWindowListMixin:
             self.Action.RESET_OUTPUT_LIMIT in ui.enabled_actions
             and limit is not None and limit.reset_sequence is not None
         )
-        if limit is None:
-            self.output_limit_label.setText("Current limit unavailable")
-        elif limit.configured == 0:
-            self.output_limit_label.setText("Output blocked: saved limit unavailable. Set and save the maximum.")
-        else:
-            details = {
-                OutputLimitState.CONFIRMING: "confirming overload",
-                OutputLimitState.START_BLOCKED: "start blocked by overload protection",
-                OutputLimitState.VERIFY_TIMEOUT: "could not verify the limit after the output changed",
-                OutputLimitState.MEASURE: "measuring overload",
-                OutputLimitState.VERIFY_FORMULA: "checking calculated limit",
-                OutputLimitState.VERIFY_STEP: "checking a correction step",
-                OutputLimitState.VERIFY_MINIMUM: "overload: checking minimum",
-                OutputLimitState.LIMITED: "output adjusted due to load",
-                OutputLimitState.MINIMUM: "limited to minimum while INA226 is unavailable",
-                OutputLimitState.SENSOR_ERROR: "INA226 unavailable during overload; applying the fallback limit",
-                OutputLimitState.FAULT: "overload alarm; output shut off",
-            }.get(limit.state, "")
-            if limit.alert_without_load:
-                details = "abnormal overload with no load"
-            elif limit.state == OutputLimitState.LIMITED and limit.effective == 0:
-                details = "output limited to 0% due to load"
-            if limit.state == OutputLimitState.LIMITED and limit.temporary_minimum is not None:
-                current_limit = f"Temporary range: {limit.temporary_minimum}–{limit.effective}%"
-            elif limit.state == OutputLimitState.LIMITED:
-                current_limit = f"Temporary limit: {limit.effective}%"
-            else:
-                current_limit = f"Current limit: {limit.effective}%"
-            caption = f"Saved maximum: {limit.configured}% | {current_limit}"
-            self.output_limit_label.setText(f"{caption} ? {details}" if details else caption)
+        if self.model.state.conn == self.ConnState.DISCONNECTED:
+            self.output_max_input.setValue(0)
+        limit_warning = self._output_limit_warning(limit)
+        self.output_limit_message.set_message(limit_warning)
 
         params_enabled = ui.can_edit_params and self._device_params_snapshot is not None
         for button in self.profile_buttons:
@@ -127,27 +109,55 @@ class MainWindowListMixin:
         self.auto_checkbox.setChecked(ui.auto_enabled)
         self.auto_checkbox.blockSignals(False)
         self.auto_checkbox.setVisible(self.debug_enabled)
-        self.apply_status_label.setText(self._apply_status_text)
         self._apply_paired_highlight()
 
-    def _apply_paired_highlight(self) -> None:
+    @staticmethod
+    def _output_limit_warning(limit: OutputLimitStatus | None) -> str:
+        if limit is None:
+            return ""
+        if limit.configured == 0:
+            return "Output blocked: saved limit unavailable. Set and save the maximum in Settings."
+        if limit.effective == limit.configured:
+            return ""
+        details = {
+            OutputLimitState.CONFIRMING: "confirming overload",
+            OutputLimitState.START_BLOCKED: "start blocked by overload protection",
+            OutputLimitState.VERIFY_TIMEOUT: "could not verify the limit after the output changed",
+            OutputLimitState.MEASURE: "measuring overload",
+            OutputLimitState.VERIFY_FORMULA: "checking calculated limit",
+            OutputLimitState.VERIFY_STEP: "checking a correction step",
+            OutputLimitState.VERIFY_MINIMUM: "overload: checking minimum",
+            OutputLimitState.LIMITED: "output adjusted due to load",
+            OutputLimitState.MINIMUM: "limited to minimum while INA226 is unavailable",
+            OutputLimitState.SENSOR_ERROR: "INA226 unavailable during overload; applying the fallback limit",
+            OutputLimitState.FAULT: "overload alarm; output shut off",
+        }.get(limit.state)
+        if limit.alert_without_load:
+            details = "abnormal overload with no load"
+        effective = f"{limit.effective}%"
+        if limit.temporary_minimum is not None and limit.state == OutputLimitState.LIMITED:
+            effective = f"{limit.temporary_minimum}\u2013{effective}"
+        message = f"Output limit reduced to {effective} (saved maximum {limit.configured}%)."
+        return f"{message} {details.capitalize()}." if details else message
+
+    def _apply_paired_highlight(self: MainWindow) -> None:
         highlight = self.model.ui.paired_highlight
         for idx in range(self.paired_list.count()):
             item = self.paired_list.item(idx)
             info = item.data(USER_ROLE)
             if highlight and info and getattr(info, "address", None) == highlight.address:
-                item.setBackground(PAIRED_HIGHLIGHT_BRUSH)
+                item.setBackground(QBrush(theme_color("success_background")))
             else:
                 item.setBackground(QBrush())
 
-    def _clear_paired_selection(self) -> None:
+    def _clear_paired_selection(self: MainWindow) -> None:
         self.paired_list.blockSignals(True)
         self.paired_list.clearSelection()
         self.paired_list.blockSignals(False)
         if self.model.state.selected_source == self.SelectionSource.PAIRED:
             self.model.set_selection(None, None)
 
-    def _lock_selection_to_connected(self) -> None:
+    def _lock_selection_to_connected(self: MainWindow) -> None:
         if self._lock_selection_active:
             return
         device = self.model.state.connected_device
@@ -176,18 +186,18 @@ class MainWindowListMixin:
         finally:
             self._lock_selection_active = False
 
-    def _on_found_selected(self) -> None:
+    def _on_found_selected(self: MainWindow) -> None:
         self._sync_selection(self.SelectionSource.FOUND, self.found_list, self.paired_list)
 
-    def _on_paired_selected(self) -> None:
+    def _on_paired_selected(self: MainWindow) -> None:
         self._sync_selection(self.SelectionSource.PAIRED, self.paired_list, self.found_list)
 
-    def _sync_selection(self, source, current_list: QListWidget, other_list: QListWidget) -> None:
+    def _sync_selection(self: MainWindow, source: SelectionSource, current_list: QListWidget, other_list: QListWidget) -> None:
         if self.model.state.conn == self.ConnState.CONNECTED:
             self._lock_selection_to_connected()
             self._apply_ui()
             return
-        item = current_list.currentItem()
+        item = cast(QListWidgetItem | None, current_list.currentItem())
         if item is not None:
             other_list.blockSignals(True)
             other_list.clearSelection()
@@ -226,7 +236,7 @@ class MainWindowListMixin:
     def _add_paired(device: DeviceInfo, k_hex: str) -> None:
         add_or_update_paired(device, k_hex)
 
-    def _refresh_paired_list(self) -> None:
+    def _refresh_paired_list(self: MainWindow) -> None:
         auto_connect_address = self._auto_connect_address()
         self.paired_list.blockSignals(True)
         self.paired_list.clear()
@@ -247,15 +257,17 @@ class MainWindowListMixin:
             self._lock_selection_to_connected()
             self._apply_ui()
             return
-        prev = self.model.state.selected_device if self.model.state.selected_source == self.SelectionSource.PAIRED else None
-        if prev and any(dev.address == prev.address for dev in devices):
-            self._select_paired_device(prev)
-        elif self.model.state.selected_source == self.SelectionSource.PAIRED:
-            self.model.set_selection(None, None)
-            self.paired_list.clearSelection()
+        state = self.model.state
+        if state.selected_source == self.SelectionSource.PAIRED:
+            previous = state.selected_device
+            if previous is not None and previous.address in {device.address for device in devices}:
+                self._select_paired_device(previous)
+            else:
+                self.model.set_selection(None, None)
+                self.paired_list.clearSelection()
         self._apply_ui()
 
-    def _on_paired_item_changed(self, item: QListWidgetItem) -> None:
+    def _on_paired_item_changed(self: MainWindow, item: QListWidgetItem) -> None:
         device = item.data(USER_ROLE)
         if device is None:
             return
@@ -273,7 +285,7 @@ class MainWindowListMixin:
             self.on_log(f"Auto-connect device cleared: {device.name}")
         self._refresh_paired_list()
 
-    def _start_saved_auto_connect(self) -> None:
+    def _start_saved_auto_connect(self: MainWindow) -> None:
         if self.debug_enabled and self.auto_checkbox.isChecked():
             return
         auto_connect_address = self._auto_connect_address()
@@ -290,7 +302,7 @@ class MainWindowListMixin:
             self.on_connect()
             return
 
-    def _select_paired_device(self, device: DeviceInfo) -> None:
+    def _select_paired_device(self: MainWindow, device: DeviceInfo) -> None:
         for idx in range(self.paired_list.count()):
             item = self.paired_list.item(idx)
             info = item.data(USER_ROLE)
@@ -301,7 +313,7 @@ class MainWindowListMixin:
                 self.paired_list.scrollToItem(item)
                 return
 
-    def _delete_selected_paired(self) -> None:
+    def _delete_selected_paired(self: MainWindow) -> None:
         item = self.paired_list.currentItem()
         if item is None:
             self.on_log("Select a device first")
@@ -313,7 +325,7 @@ class MainWindowListMixin:
         else:
             self.on_log("Failed to delete entry.")
 
-    def _rename_selected_paired(self) -> None:
+    def _rename_selected_paired(self: MainWindow) -> None:
         item = self.paired_list.currentItem()
         if item is None:
             self.on_log("Select a saved device first")

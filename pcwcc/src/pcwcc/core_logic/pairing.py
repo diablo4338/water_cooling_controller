@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import binascii
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from bleak import BleakScanner
+from bleak.backends.device import BLEDevice
+from bleak.backends.scanner import AdvertisementData
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
@@ -25,25 +27,29 @@ from .protocol import (
 from .storage import find_paired_record
 
 
+if TYPE_CHECKING:
+    from .api import BleAppCore
+
+
 class BleCorePairingMixin:
-    async def scan_pairing(self, timeout: Optional[float] = None) -> list[DeviceInfo]:
+    async def scan_pairing(self: BleAppCore, timeout: Optional[float] = None) -> list[DeviceInfo]:
         if timeout is None:
             timeout = self._config.scan_timeout_s
         self._emit_conn(f"scan pairing: start (timeout={timeout:.1f}s)")
         candidates: dict[str, DeviceInfo] = {}
 
-        def on_detect(device, advertisement_data) -> None:
+        def on_detect(detected: BLEDevice, advertisement_data: AdvertisementData) -> None:
             uuids = advertisement_data.service_uuids or []
             norm_uuids = {normalize_uuid(raw) for raw in uuids}
-            name = advertisement_data.local_name or device.name or "Unknown"
+            name = advertisement_data.local_name or detected.name or "Unknown"
             if PAIR_SVC_NORM in norm_uuids:
-                candidates[device.address] = DeviceInfo(
+                candidates[detected.address] = DeviceInfo(
                     name=name,
-                    address=device.address,
-                    ble_device=device,
+                    address=detected.address,
+                    ble_device=detected,
                 )
                 self._emit_conn(
-                    f"scan pairing: candidate {name} ({device.address}), uuids={len(uuids)}"
+                    f"scan pairing: candidate {name} ({detected.address}), uuids={len(uuids)}"
                 )
 
         async with BleakScanner(detection_callback=on_detect, **self._scanner_kwargs()):
@@ -57,7 +63,7 @@ class BleCorePairingMixin:
         self._emit_conn(f"scan pairing: ready devices={len(results)}")
         return list(results.values())
 
-    async def _probe_pairing(self, device: DeviceInfo) -> bool:
+    async def _probe_pairing(self: BleAppCore, device: DeviceInfo) -> bool:
         client = None
         try:
             target = await self._resolve_ble_target(device, timeout=self._config.resolve_timeout_s)
@@ -94,7 +100,7 @@ class BleCorePairingMixin:
                 except Exception:
                     pass
 
-    async def resolve_device(self, address: str, timeout: Optional[float] = None) -> DeviceInfo:
+    async def resolve_device(self: BleAppCore, address: str, timeout: Optional[float] = None) -> DeviceInfo:
         if timeout is None:
             timeout = self._config.resolve_timeout_s
         self._emit_conn(f"resolve by address {address}: start (timeout={timeout:.1f}s)")
@@ -109,14 +115,13 @@ class BleCorePairingMixin:
         self._emit_conn(f"resolve by address {address}: found {self._format_device(device)}")
         return device
 
-    async def pair(self, device: DeviceInfo, timeout: Optional[float] = None) -> PairResult:
+    async def pair(self: BleAppCore, device: DeviceInfo, timeout: Optional[float] = None) -> PairResult:
         if timeout is None:
             timeout = self._config.pair_timeout_s
         k_hex: Optional[str] = None
         self._emit_conn(
             f"pair {self._format_device(device)}: start (timeout={timeout:.1f}s)"
         )
-        client = None
         try:
             target = await self._resolve_ble_target(device, timeout=self._config.resolve_timeout_s)
             client = self._make_client(
@@ -194,7 +199,7 @@ class BleCorePairingMixin:
             return PairResult(False, f"Pairing failed: {exc}", None)
         return PairResult(True, "Paired", k_hex)
 
-    async def auth(self, timeout: Optional[float] = None) -> None:
+    async def auth(self: BleAppCore, timeout: Optional[float] = None) -> None:
         if timeout is None:
             timeout = self._config.auth_timeout_s
         if not self.client or not self.device:
