@@ -23,7 +23,7 @@ install-app:
 	$(PYTHON) -m pip install -e "./pcwcc[dev]"
 
 build-exe: install-app
-	$(PYTHON) -m PyInstaller --noconfirm --clean --name PCWCC --windowed --onedir --paths pcwcc/src pcwcc/src/pcwcc/main.py
+	$(PYTHON) -m PyInstaller --noconfirm --clean --name PCWCC --windowed --onefile --paths pcwcc/src pcwcc/src/pcwcc/main.py
 
 run-app: install-app
 	PYTHONPATH=$(CLI_PYTHONPATH) $(PYTHON) -m pcwcc.main $(APP_ARGS)
