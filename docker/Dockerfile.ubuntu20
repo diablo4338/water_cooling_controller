@@ -7,6 +7,7 @@ ARG PYTHON_VERSION=3.12.13
 ARG OPENSSL_VERSION=3.2.3
 ARG ESP_IDF_VERSION=v5.4.4
 ARG ESP_IDF_TARGETS=esp32c3
+ARG TARGETARCH
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Etc/UTC
@@ -75,14 +76,21 @@ RUN apt-get update && \
     update-ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
-RUN cd /tmp && \
+RUN case "${TARGETARCH}" in \
+        amd64) openssl_target=linux-x86_64 ;; \
+        arm64) openssl_target=linux-aarch64 ;; \
+        arm) openssl_target=linux-armv4 ;; \
+        *) echo "Unsupported OpenSSL target architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac && \
+    cd /tmp && \
     wget -O "openssl-${OPENSSL_VERSION}.tar.gz" \
         "https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz" && \
     tar -xzf "openssl-${OPENSSL_VERSION}.tar.gz" && \
     cd "openssl-${OPENSSL_VERSION}" && \
-    ./Configure linux-x86_64 \
+    ./Configure "${openssl_target}" \
         --prefix="/opt/openssl-${OPENSSL_VERSION}" \
         --openssldir="/opt/openssl-${OPENSSL_VERSION}/ssl" \
+        --libdir=lib64 \
         shared \
         zlib && \
     make -j"$(nproc)" && \
