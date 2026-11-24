@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "esp_log.h"
+#include "esp_system.h"
 #include "esp_timer.h"
 #include "nvs_flash.h"
 
@@ -49,12 +50,17 @@ static void create_runtime_timers(void) {
 }
 
 void app_main(void) {
+    esp_reset_reason_t reset = esp_reset_reason();
+    if (reset != ESP_RST_DEEPSLEEP && reset != ESP_RST_POWERON) {
+        ESP_LOGW("runtime", "Boot reset_reason=%d", (int)reset);
+    }
     esp_log_level_set("pair-stack", ESP_LOG_INFO);
     esp_log_level_set("runtime", ESP_LOG_INFO);
     esp_log_level_set("runtime-config", ESP_LOG_INFO);
     esp_log_level_set("ble-lifecycle", ESP_LOG_INFO);
     esp_log_level_set("action", ESP_LOG_INFO);
     esp_log_level_set("ina226", ESP_LOG_INFO);
+    trust_store_init();
 #ifdef PAIR_RUN_TESTS
     pair_tests_force_link();
     conn_guard_tests_force_link();

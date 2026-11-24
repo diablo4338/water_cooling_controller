@@ -4,6 +4,7 @@
 #include "host/ble_gatt.h"
 
 void gatt_init_uuids_and_services(void);
+void gatt_deinit_events(void);
 
 extern struct ble_gatt_svc_def gatt_svcs[];
 

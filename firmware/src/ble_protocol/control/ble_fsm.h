@@ -12,7 +12,8 @@ typedef enum {
     BLE_FSM_STARTING,
     BLE_FSM_ADVERTISING,
     BLE_FSM_CONNECTED,
-    BLE_FSM_READY_TO_SLEEP,
+    BLE_FSM_STOPPING,
+    BLE_FSM_ERROR,
 } ble_fsm_state_t;
 
 typedef struct {
@@ -22,11 +23,12 @@ typedef struct {
 typedef struct {
     ble_fsm_state_t state;
     int64_t window_deadline_us;
-    int64_t startup_deadline_us;
-    int64_t connection_deadline_us;
+    int64_t stop_deadline_us;
     uint32_t operation_id;       /* current start generation */
     uint32_t adv_request_id;     /* current advertising generation */
     uint16_t conn_handle;
+    uint32_t stop_request_id;
+    bool restart_requested;
 } ble_fsm_t;
 
 void ble_fsm_init(ble_fsm_t *fsm, int64_t now_us);

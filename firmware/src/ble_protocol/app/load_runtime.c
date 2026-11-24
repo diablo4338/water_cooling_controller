@@ -20,9 +20,8 @@
 #include "connect_window.h"
 #include "event_bus.h"
 #include "ina226.h"
-#include "gap.h"
 #include "load_fsm.h"
-#include "load_metrics_ble.h"
+#include "gap.h"
 #include "load_output.h"
 #include "load_state.h"
 #include "board_config.h"
@@ -614,7 +613,7 @@ static void periodic_cycle_locked(int64_t now_us) {
         }
     }
 
-    load_metrics_publish();
+    gap_publish_metrics();
 }
 
 static void maybe_request_sleep_locked(int64_t now_us) {
@@ -867,6 +866,9 @@ void load_runtime_task(void *arg) {
             process_event_locked(&pending_event);
             ++processed;
         }
+        if (event_bus_pending() == 0 && gap_take_pending_disconnect(&pending_event)) {
+            process_event_locked(&pending_event);
+        }
         scheduler_locked(wall_time_us(), esp_timer_get_time());
         event_bus_unlock_dispatch();
     }
@@ -905,8 +907,7 @@ bool load_runtime_prepare_sleep(void) {
         return false;
     }
 
-    if ((s_core.ble.state != BLE_FSM_OFF &&
-         s_core.ble.state != BLE_FSM_READY_TO_SLEEP) ||
+    if (s_core.ble.state != BLE_FSM_OFF ||
         s_core.load.state == LOAD_FSM_STARTING ||
         s_core.load.state == LOAD_FSM_STOPPING ||
         s_core.load.state == LOAD_FSM_ERROR ||
@@ -938,10 +939,6 @@ bool load_runtime_prepare_sleep(void) {
         ESP_LOGE(TAG, "timer wakeup config failed: %s",
                  esp_err_to_name(err));
         return false;
-    }
-
-    if (config.sleep_type == SLEEP_TYPE_LIGHT) {
-        if (!gap_ble_stop()) return false;
     }
 
     err = load_output_hold();

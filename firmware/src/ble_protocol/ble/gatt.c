@@ -11,7 +11,6 @@
 #include "os/os_mbuf.h"
 
 #include "esp_timer.h"
-#include "event_bus.h"
 #include "access.h"
 #include "crypto.h"
 #include "ecdh.h"
@@ -27,6 +26,10 @@
 #include "load_runtime.h"
 #include "runtime_config.h"
 
+static int append_response(struct os_mbuf *response, const void *value, uint16_t size) {
+    return os_mbuf_append(response, value, size) == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+}
+
 // ====== GATT access callbacks ======
 static int gatt_read_dev_nonce(uint16_t conn_handle, uint16_t attr_handle,
                                struct ble_gatt_access_ctxt *ctxt, void *arg) {
@@ -37,8 +40,7 @@ static int gatt_read_dev_nonce(uint16_t conn_handle, uint16_t attr_handle,
     state_lock();
     memcpy(tmp, dev_nonce, sizeof(dev_nonce));
     state_unlock();
-    os_mbuf_append(ctxt->om, tmp, sizeof(tmp));
-    return 0;
+    return append_response(ctxt->om, tmp, sizeof(tmp));
 }
 
 static int gatt_read_dev_pub(uint16_t conn_handle, uint16_t attr_handle,
@@ -50,8 +52,7 @@ static int gatt_read_dev_pub(uint16_t conn_handle, uint16_t attr_handle,
     state_lock();
     memcpy(tmp, dev_pub65, sizeof(dev_pub65));
     state_unlock();
-    os_mbuf_append(ctxt->om, tmp, sizeof(tmp));
-    return 0;
+    return append_response(ctxt->om, tmp, sizeof(tmp));
 }
 
 static int gatt_write_host_pub(uint16_t conn_handle, uint16_t attr_handle,
@@ -136,7 +137,7 @@ static int gatt_write_pair_finish(uint16_t conn_handle, uint16_t attr_handle,
     os_mbuf_copydata(ctxt->om, 0, 1, &b);
     if (b != 0x01) return BLE_ATT_ERR_UNLIKELY;
 
-    trust_store_upsert(host_id_hash, K);
+    if (!trust_store_upsert(host_id_hash, K)) return BLE_ATT_ERR_UNLIKELY;
     pair_state_set_finish_ok();
     pair_mode_deactivate();
 
@@ -144,8 +145,12 @@ static int gatt_write_pair_finish(uint16_t conn_handle, uint16_t attr_handle,
     if (esp_timer_stop(g_term_timer) == ESP_OK) {
         ESP_LOGI(TAG, "Timer term cancelled reason=restart handle=%u", (unsigned)conn_handle);
     }
-    ESP_ERROR_CHECK(esp_timer_start_once(g_term_timer, 250 * 1000));
-    ESP_LOGI(TAG, "Timer term started duration_ms=250 handle=%u", (unsigned)conn_handle);
+    esp_err_t timer_err = esp_timer_start_once(g_term_timer, 250 * 1000);
+    if (timer_err != ESP_OK) {
+        ESP_LOGW(TAG, "Pairing disconnect timer failed: %s", esp_err_to_name(timer_err));
+    } else {
+        ESP_LOGI(TAG, "Timer term started duration_ms=250 handle=%u", (unsigned)conn_handle);
+    }
 
     ESP_LOGI(TAG, "Pairing finished; trusted client added and pairing mode closed");
     return 0;
@@ -160,8 +165,7 @@ static int gatt_read_auth_nonce(uint16_t conn_handle, uint16_t attr_handle,
     state_lock();
     memcpy(tmp, auth_nonce, sizeof(auth_nonce));
     state_unlock();
-    os_mbuf_append(ctxt->om, tmp, sizeof(tmp));
-    return 0;
+    return append_response(ctxt->om, tmp, sizeof(tmp));
 }
 
 static int gatt_write_auth_proof(uint16_t conn_handle, uint16_t attr_handle,
@@ -209,7 +213,7 @@ static int gatt_write_auth_proof(uint16_t conn_handle, uint16_t attr_handle,
     return 0;
 }
 
-/* Keep the NimBLE callback short; only the runtime dispatcher owns deadlines. */
+/* A protocol liveness probe while the client is connected. */
 static int gatt_write_keep_alive(uint16_t conn_handle, uint16_t attr_handle,
                                   struct ble_gatt_access_ctxt *ctxt, void *arg) {
     (void)attr_handle; (void)arg;
@@ -221,10 +225,7 @@ static int gatt_write_keep_alive(uint16_t conn_handle, uint16_t attr_handle,
     if (os_mbuf_copydata(ctxt->om, 0, 1, &version) != 0 || version != 1) {
         return BLE_ATT_ERR_UNLIKELY;
     }
-    runtime_event_t event = runtime_event_make(RTEVT_CLIENT_KEEP_ALIVE, 0);
-    event.conn_handle = conn_handle;
-    event.monotonic_timestamp_us = esp_timer_get_time();
-    return event_bus_publish(&event) ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+    return 0;
 }
 
 static uint16_t config_result_attr_handle;
@@ -240,8 +241,7 @@ static int gatt_read_runtime_config(uint16_t conn_handle, uint16_t attr_handle,
     }
     uint8_t wire[RUNTIME_CONFIG_WIRE_SIZE];
     runtime_config_encode(wire, 0);
-    return os_mbuf_append(ctxt->om, wire, sizeof(wire)) == 0
-        ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+    return append_response(ctxt->om, wire, sizeof(wire));
 }
 
 static int gatt_read_config_result(uint16_t conn_handle, uint16_t attr_handle,
@@ -250,13 +250,16 @@ static int gatt_read_config_result(uint16_t conn_handle, uint16_t attr_handle,
     if (!can_access_data() || !auth_conn_check(conn_handle)) {
         return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
     }
-    return os_mbuf_append(ctxt->om, last_config_result, sizeof(last_config_result)) == 0
-        ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+    return append_response(ctxt->om, last_config_result, sizeof(last_config_result));
 }
 
 /* Run after the ATT write callback releases its receive buffers. */
 static struct ble_npl_event config_notify_event;
 static uint16_t config_notify_conn_handle;
+
+void gatt_deinit_events(void) {
+    ble_npl_event_deinit(&config_notify_event);
+}
 
 static void notify_config_result(struct ble_npl_event *event) {
     (void)event;
@@ -330,20 +333,15 @@ static int gatt_read_metric(uint16_t conn_handle, uint16_t attr_handle,
     load_runtime_get_snapshot(&snapshot);
     switch ((metric_id_t)(uintptr_t)arg) {
         case METRIC_LOAD_STATE:
-            os_mbuf_append(ctxt->om, &snapshot.load_state, sizeof(snapshot.load_state));
-            return 0;
+            return append_response(ctxt->om, &snapshot.load_state, sizeof(snapshot.load_state));
         case METRIC_BUTTON_STATE:
-            os_mbuf_append(ctxt->om, &snapshot.button_pressed, sizeof(snapshot.button_pressed));
-            return 0;
+            return append_response(ctxt->om, &snapshot.button_pressed, sizeof(snapshot.button_pressed));
         case METRIC_TEMPERATURE:
-            os_mbuf_append(ctxt->om, &snapshot.temperature_c, sizeof(snapshot.temperature_c));
-            return 0;
+            return append_response(ctxt->om, &snapshot.temperature_c, sizeof(snapshot.temperature_c));
         case METRIC_VOLTAGE_V:
-            os_mbuf_append(ctxt->om, &snapshot.voltage_v, sizeof(snapshot.voltage_v));
-            return 0;
+            return append_response(ctxt->om, &snapshot.voltage_v, sizeof(snapshot.voltage_v));
         case METRIC_CURRENT_MA:
-            os_mbuf_append(ctxt->om, &snapshot.current_ma, sizeof(snapshot.current_ma));
-            return 0;
+            return append_response(ctxt->om, &snapshot.current_ma, sizeof(snapshot.current_ma));
         default:
             return BLE_ATT_ERR_UNLIKELY;
     }

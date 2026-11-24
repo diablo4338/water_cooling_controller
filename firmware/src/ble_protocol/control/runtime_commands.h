@@ -28,6 +28,7 @@ typedef enum {
     RCMD_BLE_DISCONNECT,
     RCMD_ENTER_DEEP_SLEEP,
     RCMD_LOAD_OUTPUT_VERIFY,
+    RCMD_BLE_STOP,
 } runtime_command_kind_t;
 
 typedef struct {

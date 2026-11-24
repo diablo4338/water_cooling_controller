@@ -322,26 +322,41 @@ static void execute_ble_command(const runtime_command_t *command) {
     switch (command->kind) {
         case RCMD_BLE_START:
             if (!gap_ble_start(command->operation_id)) {
-                publish_simple(RTEVT_BLE_START_FAILED, command->operation_id);
+                publish_action_failure(command->kind, command->operation_id,
+                                       command->request_id, command->context,
+                                       RUNTIME_ERROR_ACTION_REJECTED);
             }
             break;
         case RCMD_BLE_START_ADVERTISING:
             if (!gap_start_advertising(command->operation_id,
                                        command->request_id,
                                        command->duration_ms)) {
-                publish_simple(RTEVT_BLE_START_FAILED, command->operation_id);
+                publish_action_failure(command->kind, command->operation_id,
+                                       command->request_id, command->context,
+                                       RUNTIME_ERROR_ACTION_REJECTED);
             }
             break;
         case RCMD_BLE_REFRESH_ADVERTISING:
             if (!gap_refresh_advertising(command->operation_id,
                                          command->request_id,
                                          command->duration_ms)) {
-                publish_simple(RTEVT_BLE_START_FAILED, command->operation_id);
+                publish_action_failure(command->kind, command->operation_id,
+                                       command->request_id, command->context,
+                                       RUNTIME_ERROR_ACTION_REJECTED);
             }
             break;
         case RCMD_BLE_DISCONNECT:
-            gap_disconnect_client();
+            gap_disconnect_client(command->conn_handle);
             break;
+        case RCMD_BLE_STOP: {
+            runtime_event_t result = runtime_event_make(
+                gap_ble_stop() ? RTEVT_BLE_STOPPED : RTEVT_BLE_STOP_FAILED, 0);
+            result.operation_id = command->operation_id;
+            result.request_id = command->request_id;
+            result.monotonic_timestamp_us = esp_timer_get_time();
+            event_bus_publish(&result);
+            break;
+        }
         default:
             break;
     }
@@ -459,6 +474,7 @@ static void execute_command(const runtime_command_t *command) {
         case RCMD_BLE_START_ADVERTISING:
         case RCMD_BLE_REFRESH_ADVERTISING:
         case RCMD_BLE_DISCONNECT:
+        case RCMD_BLE_STOP:
             execute_ble_command(command);
             break;
 

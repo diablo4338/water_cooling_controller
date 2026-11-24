@@ -19,8 +19,7 @@ const char *power_manager_block_reason_name(power_sleep_block_reason_t reason) {
 power_sleep_block_reason_t power_manager_sleep_block_reason(
     const power_snapshot_t *snapshot) {
     if (!snapshot) return POWER_BLOCK_CRITICAL;
-    if (snapshot->ble_state != BLE_FSM_OFF &&
-        snapshot->ble_state != BLE_FSM_READY_TO_SLEEP) {
+    if (snapshot->ble_state != BLE_FSM_OFF) {
         return POWER_BLOCK_BLE;
     }
     if (snapshot->load_state == LOAD_FSM_STARTING ||

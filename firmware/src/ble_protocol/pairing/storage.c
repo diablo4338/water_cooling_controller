@@ -1,6 +1,8 @@
 #include <string.h>
 
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "nvs.h"
 
 #include "crypto.h"
@@ -26,6 +28,12 @@ typedef struct {
 } trust_store_t;
 
 static trust_store_t g_store;
+static StaticSemaphore_t s_store_mutex_storage;
+static SemaphoreHandle_t s_store_mutex;
+
+void trust_store_init(void) {
+    s_store_mutex = xSemaphoreCreateMutexStatic(&s_store_mutex_storage);
+}
 
 static void trust_store_reset_ram(void) {
     memset(&g_store, 0, sizeof(g_store));
@@ -42,16 +50,15 @@ static uint8_t trust_store_count_ram(void) {
     return count;
 }
 
-static void trust_store_save_ram(void) {
+static esp_err_t trust_store_save_ram(void) {
     nvs_handle_t h;
-    if (nvs_open(NVS_NS, NVS_READWRITE, &h) != ESP_OK) {
-        ESP_LOGW(TAG, "Failed to open NVS for trust save");
-        return;
+    esp_err_t err = nvs_open(NVS_NS, NVS_READWRITE, &h);
+    if (err == ESP_OK) {
+        err = nvs_set_blob(h, NVS_KEY_STORE, &g_store, sizeof(g_store));
+        if (err == ESP_OK) err = nvs_commit(h);
+        nvs_close(h);
     }
-
-    ESP_ERROR_CHECK(nvs_set_blob(h, NVS_KEY_STORE, &g_store, sizeof(g_store)));
-    ESP_ERROR_CHECK(nvs_commit(h));
-    nvs_close(h);
+    return err;
 }
 
 void nvs_load_or_empty(void) {
@@ -90,6 +97,8 @@ bool trust_store_match_auth(const uint8_t auth_nonce[16],
     memcpy(msg, "auth", 4);
     memcpy(msg + 4, auth_nonce, 16);
 
+    bool matched = false;
+    xSemaphoreTake(s_store_mutex, portMAX_DELAY);
     for (size_t i = 0; i < TRUST_MAX_CLIENTS; i++) {
         const trust_slot_t *slot = &g_store.slots[i];
         uint8_t expect[32];
@@ -105,42 +114,45 @@ bool trust_store_match_auth(const uint8_t auth_nonce[16],
         if (out_host_id_hash != NULL) {
             memcpy(out_host_id_hash, slot->host_id_hash, 32);
         }
-        return true;
+        matched = true;
+        break;
     }
 
-    return false;
+    xSemaphoreGive(s_store_mutex);
+    return matched;
 }
 
-void trust_store_upsert(const uint8_t host_id_hash[32], const uint8_t k[32]) {
-    uint8_t count_before = trust_store_count_ram();
-
-    for (size_t i = 0; i < TRUST_MAX_CLIENTS; i++) {
-        trust_slot_t *slot = &g_store.slots[i];
-        if (slot->used != 1) {
-            continue;
+bool trust_store_upsert(const uint8_t host_id_hash[32], const uint8_t k[32]) {
+    xSemaphoreTake(s_store_mutex, portMAX_DELAY);
+    uint8_t previous_next = g_store.next_slot;
+    uint8_t slot_index = previous_next % TRUST_MAX_CLIENTS;
+    bool existing = false;
+    for (uint8_t i = 0; i < TRUST_MAX_CLIENTS; i++) {
+        const trust_slot_t *slot = &g_store.slots[i];
+        if (slot->used == 1 && memcmp(slot->host_id_hash, host_id_hash, 32) == 0) {
+            slot_index = i;
+            existing = true;
+            break;
         }
-        if (memcmp(slot->host_id_hash, host_id_hash, 32) != 0) {
-            continue;
-        }
-        memcpy(slot->key, k, 32);
-        trust_store_save_ram();
-        if (count_before == 0) {
-            fsm_dispatch(FSM_EVT_TRUST_LOADED, BLE_HS_CONN_HANDLE_NONE);
-        }
-        return;
     }
 
-    uint8_t slot_index = g_store.next_slot % TRUST_MAX_CLIENTS;
     trust_slot_t *slot = &g_store.slots[slot_index];
+    trust_slot_t previous_slot = *slot;
     slot->used = 1;
     memcpy(slot->host_id_hash, host_id_hash, 32);
     memcpy(slot->key, k, 32);
-    g_store.next_slot = (uint8_t)((slot_index + 1) % TRUST_MAX_CLIENTS);
+    if (!existing) g_store.next_slot = (uint8_t)((slot_index + 1) % TRUST_MAX_CLIENTS);
 
-    trust_store_save_ram();
-    fsm_dispatch(FSM_EVT_TRUST_LOADED, BLE_HS_CONN_HANDLE_NONE);
-    ESP_LOGI(TAG, "Trusted client stored in slot %u (count=%u)",
-             (unsigned)slot_index, (unsigned)trust_store_count_ram());
+    esp_err_t err = trust_store_save_ram();
+    if (err == ESP_OK) {
+        if (!existing) fsm_dispatch(FSM_EVT_TRUST_LOADED, BLE_HS_CONN_HANDLE_NONE);
+    } else {
+        *slot = previous_slot;
+        g_store.next_slot = previous_next;
+        ESP_LOGW(TAG, "Trust store save failed: %s", esp_err_to_name(err));
+    }
+    xSemaphoreGive(s_store_mutex);
+    return err == ESP_OK;
 }
 
 uint8_t trust_store_count(void) {
@@ -165,14 +177,20 @@ bool trust_store_get_entry(uint8_t slot, uint8_t out_host_id_hash[32], uint8_t o
 }
 
 void trust_reset(void) {
+    xSemaphoreTake(s_store_mutex, portMAX_DELAY);
     nvs_handle_t h;
-    if (nvs_open(NVS_NS, NVS_READWRITE, &h) == ESP_OK) {
-        nvs_erase_key(h, NVS_KEY_STORE);
-        nvs_commit(h);
+    esp_err_t err = nvs_open(NVS_NS, NVS_READWRITE, &h);
+    if (err == ESP_OK) {
+        err = nvs_erase_key(h, NVS_KEY_STORE);
+        if (err == ESP_OK) err = nvs_commit(h);
         nvs_close(h);
+    }
+    if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) {
+        ESP_LOGW(TAG, "Persistent trust reset failed: %s", esp_err_to_name(err));
     }
 
     trust_store_reset_ram();
     fsm_dispatch(FSM_EVT_TRUST_RESET, BLE_HS_CONN_HANDLE_NONE);
+    xSemaphoreGive(s_store_mutex);
     ESP_LOGW(TAG, "Trust reset");
 }

@@ -215,7 +215,8 @@ bool gap_refresh_advertising(uint32_t operation_id, uint32_t request_id,
                              uint32_t duration_ms) {
     (void)operation_id; (void)request_id; (void)duration_ms; return false;
 }
-void gap_disconnect_client(void) {}
+void gap_disconnect_client(uint16_t conn_handle) { (void)conn_handle; }
+bool gap_ble_stop(void) { return true; }
 const char *power_manager_block_reason_name(power_sleep_block_reason_t reason) {
     (void)reason;
     return "host";

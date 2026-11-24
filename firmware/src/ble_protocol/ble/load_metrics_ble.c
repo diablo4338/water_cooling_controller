@@ -1,4 +1,5 @@
 #include "load_metrics_ble.h"
+#include <stdatomic.h>
 
 #include "esp_log.h"
 #include "os/os_mbuf.h"
@@ -15,11 +16,11 @@ uint16_t g_temperature_attr_handle;
 uint16_t g_voltage_attr_handle;
 uint16_t g_current_attr_handle;
 
-static bool state_notify;
-static bool button_notify;
-static bool temperature_notify;
-static bool voltage_notify;
-static bool current_notify;
+static atomic_bool state_notify;
+static atomic_bool button_notify;
+static atomic_bool temperature_notify;
+static atomic_bool voltage_notify;
+static atomic_bool current_notify;
 
 void load_metrics_set_notify(uint16_t attr_handle, bool enabled) {
     if (attr_handle == g_load_state_attr_handle) state_notify = enabled;
