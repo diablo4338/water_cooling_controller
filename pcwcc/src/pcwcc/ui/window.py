@@ -11,7 +11,6 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QListWidget,
     QPushButton,
     QScrollArea,
@@ -37,8 +36,6 @@ if TYPE_CHECKING:
 
 
 class MainWindowViewMixin:
-    _MIN_INPUT_HEIGHT = 26
-
     def _create_widgets(self: MainWindow) -> None:
         self.setWindowTitle(APP_TITLE)
         if self.debug_enabled:
@@ -108,8 +105,7 @@ class MainWindowViewMixin:
         self.clear_debug_log_button = QPushButton("Clear")
         self.clear_data_log_button = QPushButton("Clear")
         self.metrics_chart = MetricsHistoryChart()
-        self.metrics_chart.setMinimumHeight(200)
-        self.metrics_chart.setAccessibleName("Fan output and temperature history")
+        self.metrics_chart.setAccessibleName("Temperature, fan speed and output history")
         self.metrics_history_mode_label = QLabel("OFFLINE")
         self.metrics_history_mode_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.metrics_history_mode_label.setProperty("uiRole", "historyMode")
@@ -143,7 +139,7 @@ class MainWindowViewMixin:
         motion.setChecked(theme.reduced_motion)
         motion.toggled.connect(theme.set_reduced_motion)
         theme.theme_changed.connect(self._apply_paired_highlight)
-        theme.theme_changed.connect(self.metrics_chart.update)
+        theme.theme_changed.connect(self.metrics_chart.refresh_theme)
 
         sidebar = QWidget()
         sidebar.setAttribute(Qt.WidgetAttribute.WA_StyledBackground)
@@ -159,8 +155,7 @@ class MainWindowViewMixin:
         self.navigation = QButtonGroup(self)
         destinations = [
             ("&Devices", self._devices_page),
-            ("&Monitor", self._monitor_page),
-            ("&History", self._history_page),
+            ("&Monitoring", self._monitoring_page),
             ("&Settings", self._settings_page),
         ]
         if self.debug_enabled:
@@ -179,7 +174,7 @@ class MainWindowViewMixin:
             scroll.setAccessibleName(title)
             scroll.setFrameShape(QFrame.Shape.NoFrame)
             scroll.setWidgetResizable(True)
-            if build_page in (self._monitor_page, self._settings_page):
+            if build_page in (self._monitoring_page, self._settings_page):
                 # Inline messages can cross the scroll threshold while animating.
                 scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
             if build_page == self._settings_page:
@@ -207,13 +202,19 @@ class MainWindowViewMixin:
         label.setProperty("uiRole", role)
         return label
 
-    def _page(self: MainWindow, title: str) -> tuple[QWidget, QVBoxLayout]:
+    def _page(self: MainWindow, title: str, *heading_widgets: QWidget) -> tuple[QWidget, QVBoxLayout]:
         page = QWidget()
         page.setProperty("uiRole", "page")
         layout = QVBoxLayout(page)
         layout.setContentsMargins(24, 20, 24, 24)
         layout.setSpacing(16)
-        layout.addWidget(self._label(title, "title"))
+        heading = QHBoxLayout()
+        heading.setSpacing(10)
+        heading.addWidget(self._label(title, "title"))
+        for widget in heading_widgets:
+            heading.addWidget(widget, alignment=Qt.AlignmentFlag.AlignVCenter)
+        heading.addStretch()
+        layout.addLayout(heading)
         return page, layout
 
     def _devices_page(self: MainWindow) -> QWidget:
@@ -240,27 +241,56 @@ class MainWindowViewMixin:
         layout.addLayout(saved_actions)
         return page
 
-    def _monitor_page(self: MainWindow) -> QWidget:
-        page, layout = self._page("Monitor")
-        layout.addWidget(self._build_device_status_widget())
-        layout.addWidget(self._wrap_section("Temperatures", self._build_temp_widget()))
-        layout.addWidget(self._wrap_section("Fan speed", self._build_fan_widget()))
-        layout.addWidget(self._wrap_section("Power", self._build_power_widget()))
+    def _monitoring_page(self: MainWindow) -> QWidget:
+        self.device_status_indicator = QFrame()
+        self.device_status_indicator.setFixedSize(14, 14)
+        self.device_status_indicator.setProperty("uiRole", "indicator")
+        self.device_status_indicator.setAccessibleName("Controller status")
+        describe(self.device_status_indicator, "Unavailable")
+        page, layout = self._page("Monitoring", self.metrics_history_mode_label)
+        layout.setSpacing(12)
+        self.device_status_field = self._label("", "deviceStatus")
+        self.device_status_field.setWordWrap(True)
+        self.device_status_field.hide()
+        controller_status = QHBoxLayout()
+        controller_status.setSpacing(8)
+        controller_status.addWidget(self._label("Controller status", "deviceStatus"), alignment=Qt.AlignmentFlag.AlignTop)
+        controller_status.addWidget(self.device_status_indicator, alignment=Qt.AlignmentFlag.AlignTop)
+        controller_status.addWidget(self.device_status_field, 1)
+        controller_status.addStretch()
+        layout.addLayout(controller_status)
+
+        readings_panel = QWidget()
+        readings_panel.setProperty("uiRole", "monitorReadings")
+        readings = QHBoxLayout()
+        readings.setContentsMargins(0, 0, 0, 0)
+        readings.setSpacing(16)
+        for index, (title, widget) in enumerate((
+            ("Temperatures", self._build_temp_widget()),
+            ("Fan speed", self._build_fan_widget()),
+            ("Power", self._build_power_widget()),
+        )):
+            if index:
+                divider = QFrame()
+                divider.setFrameShape(QFrame.Shape.VLine)
+                divider.setProperty("uiRole", "monitorDivider")
+                readings.addWidget(divider)
+            readings.addWidget(self._wrap_section(title, widget), alignment=Qt.AlignmentFlag.AlignTop)
+        readings_panel.setLayout(readings)
+        layout.addWidget(readings_panel, alignment=Qt.AlignmentFlag.AlignLeft)
+        self._ina_warning_text = (
+            "INA226 unavailable. Load monitoring is unavailable. Adjust the output at your own risk."
+        )
+        self.ina_warning_label = self._label("", "warning")
+        self.ina_warning_label.setWordWrap(True)
+        self.ina_warning_label.hide()
+        self.ina_warning_message = InlineMessage(self.ina_warning_label)
+        layout.addWidget(self.ina_warning_message)
         self.output_limit_label = self._label("", "error")
         self.output_limit_label.setWordWrap(True)
         self.output_limit_label.hide()
         self.output_limit_message = InlineMessage(self.output_limit_label)
         layout.addWidget(self.output_limit_message)
-        layout.addStretch()
-        return page
-
-    def _history_page(self: MainWindow) -> QWidget:
-        page, layout = self._page("History")
-        self.metrics_history_mode_label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        status_row = QHBoxLayout()
-        status_row.addWidget(self.metrics_history_mode_label)
-        status_row.addStretch()
-        layout.addLayout(status_row)
         layout.addWidget(self.metrics_chart, 1)
         return page
 
@@ -461,16 +491,10 @@ class MainWindowViewMixin:
         select_mode(mode.value())
         return widget
 
-    def _reading_field(self: MainWindow, accessible_name: str) -> QLineEdit:
-        field = QLineEdit("\u2014")
-        field.setReadOnly(True)
-        field.setProperty("uiRole", "reading")
+    def _reading_field(self: MainWindow, accessible_name: str) -> QLabel:
+        field = self._label("\u2014", "metricReading")
         field.setAccessibleName(accessible_name)
-        field.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        field.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        field.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        field.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        self._apply_input_sizing(field)
+        field.setAlignment(Qt.AlignmentFlag.AlignRight)
         return field
 
     @staticmethod
@@ -478,14 +502,15 @@ class MainWindowViewMixin:
         widget = QWidget()
         rows = QGridLayout(widget)
         rows.setContentsMargins(0, 0, 0, 0)
-        rows.setSpacing(6)
-        rows.setColumnStretch(2, 1)
+        rows.setHorizontalSpacing(7)
+        rows.setVerticalSpacing(3)
+        rows.setColumnStretch(1, 1)
         return widget, rows
 
     def _build_temp_widget(self: MainWindow) -> QWidget:
         widget, rows = self._reading_block()
         for index in range(4):
-            field, indicator = self._add_sensor_row(rows, index, f"Temperature sensor {index + 1}")
+            field, indicator = self._add_sensor_row(rows, index, f"Sensor {index + 1}", f"Temperature sensor {index + 1} in Celsius")
             self.temp_fields.append(field)
             self.temp_indicators.append(indicator)
         return widget
@@ -494,19 +519,26 @@ class MainWindowViewMixin:
         widget, rows = self._reading_block()
         self.voltage_field = self._reading_field("Voltage in volts")
         self.current_field = self._reading_field("Current in milliamps")
-        for index, (field, unit) in enumerate(((self.voltage_field, "V"), (self.current_field, "mA"))):
-            rows.addWidget(field, index, 0)
-            rows.addWidget(self._label(unit, "muted"), index, 1)
+        for index, (name, field, unit) in enumerate((
+            ("Voltage", self.voltage_field, "V"),
+            ("Current", self.current_field, "mA"),
+        )):
+            rows.addWidget(self._label(name, "muted"), index, 0)
+            rows.addWidget(field, index, 1)
+            rows.addWidget(self._label(unit, "muted"), index, 2)
         return widget
 
-    def _add_sensor_row(self: MainWindow, rows: QGridLayout, index: int, accessible_name: str) -> tuple[QLineEdit, QFrame]:
+    def _add_sensor_row(
+        self: MainWindow, rows: QGridLayout, index: int, name: str, accessible_name: str
+    ) -> tuple[QLabel, QFrame]:
         field = self._reading_field(accessible_name)
         indicator = QFrame()
-        indicator.setFixedSize(14, 14)
+        indicator.setFixedSize(8, 8)
         indicator.setProperty("uiRole", "indicator")
         describe(indicator, "Unavailable")
-        rows.addWidget(field, index, 0)
-        rows.addWidget(indicator, index, 1, Qt.AlignmentFlag.AlignVCenter)
+        rows.addWidget(self._label(name, "muted"), index, 0)
+        rows.addWidget(field, index, 1)
+        rows.addWidget(indicator, index, 2, Qt.AlignmentFlag.AlignVCenter)
         return field, indicator
 
     def _build_operation_buttons_layout(self: MainWindow) -> QHBoxLayout:
@@ -517,56 +549,16 @@ class MainWindowViewMixin:
         layout.addStretch(1)
         return layout
 
-    def _build_device_status_widget(self: MainWindow) -> QWidget:
-        wrapper = QWidget()
-        layout = QVBoxLayout()
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        device_status_label = QLabel("Device status")
-
-        device_status_field = QLineEdit("\u2014")
-        device_status_field.setReadOnly(True)
-        device_status_field.setProperty("uiRole", "reading")
-        device_status_field.setAccessibleName("Device status")
-        device_status_field.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        device_status_field.setCursor(Qt.CursorShape.ArrowCursor)
-        device_status_field.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        device_status_field.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._apply_input_sizing(device_status_field)
-        self.device_status_field = device_status_field
-
-        device_indicator = QFrame()
-        device_indicator.setFixedSize(16, 16)
-        device_indicator.setProperty("uiRole", "indicator")
-        self.device_status_indicator = device_indicator
-
-        value_row = QHBoxLayout()
-        value_row.addWidget(device_status_label)
-        value_row.addWidget(device_status_field)
-        value_row.addWidget(device_indicator)
-        value_row.addStretch(1)
-
-        layout.addLayout(value_row)
-        self._ina_warning_text = (
-            "INA226 unavailable. Load monitoring is unavailable. Adjust the output at your own risk."
-        )
-        self.ina_warning_label = self._label("", "warning")
-        self.ina_warning_label.setWordWrap(True)
-        self.ina_warning_label.hide()
-        self.ina_warning_message = InlineMessage(self.ina_warning_label)
-        layout.addWidget(self.ina_warning_message)
-        wrapper.setLayout(layout)
-        return wrapper
-
     def _build_fan_widget(self: MainWindow) -> QWidget:
         widget, rows = self._reading_block()
         for index in range(4):
-            field, indicator = self._add_sensor_row(rows, index, f"Fan {index + 1} RPM")
+            name = f"Fan {index + 1}"
+            field, indicator = self._add_sensor_row(rows, index, name, f"{name} RPM")
             self.fan_fields.append(field)
             self.fan_status_indicators.append(indicator)
         self.fan_percent_field = self._reading_field("Fan output percent")
-        rows.addWidget(self.fan_percent_field, 4, 0)
-        rows.addWidget(self._label("Output", "muted"), 4, 1)
+        rows.addWidget(self._label("Output", "muted"), 4, 0)
+        rows.addWidget(self.fan_percent_field, 4, 1)
         return widget
 
     def _build_fan_monitoring_widget(self: MainWindow) -> QWidget:
@@ -588,6 +580,3 @@ class MainWindowViewMixin:
         layout.addWidget(self.apply_button)
         layout.addWidget(self.discard_button)
         return widget
-
-    def _apply_input_sizing(self: MainWindow, widget: QWidget) -> None:
-        widget.setMinimumHeight(self._MIN_INPUT_HEIGHT)

@@ -3,135 +3,223 @@ from __future__ import annotations
 import math
 import time
 from collections import deque
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
-from collections.abc import Callable, Iterable
-from typing import Optional
 
-from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QFontMetrics, QPainter, QPaintEvent, QPen
-from PySide6.QtWidgets import QSizePolicy, QWidget
+from PySide6.QtCore import QPointF, QRectF, QSize, Qt
+from PySide6.QtGui import QFontMetrics, QIcon, QPainter, QPaintEvent, QPen, QPixmap, QResizeEvent
+from PySide6.QtWidgets import QHBoxLayout, QPushButton, QSizePolicy, QVBoxLayout, QWidget
 
+from ..core_logic.models import MetricsSnapshot
 from ..ui.theme import theme_color
 
 
-_SERIES_APPEARANCE: tuple[tuple[str, str, Qt.PenStyle], ...] = (
-    ("Fan output", "brand_foreground", Qt.PenStyle.SolidLine),
-    ("Temp 4", "danger_foreground", Qt.PenStyle.DashLine),
-    ("Temp 3", "warning_foreground", Qt.PenStyle.DotLine),
-)
+@dataclass(frozen=True)
+class MetricSeries:
+    name: str
+    unit: str
+    color: str
+    style: Qt.PenStyle
+
+    def pen(self, color: str | None = None) -> QPen:
+        return QPen(theme_color(color or self.color), 2, self.style)
+
+
+_CHANNEL_COLORS = ("danger_foreground", "warning_foreground", "success_foreground", "brand_foreground")
+_CHANNEL_STYLES = (Qt.PenStyle.SolidLine, Qt.PenStyle.DashLine, Qt.PenStyle.DotLine, Qt.PenStyle.DashDotLine)
+_SERIES = {
+    "fan_percent": MetricSeries("Fan output", "%", "text_secondary", Qt.PenStyle.DashDotDotLine),
+    **{
+        f"temp{index}_c": MetricSeries(f"Temp {index}", "°C", color, style)
+        for index, (color, style) in enumerate(zip(_CHANNEL_COLORS, _CHANNEL_STYLES), 1)
+    },
+    **{
+        f"fan{index}_rpm": MetricSeries(f"Fan {index}", "RPM", color, style)
+        for index, (color, style) in enumerate(zip(_CHANNEL_COLORS, reversed(_CHANNEL_STYLES)), 1)
+    },
+}
+_DISPLAY_PRECISION = {"°C": 2, "RPM": 0, "%": 1}
 
 
 @dataclass(frozen=True)
 class MetricsChartPoint:
     timestamp: float
-    fan_percent: Optional[float]
-    temp4_c: Optional[float]
-    temp3_c: Optional[float]
+    values: dict[str, float]
 
 
 class MetricsHistoryChart(QWidget):
     WINDOW_SECONDS = 30 * 60
     SERIES_GAP_SECONDS = 30.0
 
-    def __init__(self, parent: Optional[QWidget] = None) -> None:
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._points: deque[MetricsChartPoint] = deque()
+        self._last_nonzero: dict[str, float] = {}
         self._latest_sample: MetricsChartPoint | None = None
         self._display_full_history = False
-        self.setMinimumHeight(150)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self._active_keys: tuple[str, ...] = ()
+
+        self._legend = QWidget()
+        self._legend.hide()
+        self._legend_layout = QHBoxLayout(self._legend)
+        self._legend_layout.setContentsMargins(0, 0, 0, 0)
+        self._legend_layout.setSpacing(4)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self._legend)
+        layout.addSpacing(150)
+        layout.addStretch()
+        self._buttons: dict[str, QPushButton] = {}
+        for key, series in _SERIES.items():
+            button = QPushButton(series.name, self._legend)
+            button.setProperty("uiRole", "chartLegend")
+            button.setAccessibleName(f"Show {series.name} on chart")
+            button.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+            button.setCheckable(True)
+            button.setChecked(True)
+            button.setIconSize(QSize(20, 8))
+            button.hide()
+            button.toggled.connect(lambda _checked, key=key: self._update_legend_swatch(key))
+            self._buttons[key] = button
+        self.refresh_theme()
 
     def set_online_mode(self) -> None:
         self._display_full_history = False
         self._latest_sample = None
         self._prune(time.time())
-        self.update()
+        self._refresh_legend()
 
     def set_offline_mode(self) -> None:
         self._display_full_history = True
         self._latest_sample = None
-        self.update()
+        self._refresh_legend()
 
-    def add_sample(
-        self,
-        fan_percent: Optional[float],
-        temp4_c: Optional[float],
-        temp3_c: Optional[float],
-        timestamp: Optional[float] = None,
-    ) -> None:
+    def add_sample(self, snapshot: MetricsSnapshot, timestamp: float | None = None) -> None:
         now = time.time() if timestamp is None else timestamp
-        point = MetricsChartPoint(
-            timestamp=now,
-            fan_percent=self._percent_or_none(fan_percent),
-            temp4_c=self._finite_or_none(temp4_c),
-            temp3_c=self._finite_or_none(temp3_c),
-        )
-        self._points.append(point)
+        values = {
+            **{f"temp{index}_c": value for index, value in enumerate(snapshot.temperatures, 1)},
+            **{f"fan{index}_rpm": value for index, value in enumerate(snapshot.fan_speeds, 1)},
+            "fan_percent": snapshot.fan_percent,
+        }
+        point = self._append_point(now, values)
         if not self._display_full_history:
             self._latest_sample = point
-        self._prune(now)
-        self.update()
+            self._prune(now)
+        self._refresh_legend()
 
-    def set_points(self, points: Iterable[dict[str, float | None]], display_full_history: bool = False) -> None:
+    def _append_point(self, timestamp: float, values: dict) -> MetricsChartPoint:
+        readings: dict[str, float] = {}
+        for key in _SERIES:
+            value = values.get(key)
+            if not isinstance(value, (float, int)) or not math.isfinite(value):
+                continue
+            if key == "fan_percent":
+                value = min(100.0, max(0.0, value))
+            readings[key] = value
+            if value != 0:
+                self._last_nonzero[key] = timestamp
+        point = MetricsChartPoint(timestamp, readings)
+        self._points.append(point)
+        return point
+
+    def set_points(self, points: Iterable[dict], display_full_history: bool = False) -> None:
         self._points.clear()
+        self._last_nonzero.clear()
         self._latest_sample = None
+        samples = []
         for item in points:
             try:
-                raw_timestamp = item["timestamp"]
-                if raw_timestamp is None:
-                    continue
-                timestamp = float(raw_timestamp)
+                timestamp = float(item["timestamp"])
             except (KeyError, TypeError, ValueError):
                 continue
-            self._points.append(
-                MetricsChartPoint(
-                    timestamp=timestamp,
-                    fan_percent=self._percent_or_none(item.get("fan_percent")),
-                    temp4_c=self._finite_or_none(item.get("temp4_c")),
-                    temp3_c=self._finite_or_none(item.get("temp3_c")),
-                )
-            )
-        self._points = deque(sorted(self._points, key=lambda point: point.timestamp))
+            if math.isfinite(timestamp):
+                samples.append((timestamp, item))
+        for timestamp, item in sorted(samples, key=lambda sample: sample[0]):
+            self._append_point(timestamp, item)
         self._display_full_history = display_full_history
         if not self._display_full_history:
             self._prune(time.time())
-        self.update()
+        self._refresh_legend()
 
-    def export_points(self) -> list[dict[str, float | None]]:
-        self._prune(time.time())
+    def export_points(self) -> list[dict[str, float]]:
+        min_ts = time.time() - self.WINDOW_SECONDS
         return [
-            {
-                "timestamp": point.timestamp,
-                "fan_percent": point.fan_percent,
-                "temp4_c": point.temp4_c,
-                "temp3_c": point.temp3_c,
-            }
+            {"timestamp": point.timestamp, **point.values}
             for point in self._points
+            if point.timestamp >= min_ts
         ]
 
     def clear(self) -> None:
         self._points.clear()
+        self._last_nonzero.clear()
         self._latest_sample = None
-        self.update()
+        self._refresh_legend()
 
     def _prune(self, now: float) -> None:
         min_ts = now - self.WINDOW_SECONDS
         while self._points and self._points[0].timestamp < min_ts:
             self._points.popleft()
+        self._last_nonzero = {
+            key: timestamp for key, timestamp in self._last_nonzero.items() if timestamp >= min_ts
+        }
 
-    @staticmethod
-    def _finite_or_none(value: Optional[float]) -> Optional[float]:
-        if value is None or not math.isfinite(value):
-            return None
-        return value
+    def _refresh_legend(self) -> None:
+        active_keys = tuple(key for key in _SERIES if key in self._last_nonzero)
+        if active_keys != self._active_keys:
+            for key in self._active_keys:
+                button = self._buttons[key]
+                self._legend_layout.removeWidget(button)
+                if key not in active_keys:
+                    button.hide()
+            for key in active_keys:
+                button = self._buttons[key]
+                self._legend_layout.addWidget(button, 1)
+                button.show()
+            self._active_keys = active_keys
+            self._legend.setVisible(bool(active_keys))
 
-    @classmethod
-    def _percent_or_none(cls, value: Optional[float]) -> Optional[float]:
-        value = cls._finite_or_none(value)
-        if value is None:
-            return None
-        return min(100.0, max(0.0, value))
+        self._refresh_legend_captions()
+        self.update()
+
+    def _refresh_legend_captions(self) -> None:
+        if not self._active_keys:
+            return
+        count = len(self._active_keys)
+        cell_width = (self.contentsRect().width() - (count - 1) * self._legend_layout.spacing()) // count
+        for key in self._active_keys:
+            series = _SERIES[key]
+            button = self._buttons[key]
+            caption = series.name
+            if not self._display_full_history:
+                value = self._latest_sample.values.get(key) if self._latest_sample else None
+                reading = f"{value:.{_DISPLAY_PRECISION[series.unit]}f} {series.unit}" if value else "—"
+                caption = f"{caption}  {reading}"
+            text_width = max(0, cell_width - button.iconSize().width() - 20)
+            metrics = button.fontMetrics()
+            short_caption = caption if metrics.horizontalAdvance(caption) <= text_width else series.name
+            button.setText(metrics.elidedText(short_caption, Qt.TextElideMode.ElideRight, text_width))
+            button.setToolTip(caption)
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        super().resizeEvent(event)
+        self._refresh_legend_captions()
+
+    def refresh_theme(self) -> None:
+        for key in self._buttons:
+            self._update_legend_swatch(key)
+        self._refresh_legend_captions()
+
+    def _update_legend_swatch(self, key: str) -> None:
+        button = self._buttons[key]
+        swatch = QPixmap(button.iconSize())
+        swatch.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(swatch)
+        painter.setPen(_SERIES[key].pen(None if button.isChecked() else "border_accessible"))
+        painter.drawLine(1, 4, 19, 4)
+        painter.end()
+        button.setIcon(QIcon(swatch))
+        self.update()
 
     def paintEvent(self, _event: QPaintEvent) -> None:
         painter = QPainter(self)
@@ -139,93 +227,48 @@ class MetricsHistoryChart(QWidget):
         painter.fillRect(self.rect(), theme_color("canvas_background"))
 
         metrics = QFontMetrics(painter.font())
-        axis_margin = max(48, metrics.horizontalAdvance("0000") + 16)
-        legend = self._legend_captions()
-        available_width = self.width() - 2 * axis_margin
-        preferred_column_width = metrics.horizontalAdvance("Fan output  100.0%") + 42
-        columns = min(len(legend), max(1, available_width // preferred_column_width))
-        column_width = min(available_width / columns, preferred_column_width)
-        legend_rows = (len(legend) + columns - 1) // columns
-        top = (legend_rows + 1) * metrics.height() + 8
-        rect = QRectF(self.rect()).adjusted(axis_margin, top, -axis_margin, -metrics.height() - 16)
+        axis_margin = max(48, metrics.horizontalAdvance("-00.00") + 16)
+        visible_keys = [key for key in self._active_keys if self._buttons[key].isChecked()]
+        units = {_SERIES[key].unit for key in visible_keys}
+        rpm_offset = axis_margin if {"%", "RPM"} <= units else 0
+        legend_height = self._legend.geometry().bottom() + 1 if self._active_keys else 0
+        top = legend_height + metrics.height() + 10
+        rect = QRectF(self.rect()).adjusted(axis_margin + rpm_offset, top,
+                                            -axis_margin, -metrics.height() - 16)
         if rect.width() <= 10 or rect.height() <= 10:
             return
 
-        self._draw_legend(painter, rect, legend, columns, legend_rows, column_width)
         self._draw_frame(painter, rect)
-        if not self._points:
+        if not self._active_keys:
             self._draw_empty_state(painter, rect)
             return
 
         start_ts, end_ts = self._time_bounds()
+        ranges = {}
+        for unit in ("%", "RPM", "°C"):
+            if unit not in units:
+                continue
+            if unit == "%":
+                bounds = (0.0, 100.0)
+            else:
+                keys = [key for key in visible_keys if _SERIES[key].unit == unit]
+                values = [point.values[key] for point in self._points for key in keys if point.values.get(key)]
+                if unit == "RPM":
+                    bounds = (min(0.0, min(values) * 1.12), max(1.0, max(values) * 1.12))
+                else:
+                    bounds = self._range_for(values)
+            ranges[unit] = bounds
+            self._draw_y_axis(painter, rect, *bounds, left=unit != "°C", label=unit,
+                              offset=rpm_offset if unit == "RPM" else 0)
 
-        percent_min, percent_max = 0.0, 100.0
-        temp_values = [
-            value
-            for p in self._points
-            for value in (p.temp4_c, p.temp3_c)
-            if value is not None
-        ]
-        temp_min, temp_max = self._range_for(temp_values, floor_zero=False)
-
-        self._draw_y_axis(painter, rect, percent_min, percent_max, left=True, label="%")
-        self._draw_y_axis(painter, rect, temp_min, temp_max, left=False, label="deg C")
         self._draw_time_axis(painter, rect, start_ts, end_ts)
-
-        self._draw_series(
-            painter,
-            rect,
-            start_ts,
-            end_ts,
-            value_getter=lambda p: p.fan_percent,
-            value_min=percent_min,
-            value_max=percent_max,
-            appearance=_SERIES_APPEARANCE[0],
-        )
-        self._draw_series(
-            painter,
-            rect,
-            start_ts,
-            end_ts,
-            value_getter=lambda p: p.temp4_c,
-            value_min=temp_min,
-            value_max=temp_max,
-            appearance=_SERIES_APPEARANCE[1],
-        )
-        self._draw_series(
-            painter,
-            rect,
-            start_ts,
-            end_ts,
-            value_getter=lambda p: p.temp3_c,
-            value_min=temp_min,
-            value_max=temp_max,
-            appearance=_SERIES_APPEARANCE[2],
-        )
-
-    def _legend_captions(self) -> tuple[str, ...]:
-        names = tuple(name for name, _, _ in _SERIES_APPEARANCE)
-        if self._display_full_history:
-            return names
-        latest = self._latest_sample
-        fan = latest.fan_percent if latest else None
-        temp4 = latest.temp4_c if latest else None
-        temp3 = latest.temp3_c if latest else None
-        readings = (
-            f"{fan:.1f}%" if fan is not None else "—",
-            f"{temp4:.2f} °C" if temp4 is not None else "—",
-            f"{temp3:.2f} °C" if temp3 is not None else "—",
-        )
-        return tuple(f"{name}  {reading}" for name, reading in zip(names, readings))
+        for key in visible_keys:
+            self._draw_series(painter, rect, start_ts, end_ts, key, *ranges[_SERIES[key].unit])
 
     @staticmethod
-    def _range_for(values: list[float], floor_zero: bool) -> tuple[float, float]:
-        if not values:
-            return 0.0, 1.0
+    def _range_for(values: list[float]) -> tuple[float, float]:
         min_value = min(values)
         max_value = max(values)
-        if floor_zero:
-            min_value = min(0.0, min_value)
         if math.isclose(min_value, max_value):
             padding = max(abs(max_value) * 0.1, 1.0)
         else:
@@ -239,7 +282,7 @@ class MetricsHistoryChart(QWidget):
 
     @staticmethod
     def _map_y(rect: QRectF, value: float, value_min: float, value_max: float) -> float:
-        span = max(value_max - value_min, 1.0)
+        span = value_max - value_min
         return rect.bottom() - ((value - value_min) / span) * rect.height()
 
     @staticmethod
@@ -277,18 +320,20 @@ class MetricsHistoryChart(QWidget):
         value_max: float,
         left: bool,
         label: str,
+        offset: float = 0,
     ) -> None:
         painter.setPen(theme_color("text_secondary"))
         metrics = QFontMetrics(painter.font())
-        x_label = rect.left() - 46 if left else rect.right() + 8
-        painter.drawText(QPointF(x_label, rect.top() - 4), label)
+        x_label = rect.left() - offset - metrics.horizontalAdvance(label) - 8 if left else rect.right() + 8
+        painter.drawText(QPointF(x_label, rect.top() - metrics.height()), label)
+        decimals = 2 if label == "°C" and value_max - value_min < 4 else 0
         for idx in range(5):
             ratio = idx / 4
             value = value_max - ((value_max - value_min) * ratio)
-            text = f"{value:.0f}"
+            text = f"{value:.{decimals}f}"
             y = rect.top() + rect.height() * ratio + metrics.ascent() / 2 - 2
             if left:
-                x = rect.left() - metrics.horizontalAdvance(text) - 8
+                x = rect.left() - offset - metrics.horizontalAdvance(text) - 8
             else:
                 x = rect.right() + 8
             painter.drawText(QPointF(x, y), text)
@@ -311,49 +356,29 @@ class MetricsHistoryChart(QWidget):
         rect: QRectF,
         start_ts: float,
         end_ts: float,
-        value_getter: Callable[[MetricsChartPoint], float | None],
+        key: str,
         value_min: float,
         value_max: float,
-        appearance: tuple[str, str, Qt.PenStyle],
     ) -> None:
-        _, alias, style = appearance
-        painter.setPen(QPen(theme_color(alias), 2, style))
-        current_segment: list[QPointF] = []
-        previous_timestamp: Optional[float] = None
+        painter.setPen(_SERIES[key].pen())
+        segment: list[QPointF] = []
+        previous_timestamp = None
         for point in self._points:
-            value = value_getter(point)
-            if value is None:
-                if len(current_segment) > 1:
-                    painter.drawPolyline(current_segment)
-                current_segment = []
-                previous_timestamp = None
-                continue
-            if previous_timestamp is not None and point.timestamp - previous_timestamp > self.SERIES_GAP_SECONDS:
-                if len(current_segment) > 1:
-                    painter.drawPolyline(current_segment)
-                elif len(current_segment) == 1:
-                    painter.drawPoint(current_segment[0])
-                current_segment = []
-            x = self._map_x(rect, point.timestamp, start_ts, end_ts)
-            y = self._map_y(rect, value, value_min, value_max)
-            current_segment.append(QPointF(x, y))
+            value = point.values.get(key)
+            gap = previous_timestamp is not None and point.timestamp - previous_timestamp > self.SERIES_GAP_SECONDS
+            if not value or gap:
+                self._draw_segment(painter, segment)
+                segment.clear()
+            if value:
+                x = self._map_x(rect, point.timestamp, start_ts, end_ts)
+                y = self._map_y(rect, value, value_min, value_max)
+                segment.append(QPointF(x, y))
             previous_timestamp = point.timestamp
-        if len(current_segment) > 1:
-            painter.drawPolyline(current_segment)
-        elif len(current_segment) == 1:
-            painter.drawPoint(current_segment[0])
+        self._draw_segment(painter, segment)
 
     @staticmethod
-    def _draw_legend(
-        painter: QPainter, rect: QRectF, captions: tuple[str, ...], columns: int, rows: int, column_width: float
-    ) -> None:
-        metrics = QFontMetrics(painter.font())
-        for index, (label, (_, alias, style)) in enumerate(zip(captions, _SERIES_APPEARANCE)):
-            row, column = divmod(index, columns)
-            x = rect.left() + column * column_width
-            y = rect.top() - (rows - row) * metrics.height() - 6
-            painter.setPen(QPen(theme_color(alias), 2, style))
-            painter.drawLine(QPointF(x, y), QPointF(x + 18, y))
-            painter.setPen(theme_color("text_primary"))
-            text = metrics.elidedText(label, Qt.TextElideMode.ElideRight, max(0, int(column_width) - 30))
-            painter.drawText(QPointF(x + 24, y + metrics.ascent() / 2 - 2), text)
+    def _draw_segment(painter: QPainter, segment: list[QPointF]) -> None:
+        if len(segment) > 1:
+            painter.drawPolyline(segment)
+        elif segment:
+            painter.drawPoint(segment[0])

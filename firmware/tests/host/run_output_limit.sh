@@ -25,11 +25,11 @@ printf '%s\n' '#include <stdio.h>' '#define ESP_LOGW(tag, ...) do { (void)(tag);
     '#define ESP_LOGE ESP_LOGW' \
     > "$work/esp_log.h"
 
-"${CC:-cc}" -std=gnu17 -Wall -Wextra -Wno-unused-parameter -Werror \
-    -I"$work" -I"$src/ble_protocol/control" -I"$src/ble_protocol/hw" -I"$src/ble_protocol/pairing" -I"$src/metrics" \
-    "$src/ble_protocol/control/output_limit.c" "$test_dir/test_output_limit.c" \
-    -lm -o "$work/test_output_limit"
-"$work/test_output_limit"
+"${CC:-cc}" -std=gnu17 -Wall -Wextra -Werror \
+    -I"$work" -I"$src/ble_protocol/control" -I"$src/ble_protocol/ble" -I"$src/ble_protocol/pairing" -I"$src/metrics" \
+    "$src/ble_protocol/control/thermal_protection.c" "$src/ble_protocol/control/device_status.c" \
+    "$test_dir/test_thermal_protection.c" -lm -o "$work/test_thermal_protection"
+"$work/test_thermal_protection"
 
 cat > "$work/freertos/semphr.h" <<'EOF'
 typedef int StaticSemaphore_t;
@@ -60,6 +60,12 @@ EOF
     "$src/ble_protocol/control/params.c" "$src/ble_protocol/control/output_limit.c" \
     "$test_dir/test_profile_limit.c" -lm -o "$work/test_profile_limit"
 "$work/test_profile_limit"
+
+"${CC:-cc}" -std=gnu17 -Wall -Wextra -Wno-unused-parameter -Werror \
+    -I"$work" -I"$src/ble_protocol/control" -I"$src/ble_protocol/hw" -I"$src/ble_protocol/pairing" -I"$src/metrics" \
+    "$src/ble_protocol/control/output_limit.c" "$test_dir/test_output_limit.c" \
+    -lm -o "$work/test_output_limit"
+"$work/test_output_limit"
 
 cat >> "$work/freertos/FreeRTOS.h" <<'EOF'
 typedef unsigned TickType_t;

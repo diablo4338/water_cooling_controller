@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import time
@@ -51,16 +52,9 @@ def _filter_metric_points(
             timestamp = float(item["timestamp"])
         except (KeyError, TypeError, ValueError):
             continue
-        if timestamp < min_ts or timestamp > current + 60:
+        if not math.isfinite(timestamp) or timestamp < min_ts or timestamp > current + 60:
             continue
-        filtered.append(
-            {
-                "timestamp": timestamp,
-                "fan_percent": item.get("fan_percent"),
-                "temp4_c": item.get("temp4_c"),
-                "temp3_c": item.get("temp3_c"),
-            }
-        )
+        filtered.append(dict(item, timestamp=timestamp))
     filtered.sort(key=lambda point: point["timestamp"])
     return filtered
 
@@ -100,14 +94,8 @@ def load_metrics_history_all(address: str) -> list[dict]:
             timestamp = float(item["timestamp"])
         except (KeyError, TypeError, ValueError):
             continue
-        points.append(
-            {
-                "timestamp": timestamp,
-                "fan_percent": item.get("fan_percent"),
-                "temp4_c": item.get("temp4_c"),
-                "temp3_c": item.get("temp3_c"),
-            }
-        )
+        if math.isfinite(timestamp):
+            points.append(dict(item, timestamp=timestamp))
     points.sort(key=lambda point: point["timestamp"])
     return points
 

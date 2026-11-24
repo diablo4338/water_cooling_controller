@@ -10,7 +10,6 @@
 | Pairing window | One | `pair_mode_dispatch()` |
 | Pairing exchange | One | `pair_state_dispatch()` |
 | Temperature demand | One | `temp_demand_dispatch()` |
-| Overheat | One | `thermal_dispatch()` |
 | Output limit | One, across modes and service operations | `output_limit_dispatch()` |
 | Operation lifecycle | One | `operation_dispatch_locked()` |
 | Operation preflight | One, shared by both operations | `preflight_dispatch()` |
@@ -78,16 +77,9 @@ The regulator sends the request to the output limiter. The fan task publishes th
 
 ## Overheat protection
 
-Initial state `THERMAL_DISABLED`. Each fan-loop observation compares the selected mode and the current ADC/NTC reading before dispatching.
+On each iteration, the fan task reads the committed configuration from RAM. A valid control temperature above 50 °C raises overheat in any mode. In temperature mode, a valid temperature at or above the current configured maximum also raises overheat. The thermal check also reports ADC or NTC faults separately.
 
-| From | Incoming event and guard | To and outgoing effect |
-| --- | --- | --- |
-| Any | `THERMAL_CONTROL_DISABLED` when the selected mode is Always on or Inactive | `THERMAL_DISABLED`. Clears overheat |
-| Any, with temperature control selected | `THERMAL_SENSOR_UNAVAILABLE` on invalid thermal input | `THERMAL_TEMPERATURE_UNAVAILABLE`. Clears overheat and reports the input reason |
-| Any, with valid control temperature | `THERMAL_TRIP` when temperature reaches the configured maximum | `THERMAL_OVERHEAT`. Records the threshold on entry |
-| Any, with valid control temperature | `THERMAL_COOL` when below the current threshold and, while overheating, also below the recorded threshold | `THERMAL_NORMAL`. Clears overheat |
-
-The thermal owner returns the input observation to the fan task and writes its flags to `device_status`. The operation manager uses the overheat flag to reject or end service. LED and buzzer tasks observe the same flag. The button silence request goes to the buzzer and preserves thermal state. [Thermal owner](../firmware/src/ble_protocol/control/thermal_protection.c) · [Operation manager](../firmware/src/ble_protocol/control/operation_manager.c)
+The thermal check returns the input observation to the fan task and writes its flags to `device_status`. The operation manager uses the overheat flag to reject or end service. LED and buzzer tasks observe the same flag. The button can silence the buzzer for the current overheat. [Thermal check](../firmware/src/ble_protocol/control/thermal_protection.c) · [Operation manager](../firmware/src/ble_protocol/control/operation_manager.c)
 
 ## Output limit and reset
 

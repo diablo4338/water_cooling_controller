@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from PySide6.QtGui import QCloseEvent
-from PySide6.QtWidgets import QCheckBox, QFrame, QLineEdit
+from PySide6.QtWidgets import QCheckBox, QFrame, QLabel
 
 from ..core import DeviceParams
 from ..ui.parameter_controls import ParameterField
@@ -15,18 +15,18 @@ if TYPE_CHECKING:
 
 class MainWindowSetupMixin:
     def _init_view_state(self: MainWindow) -> None:
-        self.temp_fields: list[QLineEdit] = []
+        self.temp_fields: list[QLabel] = []
         self.temp_indicators: list[QFrame] = []
         self.temp_values: list[float | None] = [None] * 4
         self._temp_is_nc: list[bool | None] = [None] * 4
-        self.fan_fields: list[QLineEdit] = []
-        self.fan_percent_field: QLineEdit | None = None
+        self.fan_fields: list[QLabel] = []
+        self.fan_percent_field: QLabel | None = None
         self._fan_is_nc: list[bool | None] = [None] * 4
         self.fan_status_indicators: list[QFrame] = []
         self.fan_monitor_checkboxes: list[QCheckBox] = []
-        self.voltage_field: QLineEdit | None = None
-        self.current_field: QLineEdit | None = None
-        self.device_status_field: QLineEdit | None = None
+        self.voltage_field: QLabel | None = None
+        self.current_field: QLabel | None = None
+        self.device_status_field: QLabel | None = None
         self.device_status_indicator: QFrame | None = None
         self.param_fields: list[ParameterField] = []
         self._params_update_lock = False

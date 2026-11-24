@@ -37,7 +37,7 @@ class BleWorker(BleWorkerRuntimeMixin, BleWorkerFlowMixin, QThread):
     profile_action_done = Signal(int, int, bool, str)
     profile_metadata_done = Signal(int, object, bool, str)
     fan_status_received = Signal(object)
-    device_status_received = Signal(object)
+    device_status_received = Signal(object, object)
     operation_status_received = Signal(object, object)
     operation_start_failed = Signal(int, str)
     output_limit_received = Signal(object, object)

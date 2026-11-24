@@ -13,6 +13,7 @@ from pcwcc.core import (
     BleAppCore,
     DeviceInfo,
     DeviceParams,
+    DeviceStatus,
     MetricsSnapshot,
     ParamsStatus,
     PROFILE_ACTION_APPLY,
@@ -43,7 +44,13 @@ from pcwcc.core_logic.models import (
     ProfileApplyResult,
     ProfileSkipReason,
 )
-from pcwcc.core_logic.protocol import PARAM_FIELD_FAN_MIN_SPEED, PARAM_STATUS_INVALID
+from pcwcc.core_logic.protocol import (
+    DEVICE_ERROR_OVERHEAT,
+    DEVICE_STATE_ERROR,
+    DEVICE_STATE_OK,
+    PARAM_FIELD_FAN_MIN_SPEED,
+    PARAM_STATUS_INVALID,
+)
 from pcwcc.gui_logic import window_updates as window_updates_module
 from pcwcc.presentation import Action, AppModel, ConnEvent, ConnEventKind, ConnState, SelectionSource
 
@@ -723,6 +730,37 @@ async def test_connect_reads_runtime_status_once_and_keeps_newer_notification(mo
         worker.core.start_fan_mode_status_notify.assert_awaited_once()
     finally:
         await worker.disconnect_device()
+
+
+@pytest.mark.asyncio
+async def test_device_status_uses_initial_read_and_session_notifications(monkeypatch: pytest.MonkeyPatch) -> None:
+    worker, _ = _worker_with_ble_stub(monkeypatch)
+    device = DeviceInfo(name="Fan", address="AA:BB")
+    connection_id = object()
+    overheat = DeviceStatus(
+        DEVICE_STATE_ERROR, "ERROR", DEVICE_ERROR_OVERHEAT, (DEVICE_ERROR_OVERHEAT,), ("Overheat",)
+    )
+    normal = DeviceStatus(DEVICE_STATE_OK, "OK", 0, (), ())
+    received = []
+
+    async def read_status(*, timeout):
+        worker.core.start_device_status_notify.assert_awaited_once()
+        return overheat
+
+    worker.core.read_device_status.side_effect = read_status
+    worker.device_status_received.connect(lambda *update: received.append(update))
+    assert await worker.connect_device(device, connection_id)
+    notify = worker.core.start_device_status_notify.await_args.args[0]
+    try:
+        assert received == [(overheat, connection_id)]
+        notify(normal)
+        assert received == [(overheat, connection_id), (normal, connection_id)]
+        worker.core.read_device_status.assert_awaited_once()
+    finally:
+        await worker.disconnect_device(connection_id)
+
+    notify(overheat)
+    assert received == [(overheat, connection_id), (normal, connection_id)]
 
 
 @pytest.mark.asyncio

@@ -12,7 +12,6 @@ from PySide6.QtCore import SignalInstance
 from ..core import (
     DeviceInfo,
     DeviceParams,
-    DeviceStatus,
     FanStatus,
     MetricsSnapshot,
     OP_STATE_IN_SERVICE,
@@ -124,9 +123,13 @@ class BleWorkerFlowMixin:
     ) -> None:
         notification_count = 0
 
+        def is_current() -> bool:
+            return (self._connection_id is connection_id and self._disconnect_evt is not None
+                    and not self._disconnect_evt.is_set())
+
         def on_notify(update: _Status) -> None:
             nonlocal notification_count
-            if self._connection_id is connection_id:
+            if is_current():
                 notification_count += 1
                 signal.emit(update, connection_id)
 
@@ -141,7 +144,7 @@ class BleWorkerFlowMixin:
         except Exception as exc:
             self.log.emit(self._conn_message(f"Initial {name} read failed: {exc}"))
         else:
-            if status is not None and before_read == notification_count and self._connection_id is connection_id:
+            if status is not None and before_read == notification_count and is_current():
                 signal.emit(status, connection_id)
 
     async def connect_device(self: BleWorker, device: DeviceInfo, connection_id: object) -> bool:
@@ -181,13 +184,6 @@ class BleWorkerFlowMixin:
                     self.log.emit(self._conn_message("Initial FAN status read ok."))
                 except Exception as exc:
                     self.log.emit(self._conn_message(f"Initial FAN status read failed: {exc}"))
-                self.log.emit(self._conn_message("AUTH ok, reading initial DEVICE status..."))
-                try:
-                    status = await self.core.read_device_status(timeout=self.config.metrics_timeout_s)
-                    self.device_status_received.emit(status)
-                    self.log.emit(self._conn_message("Initial DEVICE status read ok."))
-                except Exception as exc:
-                    self.log.emit(self._conn_message(f"Initial DEVICE status read failed: {exc}"))
                 self.log.emit(self._conn_message("AUTH ok, reading initial OP status..."))
                 try:
                     status = await self.core.read_operation_status(timeout=self.config.metrics_timeout_s)
@@ -224,15 +220,10 @@ class BleWorkerFlowMixin:
                     self.log.emit(self._conn_message("Notify FAN status started."))
                 except Exception as exc:
                     self.log.emit(self._conn_message(f"FAN status notify unavailable: {exc}"))
-                try:
-                    await self._with_timeout(
-                        self.core.start_device_status_notify(self._on_device_status),
-                        "start_device_status_notify",
-                        timeout=3.0,
-                    )
-                    self.log.emit(self._conn_message("Notify DEVICE status started."))
-                except Exception as exc:
-                    self.log.emit(self._conn_message(f"DEVICE status notify unavailable: {exc}"))
+                await self._subscribe_runtime_status(
+                    "device status", self.core.start_device_status_notify, self.core.read_device_status,
+                    self.device_status_received, connection_id,
+                )
                 try:
                     await self._with_timeout(
                         self.core.start_operation_status_notify(
@@ -500,9 +491,6 @@ class BleWorkerFlowMixin:
 
     def _on_fan_status(self: BleWorker, status: FanStatus) -> None:
         self.fan_status_received.emit(status)
-
-    def _on_device_status(self: BleWorker, status: DeviceStatus) -> None:
-        self.device_status_received.emit(status)
 
     def _on_operation_status(self: BleWorker, status: OperationStatus, connection_id: object) -> None:
         self.operation_status_received.emit(status, connection_id)

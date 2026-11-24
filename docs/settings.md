@@ -22,7 +22,7 @@ C names ending in `_US` take integer microseconds, `_MS` takes milliseconds, and
 | **Control type** | `fan_control_type` | DC | `0 = DC`, `1 = PWM` |
 | **Mode** | `fan_mode` | Always on | `0 = Always on`, `1 = By temperature sensor`, `2 = Inactive`. Temperature mode requires an available control thermistor |
 | **Start temperature** | `fan_start_temp` | 35 °C | Integer in °C, strictly greater than the shutdown delta and below the maximum temperature |
-| **Max temperature** | `fan_max_temp` | 45 °C | Integer up to 150 °C, strictly greater than the start temperature. At this threshold, the temperature regulator requests 100% and the overheat state machine raises an alarm. Actual output remains subject to the ceiling |
+| **Max temperature** | `fan_max_temp` | 45 °C | Integer up to 150 °C, strictly greater than the start temperature. At this threshold, the temperature regulator requests 100% and thermal protection sets the overheat flag. Actual output remains subject to the ceiling |
 | **Shutdown delta** | `fan_off_delta` | 2 °C | Integer from 0 to `fan_start_temp − 1`. With a positive delta, the output stops at or below `fan_start_temp − fan_off_delta`. The factory shutdown threshold is 33 °C. With a zero delta, the start condition takes priority at the shared threshold |
 | **Monitor fan 1 faults** | `fan_monitoring_enabled` | Enabled | Fixed at `1`. The firmware always saves monitoring enabled for the first channel |
 | **Monitor fan 2/3/4 faults** | `fan2_monitoring_enabled` through `fan4_monitoring_enabled` | All enabled | Checkboxes encoded as `0` or `1`. Enable stall detection on each channel |
@@ -67,7 +67,8 @@ Current protection consumes the same averaged readings as telemetry. After an ap
 | `METRICS_RAW_NO_SENSOR_THRESHOLD` | 500 ADS counts | A lower reading is treated as a missing sensor |
 | `METRICS_FAIL_THRESHOLD`, `ADC_RECOVERY_BATCHES` | 3, 3 | Number of channel errors and number of successful cycles required for ADC recovery |
 | `METRICS_TEMP_CHANNELS`, `METRICS_CONTROL_TEMP_CHANNEL`, `g_ads_input_by_temp_channel[]` | 4, index 3, `{1, 0, 3, 2}` | Number of channels, control channel **Temp4**, and ADS input mapping. Temp4 reads AIN2 |
-| `THERMAL_SAMPLE_MAX_AGE_US` | 3,000,000 µs | Maximum temperature reading age for the regulator and overheat state machine |
+| `THERMAL_EMERGENCY_THRESHOLD_C` | 50 °C | A valid control temperature strictly above this threshold raises overheat in every mode |
+| `THERMAL_SAMPLE_MAX_AGE_US` | 3,000,000 µs | Maximum temperature reading age for the regulator and overheat check |
 | `SHARED_I2C_PORT`, `SHARED_I2C_SDA_GPIO`, `SHARED_I2C_SCL_GPIO` | I²C 0, GPIO 5, GPIO 4 | Shared ADS1115 and INA226 bus |
 | `shared_i2c_bus_init()` | `glitch_ignore_cnt = 7`, internal pull-ups enabled | Short-pulse filtering and bus pull-up configuration |
 

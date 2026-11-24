@@ -5,7 +5,7 @@ import math
 from typing import Optional, TYPE_CHECKING
 
 from PySide6.QtCore import Slot
-from PySide6.QtWidgets import QLineEdit, QListWidgetItem
+from PySide6.QtWidgets import QLabel, QListWidgetItem
 
 from ..core import (
     DEVICE_ERROR_NONE,
@@ -38,7 +38,7 @@ from ..core import (
     save_metrics_history,
     update_paired_last_connected,
 )
-from ..ui.theme import set_visual
+from ..ui.theme import describe, set_visual
 from .constants import PARAM_ERROR_MESSAGES, PARAM_LABELS_BY_ID, USER_ROLE
 
 from ..core_logic.models import FanModeStatus, OutputLimitState, OutputLimitStatus, ProfileApplyResult, ProfileSkipReason
@@ -131,11 +131,7 @@ class MainWindowUpdateMixin:
 
     @staticmethod
     def _snapshot_has_chart_data(snapshot: MetricsSnapshot) -> bool:
-        values = (
-            snapshot.fan_percent,
-            snapshot.temperatures[3],
-            snapshot.temperatures[2],
-        )
+        values = (*snapshot.temperatures, *snapshot.fan_speeds, snapshot.fan_percent)
         return any(value is not None and math.isfinite(value) for value in values)
 
     @Slot(list)
@@ -194,7 +190,7 @@ class MainWindowUpdateMixin:
         text = "NC" if is_nc or value is None else f"{value:.0f}%"
         self.fan_percent_field.setText(text)
 
-    def _apply_power_value(self: MainWindow, field: QLineEdit | None, label: str, value: Optional[float], unit: str, decimals: int, append_data: bool) -> None:
+    def _apply_power_value(self: MainWindow, field: QLabel | None, label: str, value: Optional[float], unit: str, decimals: int, append_data: bool) -> None:
         if field is None:
             return
         is_nc = value is None or not math.isfinite(value)
@@ -220,7 +216,7 @@ class MainWindowUpdateMixin:
                 append_data=self._metric_value_changed(prev_snapshot.fan_speeds[channel], value),
             )
         self._apply_fan_percent_value(snapshot.fan_percent)
-        self.metrics_chart.add_sample(snapshot.fan_percent, snapshot.temperatures[3], snapshot.temperatures[2])
+        self.metrics_chart.add_sample(snapshot)
         limit = self.model.state.output_limit
         ina_unavailable = limit is not None and limit.state == OutputLimitState.SENSOR_ERROR
         self._apply_power_value(
@@ -379,25 +375,28 @@ class MainWindowUpdateMixin:
                 self._set_fan_status_indicator(channel, "info")
         self._apply_ui()
 
-    @Slot(object)
-    def on_device_status(self: MainWindow, status: DeviceStatus) -> None:
-        if self.device_status_field is None:
+    @Slot(object, object)
+    def on_device_status(self: MainWindow, status: DeviceStatus, connection_id: object) -> None:
+        if (self.model.state.connection_id is not connection_id
+                or self.model.state.conn not in (self.ConnState.CONNECTING, self.ConnState.CONNECTED)
+                or self.device_status_field is None):
             return
         self.ina_warning_message.set_message(
             self._ina_warning_text if status.error_mask & DEVICE_ERROR_INA_OFFLINE else ""
         )
         if status.state == DEVICE_STATE_OK:
-            self.device_status_field.setText("OK")
-            self._set_device_status_indicator("success")
+            text, severity = "OK", "success"
         elif status.state == DEVICE_STATE_ERROR:
-            if status.error_mask == DEVICE_ERROR_NONE:
-                self.device_status_field.setText("ERROR")
-            else:
-                self.device_status_field.setText(f"ERROR ({', '.join(status.error_labels)})")
-            self._set_device_status_indicator("danger")
+            text = "ERROR" if status.error_mask == DEVICE_ERROR_NONE else f"ERROR ({', '.join(status.error_labels)})"
+            severity = "danger"
         else:
-            self.device_status_field.setText(status.label)
-            self._set_device_status_indicator("neutral")
+            text, severity = status.label, "neutral"
+        self.device_status_field.setText(text)
+        set_visual(self.device_status_field, "fluentSeverity", severity)
+        self.device_status_field.setVisible(status.state != DEVICE_STATE_OK)
+        self._set_device_status_indicator(severity)
+        if self.device_status_indicator is not None:
+            describe(self.device_status_indicator, text)
         self._apply_ui()
 
     @Slot(int, str)
@@ -509,11 +508,7 @@ class MainWindowUpdateMixin:
             update_paired_last_connected(device.address)
             self._load_metrics_chart_history(device)
             if self._snapshot_has_chart_data(self.metrics_snapshot):
-                self.metrics_chart.add_sample(
-                    self.metrics_snapshot.fan_percent,
-                    self.metrics_snapshot.temperatures[3],
-                    self.metrics_snapshot.temperatures[2],
-                )
+                self.metrics_chart.add_sample(self.metrics_snapshot)
             self._lock_selection_to_connected()
             self._apply_ui()
             self.on_log(f"Connected to {device.name}")
@@ -564,8 +559,11 @@ class MainWindowUpdateMixin:
             self._set_fan_status_indicator(channel, "neutral")
             self._set_fan_status_tooltip(channel, "—")
         if self.device_status_field is not None:
-            self.device_status_field.setText("—")
+            self.device_status_field.clear()
+            self.device_status_field.hide()
             self.ina_warning_message.set_message("")
+        if self.device_status_indicator is not None:
+            describe(self.device_status_indicator, "Unavailable")
         self._set_device_status_indicator("neutral")
         self.metrics_chart.clear()
         self.metrics_chart.set_offline_mode()

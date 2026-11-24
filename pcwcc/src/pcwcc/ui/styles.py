@@ -20,6 +20,12 @@ QWidget[uiRole="settingsContent"] QLineEdit { font-size: 10.5pt; }
 QWidget[uiRole="settingsContent"] QLabel[uiRole="section"] { font-size: 12pt; }
 QWidget[uiRole="settingsContent"] QLabel[uiRole="panelTitle"] { font-size: 15pt; font-weight: 600; }
 QLabel[uiRole="muted"], QLabel[uiRole="feedback"] { color: ${text_secondary}; }
+QWidget[uiRole="monitorReadings"] QLabel { font-size: 10.5pt; }
+QWidget[uiRole="monitorReadings"] QLabel[uiRole="section"] { font-size: 12pt; }
+QLabel[uiRole="metricReading"] { font-weight: 600; min-width: 48px; }
+QFrame[uiRole="monitorDivider"] { border: none; background: ${border_primary}; min-width: 1px; max-width: 1px; }
+QLabel[uiRole="deviceStatus"] { font-size: 10.5pt; }
+QLabel[uiRole="deviceStatus"][fluentSeverity="danger"] { color: ${danger_foreground}; }
 QLabel[uiRole="feedback"][fluentSeverity="success"] { color: ${success_foreground}; }
 QLabel[uiRole="feedback"][fluentSeverity="danger"] { color: ${danger_foreground}; }
 QLabel[uiRole="warning"] {
@@ -69,6 +75,14 @@ QPushButton[fluentRole="activityItem"]:checked {
     background: ${selection_subtle_background}; color: ${text_primary};
     border-left: 3px solid ${brand_foreground}; padding-left: 10px; font-weight: 600;
 }
+QPushButton[uiRole="chartLegend"] {
+    text-align: left; min-height: 0; padding: 2px 6px;
+    border: 1px solid transparent; background: transparent; color: ${border_accessible};
+}
+QPushButton[uiRole="chartLegend"]:checked { color: ${text_primary}; }
+QPushButton[uiRole="chartLegend"]:hover { background: ${surface_background_hover}; }
+QPushButton[uiRole="chartLegend"]:pressed { background: ${surface_background_pressed}; }
+QPushButton[uiRole="chartLegend"]:focus { border-color: ${focus_border}; }
 QComboBox, QAbstractSpinBox { min-height: 28px; }
 QSlider { min-height: 26px; border: 1px solid transparent; border-radius: 4px; }
 QSlider:focus { border-color: ${focus_border}; }
@@ -91,10 +105,6 @@ QListWidget, QTextEdit, QLineEdit {
     background: ${canvas_background}; border: 1px solid ${border_accessible}; border-radius: 6px;
 }
 QLineEdit { padding: 3px 5px; }
-QLineEdit[uiRole="reading"] {
-    background: ${surface_tertiary}; border-color: ${border_subtle};
-    font-weight: 600; padding: 5px 6px;
-}
 QAbstractSpinBox QLineEdit, QComboBox QLineEdit {
     border: none; padding: 0; background: transparent;
 }
